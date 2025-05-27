@@ -1,0 +1,26 @@
+# Aider Configuration
+# Copy this file to .aider.conf.yml in your project root
+# See all options: https://aider.chat/docs/config/options.html
+
+# Model selection (aliases: sonnet, opus, gpt-4o, grok-4-latest, gemini, deepseek)
+model: sonnet
+
+# Git settings
+auto-commits: true
+gitignore: false
+
+# Read conventions file on startup
+read:
+  - CONVENTIONS.md
+
+# Editor behavior
+# auto-lint: true
+# auto-test: false
+
+# UI settings
+# dark-mode: true
+# stream: true
+
+# Advanced
+# map-tokens: 1024
+# cache-prompts: true
