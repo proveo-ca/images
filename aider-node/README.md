@@ -45,3 +45,6 @@ docker run -it --rm \
     -w  /app/ \
 proveo/aider-node:local
 ```
+
+## Conventions
+It is recommended to have a conventions file for `aider` to read, see this [sample](./2025CONVENTIONS.md).
