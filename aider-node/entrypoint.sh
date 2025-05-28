@@ -2,7 +2,7 @@
 set -e
 
 # ── Shared Aider flags ─────────────────────────────────────
-common_flags="--no-gitignore --subtree-only"
+common_flags="--no-gitignore"
 
 launch() {
   local model="$1"        # e.g. gpt-4o-mini

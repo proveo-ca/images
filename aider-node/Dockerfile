@@ -1,6 +1,7 @@
-FROM node:20-alpine AS node-tools
+FROM node:22-slim AS node-tools
 RUN corepack enable
 
+# https://github.com/Aider-AI/aider/blob/main/docker/Dockerfile
 FROM paulgauthier/aider-full AS aider
 
 USER root
