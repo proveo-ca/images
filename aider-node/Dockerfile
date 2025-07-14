@@ -1,5 +1,6 @@
 FROM node:22-slim AS node-tools
 RUN corepack enable
+RUN corepack use pnpm@latest-10
 
 # https://github.com/Aider-AI/aider/blob/main/docker/Dockerfile
 FROM paulgauthier/aider-full AS aider
