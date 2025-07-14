@@ -1,4 +1,5 @@
 FROM node:22-slim AS node-tools
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 RUN corepack use pnpm@latest-10
 
