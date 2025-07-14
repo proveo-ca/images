@@ -22,6 +22,12 @@ docker run -it \
    proveo/aider-node
 ```
 #### From a monorepo
+Navigate to your subfolder, (e.g. apps/api), create an `.aiderignore`:
+```txt
+/*
+!**/api/**
+```
+
 ```bash
 docker run -it \
    -v "$PWD":/app/$(realpath --relative-to="$(git rev-parse --show-toplevel)" "$PWD") \

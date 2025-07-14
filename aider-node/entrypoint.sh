@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
+echo "curl version:       $(curl --version | head -n1)"
+echo "npm version:        $(npm -v)"
+echo "pnpm version:       $(pnpm -v)"
+echo "playwright:         $(playwright --version)"
+
 # ── Shared Aider flags ─────────────────────────────────────
 common_flags="--no-gitignore"
 
