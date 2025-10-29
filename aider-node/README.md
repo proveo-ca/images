@@ -21,6 +21,15 @@ docker run -it --rm --name aider-node \
    -w /app \
    proveo/aider-node
 ```
+
+#### With environment variables
+```bash
+docker run -it --rm --name aider-node \
+   -v "$PWD":/app \
+   -w /app \
+   -e OPENAI_API_KEY="$OPENAI_API_KEY" \
+   proveo/aider-node
+```
 #### From a monorepo
 Navigate to your subfolder, (e.g. apps/api), create an `.aiderignore`:
 ```txt
@@ -35,6 +44,18 @@ docker run -it --rm \
     -v "$(git rev-parse --show-toplevel)/.git:/app/.git" \
     -v "$PWD/.aiderignore:/app/.aiderignore" \
     -w /app \
+    proveo/aider-node
+```
+
+#### From a monorepo with environment variables
+```bash
+docker run -it --rm \
+    --name "$(basename "$(git rev-parse --show-toplevel)")-$(basename "$PWD")" \
+    -v "$PWD:/app/$(git rev-parse --show-prefix | sed 's:/$::')" \
+    -v "$(git rev-parse --show-toplevel)/.git:/app/.git" \
+    -v "$PWD/.aiderignore:/app/.aiderignore" \
+    -w /app \
+    -e OPENAI_API_KEY="$OPENAI_API_KEY" \
     proveo/aider-node
 ```
 > We want to maintain the monorepo's structure for aider's repo-map to work.
