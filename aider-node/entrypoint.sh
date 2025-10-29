@@ -19,11 +19,11 @@ launch() {
 
 # ── Auto-detect via env vars ───────────────────────────────
 if [[ -n "$XAI_API_KEY" ]]; then
-  launch "openrouter/x-ai/grok-4 (xAI via OpenRouter)" "--openai-api-key" "$XAI_API_KEY"
+  launch "xai/grok-4-fast-reasoning" "--openai-api-key" "$XAI_API_KEY"
 elif [[ -n "$DEEPSEEK_API_KEY" ]]; then
   launch "deepseek-coder (DeepSeek)" "--openai-api-key" "$DEEPSEEK_API_KEY"
 elif [[ -n "$ANTHROPIC_API_KEY" ]]; then
-  launch "claude (Anthropic)" "--anthropic-api-key" "$ANTHROPIC_API_KEY"
+  launch "claude-sonnet-4-5-20250929" "--anthropic-api-key" "$ANTHROPIC_API_KEY"
 elif [[ -n "$OPENAI_API_KEY" ]]; then
   launch "chatgpt (OpenAI" "--openai-api-key" "$OPENAI_API_KEY"
 fi
@@ -56,7 +56,7 @@ case "$provider_choice" in
   4)
     read -srp "Enter xAI/OpenRouter API key: " api_key; echo
     export XAI_API_KEY="$api_key"
-    launch "openrouter/x-ai/grok-4" "--openai-api-key" "$api_key"
+    launch "xai/grok-4-fast-reasoning" "--openai-api-key" "$api_key"
     ;;
   *)
     echo "❌  Unrecognized option – aborting."
