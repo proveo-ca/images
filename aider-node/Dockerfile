@@ -16,6 +16,9 @@ COPY --from=node-tools /root/.cache/ms-playwright/ /home/appuser/.cache/ms-playw
 
 RUN chown -R appuser:appuser /usr/local/bin /usr/local/lib/node_modules /home/appuser/.cache/ms-playwright/
 
+# Install xclip for clipboard support
+RUN apt-get update && apt-get install -y xclip && rm -rf /var/lib/apt/lists/*
+
 ENV PATH="/usr/local/bin:${PATH}"
 
 COPY entrypoint.sh /entrypoint.sh
