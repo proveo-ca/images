@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
+echo "curl version:       $(curl --version | head -n1)"
+echo "npm version:        $(npm -v)"
+echo "pnpm version:       $(pnpm -v)"
+echo "playwright:         $(playwright --version)"
+
 # ── Shared Aider flags ─────────────────────────────────────
 common_flags="--no-gitignore"
 
@@ -14,33 +19,36 @@ launch() {
 
 # ── Auto-detect via env vars ───────────────────────────────
 if [[ -n "$DEEPSEEK_API_KEY" ]]; then
-  launch "deepseek-coder:6.7b" "--openai-api-key" "$DEEPSEEK_API_KEY"
+  launch "deepseek-coder (DeepSeek)" "--openai-api-key" "$DEEPSEEK_API_KEY"
 elif [[ -n "$ANTHROPIC_API_KEY" ]]; then
-  launch "sonnet" "--anthropic-api-key" "$ANTHROPIC_API_KEY"
+  launch "claude (Anthropic)" "--anthropic-api-key" "$ANTHROPIC_API_KEY"
 elif [[ -n "$OPENAI_API_KEY" ]]; then
-  launch "gpt-4o-mini" "--openai-api-key" "$OPENAI_API_KEY"
+  launch "chatgpt (OpenAI" "--openai-api-key" "$OPENAI_API_KEY"
 fi
 
 # ── Manual fallback if no keys are set ─────────────────────
 echo ""
 echo "Choose LLM provider:"
-echo "  1) OpenAI (gpt-4o-mini)"
-echo "  2) Anthropic (sonnet)"
-echo "  3) Deepseek (deepseek-coder:6.7b)"
+echo "  1) chatgpt (OpenAI)"
+echo "  2) claude (Anthropic)"
+echo "  3) deepseek-coder (DeepSeek)"
 read -rp "Selection? " provider_choice
 
 case "$provider_choice" in
   1)
     read -srp "Enter OpenAI API key: " api_key; echo
-    launch "gpt-4o-mini" "--openai-api-key" "$api_key"
+    export OPENAI_API_KEY="$api_key"
+    launch "chatgpt (OpenAI)" "--openai-api-key" "$api_key"
     ;;
   2)
     read -srp "Enter Anthropic API key: " api_key; echo
+    export ANTHROPIC_API_KEY="$api_key"
     launch "sonnet" "--anthropic-api-key" "$api_key"
     ;;
   3)
     read -srp "Enter Deepseek API key: " api_key; echo
-    launch "deepseek-coder:6.7b" "--openai-api-key" "$api_key"
+    export DEEPSEEK_API_KEY="$api_key"
+    launch "deepseek-coder" "--openai-api-key" "$api_key"
     ;;
   *)
     echo "❌  Unrecognized option – aborting."

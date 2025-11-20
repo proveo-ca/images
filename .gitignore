@@ -1,6 +1,7 @@
 # Ignore build outputs
 *.tar
 *.img
+.cache
 
 # Ignore secrets if any
 .env
