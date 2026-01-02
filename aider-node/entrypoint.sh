@@ -6,6 +6,13 @@ if [[ -d /app ]]; then
   cd /app
 fi
 
+# ── Source .env file if present ────────────────────────────
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
+
 echo "curl version:       $(curl --version | head -n1)"
 echo "npm version:        $(npm -v)"
 echo "pnpm version:       $(pnpm -v)"
@@ -50,23 +57,36 @@ has_api_key() {
   [[ -n "$DEEPSEEK_API_KEY" ]] || \
   [[ -n "$ANTHROPIC_API_KEY" ]] || \
   [[ -n "$OPENAI_API_KEY" ]] || \
-  [[ -n "$GOOGLE_API_KEY" ]] || \
+  [[ -n "$GEMINI_API_KEY" ]] || \
   [[ -n "$OPENROUTER_API_KEY" ]]
 }
 
 # ── Launch aider directly if config exists ─────────────────
-if has_aider_config && has_api_key; then
+if has_aider_config; then
   echo "🚀 Launching aider with detected config..."
+  exec aider $common_flags
+fi
+
+# ── Launch aider directly if AIDER_MODEL is set ────────────
+if [[ -n "$AIDER_MODEL" ]]; then
+  echo "🚀 Launching with AIDER_MODEL=$AIDER_MODEL ..."
   exec aider $common_flags
 fi
 
 # ── Launch with specific model and key ─────────────────────
 launch() {
-  local model="$1"        # e.g. openai/gpt-4o
+  local model="$1"        # e.g. openai/gpt-5.2
   local key_flag="$2"     # e.g. --openai-api-key
   local key_val="$3"      # the actual key
-  echo "🚀 Launching $model …"
-  exec aider --model "$model" "$key_flag" "$key_val" $common_flags
+  
+  local cmd=("aider" "--model" "$model" $common_flags)
+  
+  if [[ -n "$key_flag" && -n "$key_val" ]]; then
+    cmd+=("$key_flag" "$key_val")
+  fi
+
+  echo "🚀 Launching ${cmd[*]} …"
+  exec "${cmd[@]}"
 }
 
 get_latest_model_for_provider() {
@@ -88,7 +108,7 @@ get_latest_model_for_provider() {
       echo "$models_output" | grep -E "^- (gpt-5.2-pro)" | head -1 | sed 's/^- //' || echo "chatgpt"
       ;;
     "google")
-      echo "$models_output" | grep -E "^- (gemini/gemini-3\.0-pro|gemini-3\.0-pro)" | head -1 | sed 's/^- //' || echo "gemini"
+      echo "$models_output" | grep -E "^- (gemini/gemini-3-pro-preview)" | head -1 | sed 's/^- //' || echo "gemini"
       ;;
     "openrouter")
       echo "$models_output" | grep -E "^- openrouter/openrouter/(quasar|optimus)" | head -1 | sed 's/^- //' || echo "quasar"
@@ -131,21 +151,21 @@ get_latest_models() {
 }
 
 # ── Auto-detect via env vars (no config file) ──────────────
-if [[ -n "$XAI_API_KEY" ]]; then
+if [[ -n "$GEMINI_API_KEY" ]]; then
+  latest_model=$(get_latest_model_for_provider "google")
+  launch "$latest_model" "" ""
+elif [[ -n "$ANTHROPIC_API_KEY" ]]; then
+  latest_model=$(get_latest_model_for_provider "anthropic")
+  launch "$latest_model" "--anthropic-api-key" "$ANTHROPIC_API_KEY"
+elif [[ -n "$XAI_API_KEY" ]]; then
   latest_model=$(get_latest_model_for_provider "xai")
   launch "$latest_model" "--openai-api-key" "$XAI_API_KEY"
 elif [[ -n "$DEEPSEEK_API_KEY" ]]; then
   latest_model=$(get_latest_model_for_provider "deepseek")
   launch "$latest_model" "--openai-api-key" "$DEEPSEEK_API_KEY"
-elif [[ -n "$ANTHROPIC_API_KEY" ]]; then
-  latest_model=$(get_latest_model_for_provider "anthropic")
-  launch "$latest_model" "--anthropic-api-key" "$ANTHROPIC_API_KEY"
 elif [[ -n "$OPENAI_API_KEY" ]]; then
   latest_model=$(get_latest_model_for_provider "openai")
   launch "$latest_model" "--openai-api-key" "$OPENAI_API_KEY"
-elif [[ -n "$GOOGLE_API_KEY" ]]; then
-  latest_model=$(get_latest_model_for_provider "google")
-  launch "$latest_model" "--openai-api-key" "$GOOGLE_API_KEY"
 elif [[ -n "$OPENROUTER_API_KEY" ]]; then
   latest_model=$(get_latest_model_for_provider "openrouter")
   launch "$latest_model" "--openai-api-key" "$OPENROUTER_API_KEY"
@@ -154,35 +174,35 @@ fi
 # ── Manual fallback if no keys are set ─────────────────────
 echo ""
 echo "Choose LLM provider:"
-echo "  1) Grok (X.AI) - Latest Grok 4"
-echo "  2) ChatGPT (OpenAI) - GPT-5.2"
-echo "  3) Claude (Anthropic) - Opus 4.5"
-echo "  4) DeepSeek - DeepSeek Chat"
-echo "  5) Gemini (Google) - Gemini 3.0 Pro"
+echo "  1) Gemini (Google) - gemini-3-pro-preview"
+echo "  2) ChatGPT (OpenAI) - gpt-5.2"
+echo "  3) Claude (Anthropic) - claude-opus-4-5"
+echo "  4) Grok (X.AI) - xai/grok-4"
+echo "  5) DeepSeek - DeepSeek Chat"
 echo "  6) OpenRouter - Quasar Alpha"
 echo "  7) Other - Show all available models"
 read -rp "Selection? " provider_choice
 
 case "$provider_choice" in
   1)
-    read -srp "Enter Anthropic API key: " api_key; echo
-    export ANTHROPIC_API_KEY="$api_key"
-    launch "sonnet" "--anthropic-api-key" "$api_key"
+    read -srp "Enter Gemini API key: " api_key; echo
+    export GEMINI_API_KEY="$api_key"
+    launch "gemini/gemini-3-pro-preview" "" ""
     ;;
   2)
     read -srp "Enter OpenAI API key: " api_key; echo
     export OPENAI_API_KEY="$api_key"
-    launch "gpt-4o" "--openai-api-key" "$api_key"
+    launch "gpt-5.2" "--openai-api-key" "$api_key"
     ;;
   3)
-    read -srp "Enter xAI API key: " api_key; echo
-    export XAI_API_KEY="$api_key"
-    launch "grok-4-latest" "--openai-api-key" "$api_key"
+    read -srp "Enter Anthropic API key: " api_key; echo
+    export ANTHROPIC_API_KEY="$api_key"
+    launch "claude-opus-4-5" "--anthropic-api-key" "$api_key"
     ;;
   4)
-    read -srp "Enter Google API key: " api_key; echo
-    export GOOGLE_API_KEY="$api_key"
-    launch "gemini" "--openai-api-key" "$api_key"
+    read -srp "Enter xAI API key: " api_key; echo
+    export XAI_API_KEY="$api_key"
+    launch "xai/grok-4" "--openai-api-key" "$api_key"
     ;;
   5)
     read -srp "Enter DeepSeek API key: " api_key; echo
@@ -198,8 +218,8 @@ case "$provider_choice" in
     get_latest_models
     echo ""
     echo "Model aliases (shortcuts):"
-    echo "  • sonnet    - Claude Sonnet"
-    echo "  • gpt-4o    - OpenAI GPT-4o"
+    echo "  • opus    - Claude Opus"
+    echo "  • gpt-5.2    - OpenAI GPT-5.2"
     echo "  • grok-4-latest - xAI Grok 4"
     echo "  • gemini    - Google Gemini"
     echo "  • deepseek  - DeepSeek"
@@ -219,7 +239,8 @@ case "$provider_choice" in
        launch "$model_choice" "--openai-api-key" "$api_key"
      elif [[ "$model_choice" =~ ^(gemini|flash) ]]; then
        read -srp "Enter Google API key: " api_key; echo
-       launch "$model_choice" "--openai-api-key" "$api_key"
+       export GEMINI_API_KEY="$api_key"
+       launch "$model_choice" "" ""
      elif [[ "$model_choice" =~ ^(quasar|optimus|openrouter/) ]]; then
        read -srp "Enter OpenRouter API key: " api_key; echo
        launch "$model_choice" "--openai-api-key" "$api_key"
