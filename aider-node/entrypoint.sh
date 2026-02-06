@@ -25,7 +25,6 @@ if [[ -f .aider.conf.yaml ]]; then echo "✅ Found .aider.conf.yaml"; fi
 if [[ -f .aiderrc ]]; then echo "✅ Found .aiderrc"; fi
 if [[ -f .aiderignore ]]; then echo "✅ Found .aiderignore"; fi
 if [[ -f CONVENTIONS.md ]]; then echo "✅ Found CONVENTIONS.md"; fi
-if [[ -f 2025CONVENTIONS.md ]]; then echo "✅ Found 2025CONVENTIONS.md"; fi
 echo "─────────────────────────────────────────────────────"
 
 ensure_node_deps() {
@@ -88,9 +87,9 @@ launch() {
   local model="$1"        # e.g. openai/gpt-5.2
   local key_flag="$2"     # e.g. --openai-api-key
   local key_val="$3"      # the actual key
-  
+
   local cmd=("aider" "--model" "$model" $common_flags)
-  
+
   if [[ -n "$key_flag" && -n "$key_val" ]]; then
     cmd+=("$key_flag" "$key_val")
   fi
