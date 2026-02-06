@@ -11,12 +11,22 @@ if [[ -f .env ]]; then
   set -a
   source .env
   set +a
+  echo "✅ Loaded environment variables from .env"
 fi
 
 echo "curl version:       $(curl --version | head -n1)"
 echo "npm version:        $(npm -v)"
 echo "pnpm version:       $(pnpm -v)"
 echo "playwright:         $(playwright --version)"
+
+echo "── Configuration Check ──────────────────────────────"
+if [[ -f .aider.conf.yml ]]; then echo "✅ Found .aider.conf.yml"; fi
+if [[ -f .aider.conf.yaml ]]; then echo "✅ Found .aider.conf.yaml"; fi
+if [[ -f .aiderrc ]]; then echo "✅ Found .aiderrc"; fi
+if [[ -f .aiderignore ]]; then echo "✅ Found .aiderignore"; fi
+if [[ -f CONVENTIONS.md ]]; then echo "✅ Found CONVENTIONS.md"; fi
+if [[ -f 2025CONVENTIONS.md ]]; then echo "✅ Found 2025CONVENTIONS.md"; fi
+echo "─────────────────────────────────────────────────────"
 
 ensure_node_deps() {
   # Only attempt installs if we're in a Node project
