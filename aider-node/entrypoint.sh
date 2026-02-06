@@ -25,12 +25,12 @@ if [[ -f .aider.conf.yml ]]; then
 elif [[ -f .aider.conf.yaml ]]; then
   echo "✅ Found .aider.conf.yaml"
 else
-  echo "❌ Missing .aider.conf.yml"
+  echo "🔎 Not found .aider.conf.yml"
 fi
 
-if [[ -f .aiderrc ]]; then echo "✅ Found .aiderrc"; else echo "❌ Missing .aiderrc"; fi
-if [[ -f .aiderignore ]]; then echo "✅ Found .aiderignore"; else echo "❌ Missing .aiderignore"; fi
-if [[ -f CONVENTIONS.md ]]; then echo "✅ Found CONVENTIONS.md"; else echo "❌ Missing CONVENTIONS.md"; fi
+if [[ -f .aiderrc ]]; then echo "✅ Found .aiderrc"; else echo "🔎 Not found .aiderrc"; fi
+if [[ -f .aiderignore ]]; then echo "✅ Found .aiderignore"; else echo "🔎 Not found .aiderignore"; fi
+if [[ -f CONVENTIONS.md ]]; then echo "✅ Found CONVENTIONS.md"; else echo "🔎 Not found CONVENTIONS.md"; fi
 echo "─────────────────────────────────────────────────────"
 
 ensure_node_deps() {

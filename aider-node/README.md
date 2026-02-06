@@ -40,7 +40,7 @@ docker run -it --rm \
 > We want to maintain the monorepo's structure for aider's repo-map to work.
 
 ## Conventions
-It is recommended to have a conventions file for `aider` to read, see this [sample](./2025CONVENTIONS.md).
+It is recommended to have a conventions file for `aider` to read, see this [sample](CONVENTIONS.md).
 
 ---
 
