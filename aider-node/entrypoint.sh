@@ -20,11 +20,17 @@ echo "pnpm version:       $(pnpm -v)"
 echo "playwright:         $(playwright --version)"
 
 echo "── Configuration Check ──────────────────────────────"
-if [[ -f .aider.conf.yml ]]; then echo "✅ Found .aider.conf.yml"; fi
-if [[ -f .aider.conf.yaml ]]; then echo "✅ Found .aider.conf.yaml"; fi
-if [[ -f .aiderrc ]]; then echo "✅ Found .aiderrc"; fi
-if [[ -f .aiderignore ]]; then echo "✅ Found .aiderignore"; fi
-if [[ -f CONVENTIONS.md ]]; then echo "✅ Found CONVENTIONS.md"; fi
+if [[ -f .aider.conf.yml ]]; then
+  echo "✅ Found .aider.conf.yml"
+elif [[ -f .aider.conf.yaml ]]; then
+  echo "✅ Found .aider.conf.yaml"
+else
+  echo "❌ Missing .aider.conf.yml"
+fi
+
+if [[ -f .aiderrc ]]; then echo "✅ Found .aiderrc"; else echo "❌ Missing .aiderrc"; fi
+if [[ -f .aiderignore ]]; then echo "✅ Found .aiderignore"; else echo "❌ Missing .aiderignore"; fi
+if [[ -f CONVENTIONS.md ]]; then echo "✅ Found CONVENTIONS.md"; else echo "❌ Missing CONVENTIONS.md"; fi
 echo "─────────────────────────────────────────────────────"
 
 ensure_node_deps() {
