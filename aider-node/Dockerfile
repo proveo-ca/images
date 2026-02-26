@@ -2,7 +2,7 @@ FROM ghcr.io/tarampampam/curl AS curl-static
 FROM node:22-slim AS node-tools
 
 RUN corepack enable && corepack use pnpm@latest-10
-RUN npm i -g playwright && npx playwright install --with-deps chromium
+RUN npm i -g playwright @rollup/rollup-linux-x64-gnu && npx playwright install --with-deps chromium
 
 # https://github.com/Aider-AI/aider/blob/main/docker/Dockerfile
 FROM paulgauthier/aider-full AS aider
