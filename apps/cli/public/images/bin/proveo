@@ -7,8 +7,9 @@ INSTALL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TARGETS=(
   "aider-node"
   "charles-proxy"
-  "claude-code"
-  "claude-code-solo"
+  "opencode"
+  "claudecode"
+  "claudecode-solo"
 )
 
 usage() {
@@ -22,14 +23,15 @@ Usage:
 Targets:
   aider-node
   charles-proxy
-  claude-code
-  claude-code-solo
+  claudecode
+  claudecode-solo
 
 Examples:
   proveo help
   proveo list
   proveo run aider-node
-  proveo run claude-code -- --debug --mcp-debug
+  proveo run claudecode -- --debug --mcp-debug
+  proveo run opencode
   proveo uninstall
 EOF
 }
@@ -80,7 +82,7 @@ list_targets() {
 is_ai_harness() {
   local target="$1"
   case "$target" in
-    aider-node|claude-code|claude-code-solo)
+    aider-node|claudecode|claudecode-solo|opencode)
       return 0
       ;;
     *)
@@ -98,11 +100,14 @@ image_name() {
     charles-proxy)
       echo "proveo/charles-proxy"
       ;;
-    claude-code)
-      echo "proveo/claude-code"
+    opencode)
+      echo "proveo/opencode"
       ;;
-    claude-code-solo)
-      echo "proveo/claude-code-solo"
+    claudecode)
+      echo "proveo/claudecode"
+      ;;
+    claudecode-solo)
+      echo "proveo/claudecode-solo"
       ;;
     *)
       print_error "No image name mapping for target: $target"
@@ -400,6 +405,23 @@ run_claude_container() {
   docker "${docker_args[@]}"
 }
 
+run_opencode() {
+  local scope_dir="$1"
+  shift
+  local -a extra_args=("$@")
+
+  local image
+  image="$(image_name "opencode")"
+  ensure_image_available "$image"
+
+  docker run -it --rm \
+    --name "$(basename "$scope_dir")-opencode" \
+    -v "$scope_dir:/app" \
+    -w /app \
+    "$image" \
+    "${extra_args[@]}"
+}
+
 run_charles_proxy() {
   local image
   image="$(image_name "charles-proxy")"
@@ -431,9 +453,13 @@ run_target() {
       scope_dir="$(choose_scope "$target")"
       run_aider_node "$scope_dir" "${extra_args[@]}"
       ;;
-    claude-code|claude-code-solo)
+    claudecode|claudecode-solo)
       scope_dir="$(choose_scope "$target")"
       run_claude_container "$(image_name "$target")" "$scope_dir" "${extra_args[@]}"
+      ;;
+    opencode)
+      scope_dir="$(choose_scope "$target")"
+      run_opencode "$scope_dir" "${extra_args[@]}"
       ;;
     charles-proxy)
       run_charles_proxy

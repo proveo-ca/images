@@ -1,0 +1,65 @@
+# Cecli Configuration (Aider-compatible)
+# Copy this file to .cecli.conf.yml in your project root
+# See all options: https://cecli.dev/
+
+# Model selection (aliases: sonnet, opus, gpt-5.2, grok-4-latest, gemini, deepseek)
+model: sonnet
+
+# Agent mode
+agent: true
+auto-commits: true
+auto-save: true
+auto-load: false
+cache-prompts: true
+check-update: true
+debug: false
+enable-context-compaction: true
+context-compaction-max-tokens: 0.8
+show-model-warnings: true
+use-enhanced-map: true
+watch-files: false
+tui: true
+
+# Git settings
+gitignore: false
+
+# Read conventions file on startup
+read:
+  - CONVENTIONS.md
+
+# Editor behavior
+# auto-lint: true
+# auto-test: false
+
+# UI settings
+# dark-mode: true
+# stream: true
+
+# Advanced
+# map-tokens: 1024
+
+agent-config:
+  large_file_token_threshold: 8192
+  skip_cli_confirmations: false
+
+mcp-servers:
+  mcpServers:
+    context7:
+      transport: http
+      url: https://mcp.context7.com/mcp
+
+# ─────────────────────────────────────────────────────────────
+# Environment Variable Bridge (recommended over config file)
+# These standardized variables are translated by the container:
+#
+#   ARCHITECT_MODEL   → Main model (CECLI_MODEL)
+#   EDITOR_MODEL      → Editor model
+#   SMALL_MODEL       → Weak / fast model
+#   DARK_MODE=true    → Enables dark mode UI
+#
+# Example usage in .env:
+#   ARCHITECT_MODEL=claude-opus-4-5
+#   EDITOR_MODEL=sonnet
+#   SMALL_MODEL=gpt-5.1
+#   DARK_MODE=true
+# ─────────────────────────────────────────────────────────────
