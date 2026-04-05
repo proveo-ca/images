@@ -1,63 +1,113 @@
 #!/bin/bash
 
-# Get a bash shell inside the Docker container (Chonky Version)
-set -e
-
-#!/bin/bash
-
 # Debug Shell - Get a bash shell inside the Docker container (Chonky Version)
-set -e
+set -euo pipefail
 
-# Collect all arguments to pass to Claude
-CLAUDE_ARGS=("$@")
+usage() {
+    echo "Usage: $0 [--input-dir PATH] [--output-dir PATH] [--data-dir PATH] [bash args...]"
+    echo ""
+    echo "Options:"
+    echo "  --input-dir PATH    Directory to mount as input (default: current directory)"
+    echo "  --output-dir PATH   Directory to mount as output (default: ./reports)"
+    echo "  --data-dir PATH     Optional data directory to mount"
+    echo ""
+    echo "Environment:"
+    echo "  CLAUDE_CODE_OAUTH_TOKEN   Claude Code OAuth token"
+    echo ""
+    echo "This script starts a bash shell inside the container for debugging."
+}
 
-# Fixed paths - no argument parsing needed
 INPUT_DIR="$(pwd)"
-DATA_DIR="workspace/data"
+OUTPUT_DIR="$(pwd)/reports"
+DATA_DIR=""
+BASH_ARGS=()
 
-# Validate input directory exists
-if [ ! -d "$INPUT_DIR" ]; then
-    echo "❌ Error: Current directory '$INPUT_DIR' does not exist"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        --input-dir)
+            if [[ $# -lt 2 ]]; then
+                echo "❌ Error: --input-dir requires a value"
+                exit 1
+            fi
+            INPUT_DIR="$2"
+            shift 2
+            ;;
+        --output-dir)
+            if [[ $# -lt 2 ]]; then
+                echo "❌ Error: --output-dir requires a value"
+                exit 1
+            fi
+            OUTPUT_DIR="$2"
+            shift 2
+            ;;
+        --data-dir)
+            if [[ $# -lt 2 ]]; then
+                echo "❌ Error: --data-dir requires a value"
+                exit 1
+            fi
+            DATA_DIR="$2"
+            shift 2
+            ;;
+        --)
+            shift
+            BASH_ARGS+=("$@")
+            break
+            ;;
+        *)
+            BASH_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [[ ! -d "$INPUT_DIR" ]]; then
+    echo "❌ Error: Input directory '$INPUT_DIR' does not exist"
     exit 1
 fi
 
-# Create reports directory
-mkdir -p reports
+if [[ -n "$DATA_DIR" && ! -d "$DATA_DIR" ]]; then
+    echo "❌ Error: Data directory '$DATA_DIR' does not exist"
+    exit 1
+fi
 
-# Build Docker run command with same security settings as run_claude.chonky.sh
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+    echo "⚠️  Warning: CLAUDE_CODE_OAUTH_TOKEN not set."
+    echo "   Set it with: export CLAUDE_CODE_OAUTH_TOKEN='your-oauth-token'"
+    echo ""
+fi
+
+mkdir -p "$OUTPUT_DIR"
+
 DOCKER_ARGS=(
     "run" "-it" "--rm"
-    # Override entrypoint to get bash shell
     "--entrypoint" "bash"
-    # Security: Drop all capabilities
     "--cap-drop=ALL"
-    # Security: Prevent privilege escalation
     "--security-opt=no-new-privileges:true"
-    # Security: Non-executable temp filesystem
     "--tmpfs" "/tmp:noexec,nosuid,size=100m"
     "--tmpfs" "/workspace/temp:noexec,nosuid,size=2g"
-    # Security: Limit PIDs to prevent fork bombs
     "--pids-limit=100"
-    # Security: Restrict network to external only (no host network access)
     "--network=bridge"
     "--add-host=host.docker.internal:127.0.0.1"
-    # Volume mounts
-    "-v" "$INPUT_DIR:/workspace/input:ro"
-    "-v" "$(pwd)/reports:/workspace/output:rw"
+    "-v" "${INPUT_DIR}:/workspace/input:ro"
+    "-v" "${OUTPUT_DIR}:/workspace/output:rw"
+    "-e" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}"
 )
 
-# Add data directory if it exists
-if [ -d "$DATA_DIR" ]; then
-    DOCKER_ARGS+=("-v" "$DATA_DIR:/workspace/data:ro")
+if [[ -n "$DATA_DIR" ]]; then
+    DOCKER_ARGS+=("-v" "${DATA_DIR}:/workspace/data:ro")
     echo "📚 Using reference data from: $DATA_DIR"
 fi
 
 echo "🐚 Starting debug shell inside container (Chonky)..."
 echo "📄 Configuration: claude-config.chonky.json"
 echo "📁 Input: $INPUT_DIR"
-echo "📊 Output: $(pwd)/reports"
-if [[ ${#CLAUDE_ARGS[@]} -gt 0 ]]; then
-    echo "🔧 Claude options: ${CLAUDE_ARGS[*]}"
+echo "📊 Output: $OUTPUT_DIR"
+if [[ ${#BASH_ARGS[@]} -gt 0 ]]; then
+    echo "🔧 Bash options: ${BASH_ARGS[*]}"
 fi
 echo "🔍 Use this shell to debug the container environment"
 echo "   - Claude config: cat ~/.claude.json"
@@ -65,5 +115,4 @@ echo "   - MCP servers: ls -la /workspace/mcp-servers/"
 echo "   - Test Claude: claude-code --help"
 echo ""
 
-# Run the container with bash shell, passing through any arguments
-docker "${DOCKER_ARGS[@]}" claude-code-container-chonky "${CLAUDE_ARGS[@]}"
+docker "${DOCKER_ARGS[@]}" claude-code-container-chonky "${BASH_ARGS[@]}"

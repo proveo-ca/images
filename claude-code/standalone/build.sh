@@ -1,21 +1,20 @@
 #!/bin/bash
 
-# Claude Security Container - Build and Run Script
+# Claude Code Container - Build Script
 
-set -e
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+NO_CACHE=""
+if [[ "${1:-}" == "--no-cache" ]]; then
+    NO_CACHE="--no-cache"
+fi
 
 echo "🔨 Building Claude Code Container..."
-
-# Build the container
-docker build -t claude-code-container .
-
+docker build ${NO_CACHE} -t claude-code-container -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR"
 echo "✅ Container built successfully!"
-
-# Create output directory if it doesn't exist
-
+echo ""
 echo "📋 Usage examples:"
-echo ""
-echo "1. Interactive shell:"
 echo "   ./run_claude.sh"
-echo ""
-echo "Container is ready! Use the scripts above to get started."
+echo "   ./run_claude.sh --help"
