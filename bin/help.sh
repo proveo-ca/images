@@ -17,26 +17,15 @@ Core commands:
   proveo list
       List supported container targets
 
-  proveo build <target> [--no-cache]
-      Build a target container image
-
-  proveo test <target>
-      Run tests or smoke tests for a target
-
   proveo run <target> [-- <args...>]
       Run a container target
 
-  proveo debug <target> [-- <args...>]
-      Open a debug shell or debug mode for a target
-
-  proveo deploy <target> [--tag <tag>]
-      Tag and push a target image
-
   proveo uninstall
-      Remove proveo's bin directory from your shell PATH after confirmation
+      Remove proveo's installed bin directory from your shell PATH after confirmation
 
 Notes:
-  - AI coding harness targets support pnpm monorepo scope selection.
-  - Use 'proveo list' for exact target names.
+  - proveo is the consumer CLI.
+  - AI coding harness targets support pnpm monorepo scope selection when run inside a git repo.
+  - Docker must be installed on the host machine.
   - Keep this file updated when container targets change.
 EOF

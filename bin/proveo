@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+INSTALL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TARGETS=(
   "aider-node"
@@ -14,10 +14,10 @@ TARGETS=(
 usage() {
   cat <<'EOF'
 Usage:
-  bin/proveo help
-  bin/proveo list
-  bin/proveo run <target> [-- <args...>]
-  bin/proveo uninstall
+  proveo help
+  proveo list
+  proveo run <target> [-- <args...>]
+  proveo uninstall
 
 Targets:
   aider-node
@@ -26,11 +26,11 @@ Targets:
   claude-chonky
 
 Examples:
-  bin/proveo help
-  bin/proveo list
-  bin/proveo run aider-node
-  bin/proveo run claude-chonky -- --debug --mcp-debug
-  bin/proveo uninstall
+  proveo help
+  proveo list
+  proveo run aider-node
+  proveo run claude-chonky -- --debug --mcp-debug
+  proveo uninstall
 EOF
 }
 
@@ -111,8 +111,18 @@ image_name() {
   esac
 }
 
+find_repo_root() {
+  if git rev-parse --show-toplevel >/dev/null 2>&1; then
+    git rev-parse --show-toplevel
+  else
+    pwd
+  fi
+}
+
+CURRENT_REPO_ROOT="$(find_repo_root)"
+
 is_pnpm_monorepo() {
-  [[ -f "$REPO_ROOT/pnpm-workspace.yaml" ]]
+  [[ -f "$CURRENT_REPO_ROOT/pnpm-workspace.yaml" ]]
 }
 
 trim() {
@@ -123,7 +133,7 @@ trim() {
 }
 
 parse_pnpm_workspace_globs() {
-  local workspace_file="$REPO_ROOT/pnpm-workspace.yaml"
+  local workspace_file="$CURRENT_REPO_ROOT/pnpm-workspace.yaml"
   [[ -f "$workspace_file" ]] || return 0
 
   awk '
@@ -157,7 +167,7 @@ discover_workspaces() {
 
   (
     shopt -s nullglob globstar
-    cd "$REPO_ROOT"
+    cd "$CURRENT_REPO_ROOT"
 
     for glob in "${globs[@]}"; do
       for candidate in $glob; do
@@ -197,15 +207,15 @@ choose_scope() {
 
   local default_scope="$PWD"
   local default_label
-  if [[ "$PWD" == "$REPO_ROOT" ]]; then
+  if [[ "$PWD" == "$CURRENT_REPO_ROOT" ]]; then
     default_label="repo root"
-  elif [[ "$PWD" == "$REPO_ROOT/"* ]]; then
-    default_label="${PWD#$REPO_ROOT/}"
+  elif [[ "$PWD" == "$CURRENT_REPO_ROOT/"* ]]; then
+    default_label="${PWD#$CURRENT_REPO_ROOT/}"
   else
     default_label="$PWD"
   fi
 
-  echo "Detected pnpm monorepo: $REPO_ROOT" >&2
+  echo "Detected pnpm monorepo: $CURRENT_REPO_ROOT" >&2
   echo "Select scope for $target:" >&2
   echo "  0) current directory ($default_label)" >&2
   echo "  1) repo root" >&2
@@ -225,12 +235,12 @@ choose_scope() {
       fi
 
       if [[ "$selection" -eq 1 ]]; then
-        echo "$REPO_ROOT"
+        echo "$CURRENT_REPO_ROOT"
         return 0
       fi
 
       if [[ "$selection" -ge 2 && "$selection" -lt $(( ${#workspaces[@]} + 2 )) ]]; then
-        echo "$REPO_ROOT/${workspaces[$((selection - 2))]}"
+        echo "$CURRENT_REPO_ROOT/${workspaces[$((selection - 2))]}"
         return 0
       fi
     fi
@@ -244,24 +254,33 @@ container_name_for_scope() {
   local repo_name
   local scope_name
 
-  repo_name="$(basename "$REPO_ROOT")"
+  repo_name="$(basename "$CURRENT_REPO_ROOT")"
 
-  if [[ "$scope_dir" == "$REPO_ROOT" ]]; then
+  if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
     echo "$repo_name"
     return 0
   fi
 
-  scope_name="${scope_dir#$REPO_ROOT/}"
+  scope_name="${scope_dir#$CURRENT_REPO_ROOT/}"
   scope_name="${scope_name//\//-}"
   echo "${repo_name}-${scope_name}"
+}
+
+ensure_docker_available() {
+  if ! command -v docker >/dev/null 2>&1; then
+    print_error "Docker is required but was not found."
+    echo "Install Docker from:"
+    echo "  https://docs.docker.com/get-docker/"
+    exit 1
+  fi
 }
 
 ensure_image_available() {
   local image="$1"
   if ! docker image inspect "$image" >/dev/null 2>&1; then
-    print_error "Docker image not found locally: $image"
-    print_info "Please pull or build the image before running."
-    exit 1
+    print_info "Docker image not found locally: $image"
+    print_info "Attempting to pull $image ..."
+    docker pull "$image"
   fi
 }
 
@@ -290,18 +309,18 @@ run_aider_node() {
 
   repo_name="$(container_name_for_scope "$scope_dir")"
 
-  if [[ "$scope_dir" == "$REPO_ROOT" ]]; then
+  if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
     print_info "Running aider-node at repo root"
     docker run -it --rm \
       --name "$repo_name" \
-      -v "$REPO_ROOT:/app" \
+      -v "$CURRENT_REPO_ROOT:/app" \
       -w /app \
       "$image" \
       "${extra_args[@]}"
     return 0
   fi
 
-  if [[ "$scope_dir" != "$REPO_ROOT/"* ]]; then
+  if [[ "$scope_dir" != "$CURRENT_REPO_ROOT/"* ]]; then
     print_info "Running aider-node in current directory"
     docker run -it --rm \
       --name "$repo_name" \
@@ -313,7 +332,7 @@ run_aider_node() {
   fi
 
   local relative_scope
-  relative_scope="${scope_dir#$REPO_ROOT/}"
+  relative_scope="${scope_dir#$CURRENT_REPO_ROOT/}"
 
   print_info "Running aider-node with monorepo workspace: $relative_scope"
 
@@ -321,7 +340,7 @@ run_aider_node() {
     run -it --rm
     --name "$repo_name"
     -v "$scope_dir:/app/$relative_scope"
-    -v "$REPO_ROOT/.git:/app/.git"
+    -v "$CURRENT_REPO_ROOT/.git:/app/.git"
     -w /app
   )
 
@@ -335,41 +354,47 @@ run_aider_node() {
   docker "${docker_args[@]}"
 }
 
-run_claude_wrapper() {
-  local target="$1"
+run_claude_container() {
+  local image="$1"
   local scope_dir="$2"
   shift 2
   local -a extra_args=("$@")
 
   local output_dir
   local data_dir
-  local -a wrapper_args=()
-
   output_dir="$(default_claude_output_dir "$scope_dir")"
   data_dir="$(default_claude_data_dir "$scope_dir" || true)"
 
   mkdir -p "$output_dir"
 
-  wrapper_args+=(--input-dir "$scope_dir" --output-dir "$output_dir")
-  if [[ -n "$data_dir" ]]; then
-    wrapper_args+=(--data-dir "$data_dir")
-  fi
-  wrapper_args+=("${extra_args[@]}")
+  local -a docker_args=(
+    run -it --rm
+    --cap-drop=ALL
+    --security-opt=no-new-privileges:true
+    --tmpfs /tmp:noexec,nosuid,size=100m
+    --tmpfs /workspace/temp:noexec,nosuid,size=2g
+    --pids-limit=100
+    --network=bridge
+    --add-host=host.docker.internal:127.0.0.1
+    -v "$scope_dir:/workspace/input:ro"
+    -v "$output_dir:/workspace/output:rw"
+    -e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}"
+  )
 
-  case "$target" in
-    claude-standalone)
-      ensure_image_available "$(image_name "$target")"
-      "$REPO_ROOT/claude-code/standalone/run_claude.sh" "${wrapper_args[@]}"
-      ;;
-    claude-chonky)
-      ensure_image_available "$(image_name "$target")"
-      "$REPO_ROOT/claude-code/chonky/run_claude.chonky.sh" "${wrapper_args[@]}"
-      ;;
-    *)
-      print_error "Unsupported Claude run target: $target"
-      exit 1
-      ;;
-  esac
+  if [[ -n "$data_dir" ]]; then
+    docker_args+=(-v "$data_dir:/workspace/data:ro")
+    echo "📚 Using reference data from: $data_dir"
+  fi
+
+  echo "🚀 Starting Claude Code..."
+  echo "📁 Input: $scope_dir"
+  echo "📊 Output: $output_dir"
+  if [[ ${#extra_args[@]} -gt 0 ]]; then
+    echo "🔧 Claude options: ${extra_args[*]}"
+  fi
+  echo ""
+
+  docker "${docker_args[@]}" "$image" "${extra_args[@]}"
 }
 
 run_charles_proxy() {
@@ -396,6 +421,8 @@ run_target() {
   local -a extra_args=("$@")
   local scope_dir
 
+  ensure_docker_available
+
   case "$target" in
     aider-node)
       scope_dir="$(choose_scope "$target")"
@@ -403,7 +430,7 @@ run_target() {
       ;;
     claude-standalone|claude-chonky)
       scope_dir="$(choose_scope "$target")"
-      run_claude_wrapper "$target" "$scope_dir" "${extra_args[@]}"
+      run_claude_container "$(image_name "$target")" "$scope_dir" "${extra_args[@]}"
       ;;
     charles-proxy)
       run_charles_proxy
@@ -420,7 +447,7 @@ show_help_command() {
 }
 
 run_uninstall() {
-  "$REPO_ROOT/uninstall.sh"
+  "$INSTALL_ROOT/uninstall.sh"
 }
 
 parse_args() {

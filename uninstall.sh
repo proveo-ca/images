@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN_DIR="$SCRIPT_DIR/bin"
+INSTALL_ROOT="${PROVEO_INSTALL_ROOT:-$HOME/.proveo}"
+BIN_DIR="$INSTALL_ROOT/bin"
 MARKER_LINE="# Added by proveo install.sh"
 
 print_info() {
@@ -77,8 +77,9 @@ shell_rc_file() {
 
 confirm_uninstall() {
   local answer
-  echo "⚠️  This will remove the following directory from your shell PATH configuration:"
-  echo "   $BIN_DIR"
+  echo "⚠️  This will remove proveo from your shell PATH configuration."
+  echo "   PATH entry: $BIN_DIR"
+  echo "   Install root: $INSTALL_ROOT"
   echo ""
   read -r -p "Continue with uninstall? [y/N] " answer
   case "$answer" in
@@ -160,6 +161,11 @@ main() {
   touch "$rc_file"
 
   remove_path_lines "$rc_file"
+
+  rm -f "$BIN_DIR/proveo" "$BIN_DIR/help.sh"
+  rmdir "$BIN_DIR" 2>/dev/null || true
+  rm -f "$INSTALL_ROOT/uninstall.sh"
+  rmdir "$INSTALL_ROOT" 2>/dev/null || true
 
   print_success "Removed proveo PATH entries from $rc_file"
   echo ""
