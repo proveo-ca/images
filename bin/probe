@@ -19,8 +19,8 @@ Usage:
   bin/probe help
   bin/probe build <target> --tag <tag> [--no-cache]
   bin/probe test <target>
-  bin/probe run <target> [-- <args...>]
-  bin/probe debug <target> [-- <args...>]
+  bin/probe run <target> --tag <tag> [-- <args...>]
+  bin/probe debug <target> --tag <tag> [-- <args...>]
   bin/probe deploy <target> --tag <tag>
   bin/probe uninstall
 
@@ -35,9 +35,9 @@ Examples:
   bin/probe help
   bin/probe build aider-node --tag latest
   bin/probe build claude-code --tag latest
-  bin/probe run aider-node
-  bin/probe run claude-code -- --debug --mcp-debug
-  bin/probe debug claude-code-solo
+  bin/probe run aider-node --tag latest
+  bin/probe run claude-code --tag latest -- --debug --mcp-debug
+  bin/probe debug claude-code-solo --tag latest
   bin/probe deploy charles-proxy --tag latest
   bin/probe uninstall
 EOF
@@ -410,12 +410,13 @@ test_target() {
 
 run_aider_node() {
   local scope_dir="$1"
-  shift
+  local tag="$2"
+  shift 2
   local -a extra_args=("$@")
 
   local image
   local repo_name
-  image="$(image_name "aider-node"):latest"
+  image="$(image_name "aider-node"):$tag"
   ensure_image_available "$image" "aider-node"
 
   repo_name="$(container_name_for_scope "$scope_dir")"
@@ -467,12 +468,13 @@ run_aider_node() {
 
 debug_aider_node() {
   local scope_dir="$1"
-  shift
+  local tag="$2"
+  shift 2
   local -a extra_args=("$@")
 
   local image
   local repo_name
-  image="$(image_name "aider-node"):latest"
+  image="$(image_name "aider-node"):$tag"
   ensure_image_available "$image" "aider-node"
 
   repo_name="$(container_name_for_scope "$scope_dir")"
@@ -524,7 +526,8 @@ debug_aider_node() {
 run_claude_wrapper() {
   local target="$1"
   local scope_dir="$2"
-  shift 2
+  local tag="$3"
+  shift 3
   local -a extra_args=("$@")
 
   local dir
@@ -544,8 +547,10 @@ run_claude_wrapper() {
     (
       cd "$dir"
       if [[ -n "$data_dir" ]]; then
+        PROVEO_CLAUDE_IMAGE="$(image_name "$target"):$tag" \
         "$run_script" --input-dir "$scope_dir" --output-dir "$output_dir" --data-dir "$data_dir" "${extra_args[@]}"
       else
+        PROVEO_CLAUDE_IMAGE="$(image_name "$target"):$tag" \
         "$run_script" --input-dir "$scope_dir" --output-dir "$output_dir" "${extra_args[@]}"
       fi
     )
@@ -553,7 +558,7 @@ run_claude_wrapper() {
   fi
 
   local image
-  image="$(image_name "$target"):latest"
+  image="$(image_name "$target"):$tag"
   ensure_image_available "$image" "$target"
 
   local -a docker_args=(
@@ -583,7 +588,8 @@ run_claude_wrapper() {
 debug_claude_wrapper() {
   local target="$1"
   local scope_dir="$2"
-  shift 2
+  local tag="$3"
+  shift 3
   local -a extra_args=("$@")
 
   local dir
@@ -603,8 +609,10 @@ debug_claude_wrapper() {
     (
       cd "$dir"
       if [[ -n "$data_dir" ]]; then
+        PROVEO_CLAUDE_IMAGE="$(image_name "$target"):$tag" \
         "$debug_script" --input-dir "$scope_dir" --output-dir "$output_dir" --data-dir "$data_dir" "${extra_args[@]}"
       else
+        PROVEO_CLAUDE_IMAGE="$(image_name "$target"):$tag" \
         "$debug_script" --input-dir "$scope_dir" --output-dir "$output_dir" "${extra_args[@]}"
       fi
     )
@@ -612,7 +620,7 @@ debug_claude_wrapper() {
   fi
 
   local image
-  image="$(image_name "$target"):latest"
+  image="$(image_name "$target"):$tag"
   ensure_image_available "$image" "$target"
 
   local -a docker_args=(
@@ -641,8 +649,10 @@ debug_claude_wrapper() {
 }
 
 run_charles_proxy() {
+  local tag="$1"
+  shift
   local image
-  image="$(image_name "charles-proxy"):latest"
+  image="$(image_name "charles-proxy"):$tag"
   ensure_image_available "$image" "charles-proxy"
 
   local sessions_dir="$PWD/sessions"
@@ -659,8 +669,10 @@ run_charles_proxy() {
 }
 
 debug_charles_proxy() {
+  local tag="$1"
+  shift
   local image
-  image="$(image_name "charles-proxy"):latest"
+  image="$(image_name "charles-proxy"):$tag"
   ensure_image_available "$image" "charles-proxy"
 
   local sessions_dir="$PWD/sessions"
@@ -679,21 +691,22 @@ debug_charles_proxy() {
 
 run_target() {
   local target="$1"
-  shift
+  local tag="$2"
+  shift 2
   local -a extra_args=("$@")
   local scope_dir
 
   case "$target" in
     aider-node)
       scope_dir="$(choose_scope "$target")"
-      run_aider_node "$scope_dir" "${extra_args[@]}"
+      run_aider_node "$scope_dir" "$tag" "${extra_args[@]}"
       ;;
     claude-code|claude-code-solo)
       scope_dir="$(choose_scope "$target")"
-      run_claude_wrapper "$target" "$scope_dir" "${extra_args[@]}"
+      run_claude_wrapper "$target" "$scope_dir" "$tag" "${extra_args[@]}"
       ;;
     charles-proxy)
-      run_charles_proxy
+      run_charles_proxy "$tag" "${extra_args[@]}"
       ;;
     *)
       print_error "Unsupported run target: $target"
@@ -704,21 +717,22 @@ run_target() {
 
 debug_target() {
   local target="$1"
-  shift
+  local tag="$2"
+  shift 2
   local -a extra_args=("$@")
   local scope_dir
 
   case "$target" in
     aider-node)
       scope_dir="$(choose_scope "$target")"
-      debug_aider_node "$scope_dir" "${extra_args[@]}"
+      debug_aider_node "$scope_dir" "$tag" "${extra_args[@]}"
       ;;
     claude-code|claude-code-solo)
       scope_dir="$(choose_scope "$target")"
-      debug_claude_wrapper "$target" "$scope_dir" "${extra_args[@]}"
+      debug_claude_wrapper "$target" "$scope_dir" "$tag" "${extra_args[@]}"
       ;;
     charles-proxy)
-      debug_charles_proxy
+      debug_charles_proxy "$tag" "${extra_args[@]}"
       ;;
     *)
       print_error "Unsupported debug target: $target"
@@ -815,25 +829,63 @@ parse_args() {
       ;;
     run)
       local target="${1:-}"
+      local tag=""
       require_target "$target"
       shift || true
 
-      if [[ "${1:-}" == "--" ]]; then
-        shift
-      fi
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --tag)
+            if [[ $# -lt 2 ]]; then
+              print_error "--tag requires a value"
+              exit 1
+            fi
+            tag="$2"
+            shift 2
+            ;;
+          --)
+            shift
+            break
+            ;;
+          *)
+            print_error "Unknown run option: $1"
+            exit 1
+            ;;
+        esac
+      done
 
-      run_target "$target" "$@"
+      require_tag "$tag" "run"
+      run_target "$target" "$tag" "$@"
       ;;
     debug)
       local target="${1:-}"
+      local tag=""
       require_target "$target"
       shift || true
 
-      if [[ "${1:-}" == "--" ]]; then
-        shift
-      fi
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --tag)
+            if [[ $# -lt 2 ]]; then
+              print_error "--tag requires a value"
+              exit 1
+            fi
+            tag="$2"
+            shift 2
+            ;;
+          --)
+            shift
+            break
+            ;;
+          *)
+            print_error "Unknown debug option: $1"
+            exit 1
+            ;;
+        esac
+      done
 
-      debug_target "$target" "$@"
+      require_tag "$tag" "debug"
+      debug_target "$target" "$tag" "$@"
       ;;
     deploy)
       local target="${1:-}"
