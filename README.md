@@ -26,6 +26,52 @@ The repo is being organized around these root concepts:
 
 For now, the container/image folders remain at the repository root instead of moving under a dedicated `images/` directory. This keeps path churn low while still letting the repo adopt root-level monorepo tooling.
 
+## Two Modes
+
+This repo now has two distinct ways of interacting with the container ecosystem:
+
+### 1. Local dev mode: `probe`
+
+`probe` is the **developer/maintainer** workflow.
+
+Use this mode when you are working inside this repository and need full control over:
+- source files
+- Docker build contexts
+- test scripts
+- debug workflows
+- image publishing/deployment
+- monorepo-aware local development
+
+In local dev mode, you have full access to the repo and use the dev CLI to:
+- build images
+- test images
+- run images
+- debug images
+- deploy images
+
+Typical responsibilities in `probe` mode:
+- develop or modify container definitions
+- iterate on wrapper scripts
+- update docs
+- validate security/test behavior
+- publish/install assets for the consumer CLI
+
+### 2. Consumer mode: `proveo`
+
+`proveo` is the **consumer-facing** workflow.
+
+Use this mode when you only want to:
+- install the CLI from a hosted URL
+- run already-published container images
+- avoid cloning this repo
+- avoid build/test/debug/deploy concerns
+
+In consumer mode, users install the lightweight CLI and then run published images such as:
+- `proveo/aider-node`
+- `proveo/charles-proxy`
+
+For coding harness targets, `proveo` also supports pnpm monorepo scope selection when run from inside a git repository.
+
 ## Container Types
 
 ### Coding harness containers
@@ -45,7 +91,7 @@ These containers are designed to:
 - preserve predictable workspace paths for AI tools
 - support monorepo-aware workflows
 - isolate outputs and optional reference data
-- be easy to build, run, debug, test, and deploy through `bin/proveo`
+- be easy to build, run, debug, test, and deploy through the local dev workflow
 
 ### Other containers
 
@@ -55,7 +101,7 @@ Current non-harness container in this repo:
 
 - `proveo/charles-proxy`
 
-These containers may still be managed by `bin/proveo`, but they do not need the same monorepo and workspace conventions as coding harnesses.
+These containers may still be managed by the dev CLI, but they do not need the same monorepo and workspace conventions as coding harnesses.
 
 ## Images
 
@@ -125,22 +171,137 @@ and for defining lightweight shared tasks.
 
 Consumer installation of `proveo` still does **not** depend on `mise`, Node, or pnpm.
 
-## Unified CLI
+## Local Dev Workflow (`probe`)
 
-Use the repo-level CLI to manage containers consistently:
+Use the dev CLI from a local checkout when working on this repo.
+
+### Common dev commands
 
 ```bash
-bin/proveo help
-bin/proveo list
-bin/proveo build aider-node
-bin/proveo run aider-node
-bin/proveo debug claude-standalone
-bin/proveo test claude-chonky
-bin/proveo deploy charles-proxy --tag latest
-bin/proveo uninstall
+probe help
+probe list
+probe build aider-node
+probe test claude-standalone
+probe run aider-node
+probe debug claude-chonky
+probe deploy charles-proxy --tag latest
 ```
 
-For coding harness targets, `bin/proveo` can:
+### What `probe` is for
+
+`probe` is the full-access maintainer tool. Use it to:
+
+- **build** images locally
+- **test** image behavior
+- **run** images during development
+- **debug** containers and wrappers
+- **deploy** published image tags
+
+### Build images with `probe`
+
+Examples:
+
+```bash
+probe build aider-node
+probe build charles-proxy
+probe build claude-standalone
+probe build claude-chonky
+```
+
+### Test images with `probe`
+
+Examples:
+
+```bash
+probe test aider-node
+probe test charles-proxy
+probe test claude-standalone
+probe test claude-chonky
+```
+
+### Run images with `probe`
+
+Examples:
+
+```bash
+probe run aider-node
+probe run claude-standalone
+probe run claude-chonky
+probe run charles-proxy
+```
+
+### Debug images with `probe`
+
+Examples:
+
+```bash
+probe debug aider-node
+probe debug claude-standalone
+probe debug claude-chonky
+probe debug charles-proxy
+```
+
+### Deploy images with `probe`
+
+Examples:
+
+```bash
+probe deploy aider-node --tag latest
+probe deploy charles-proxy --tag latest
+probe deploy claude-standalone --tag latest
+probe deploy claude-chonky --tag latest
+```
+
+## Consumer Workflow (`proveo`)
+
+Use the consumer CLI when you want to run published images without working on this repo.
+
+### Install `proveo`
+
+Hosted install flow:
+
+```bash
+wget -qO- https://proveo.ca/images/install.sh | bash
+```
+
+Or with curl:
+
+```bash
+curl -fsSL https://proveo.ca/images/install.sh | bash
+```
+
+This installs the consumer CLI into a local user directory, adds it to your PATH, and checks whether Docker is available.
+
+### Common consumer commands
+
+```bash
+proveo help
+proveo list
+proveo run aider-node
+proveo run claude-chonky
+proveo run charles-proxy
+proveo uninstall
+```
+
+### What `proveo` is for
+
+`proveo` is the lightweight runtime CLI for consumers. Use it to:
+
+- list available published container targets
+- run published images
+- uninstall the consumer CLI from your PATH
+
+`proveo` does **not** expose:
+- build
+- test
+- debug
+- deploy
+
+Those workflows belong to local dev mode with `probe`.
+
+## Unified CLI Notes
+
+For coding harness targets, the CLI can:
 
 - detect pnpm monorepos
 - read `pnpm-workspace.yaml`
@@ -181,8 +342,8 @@ A coding harness should ideally:
 
 6. Fit the repo conventions
    - use a `proveo/` publish name
-   - integrate with `bin/proveo`
-   - support build, run, debug, test, and deploy workflows
+   - integrate with `probe` / `proveo` appropriately
+   - support build, run, debug, test, and deploy workflows where relevant
 
 ### Recommended interface for coding harness scripts
 
@@ -238,7 +399,7 @@ my-harness/
    - `no-new-privileges`
    - tmpfs for temporary directories where appropriate
 
-6. Add it to `bin/proveo`
+6. Add it to the dev CLI
    - target list
    - image mappings
    - build logic
@@ -262,7 +423,7 @@ Coding harnesses should be able to operate on:
 - the repository root, or
 - a selected package, app, or lib inside a monorepo
 
-For pnpm monorepos, `bin/proveo` detects `pnpm-workspace.yaml`, enumerates matching workspaces, and prompts for scope selection.
+For pnpm monorepos, the CLI detects `pnpm-workspace.yaml`, enumerates matching workspaces, and prompts for scope selection.
 
 The current implementations use two patterns:
 
