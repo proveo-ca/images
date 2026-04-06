@@ -1,0 +1,502 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+TARGETS=(
+  "aider-node"
+  "charles-proxy"
+  "claude-standalone"
+  "claude-chonky"
+)
+
+usage() {
+  cat <<'EOF'
+Usage:
+  proveo help
+  proveo list
+  proveo run <target> [-- <args...>]
+  proveo uninstall
+
+Targets:
+  aider-node
+  charles-proxy
+  claude-standalone
+  claude-chonky
+
+Examples:
+  proveo help
+  proveo list
+  proveo run aider-node
+  proveo run claude-chonky -- --debug --mcp-debug
+  proveo uninstall
+EOF
+}
+
+print_error() {
+  echo "❌ $*" >&2
+}
+
+print_info() {
+  echo "ℹ️  $*"
+}
+
+is_valid_target() {
+  local target="$1"
+  local item
+  for item in "${TARGETS[@]}"; do
+    if [[ "$item" == "$target" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+require_target() {
+  local target="${1:-}"
+  if [[ -z "$target" ]]; then
+    print_error "Missing target."
+    usage
+    exit 1
+  fi
+
+  if ! is_valid_target "$target"; then
+    print_error "Unknown target: $target"
+    echo ""
+    usage
+    exit 1
+  fi
+}
+
+list_targets() {
+  echo "Available targets:"
+  local target
+  for target in "${TARGETS[@]}"; do
+    echo "  - $target"
+  done
+}
+
+is_ai_harness() {
+  local target="$1"
+  case "$target" in
+    aider-node|claude-standalone|claude-chonky)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+image_name() {
+  local target="$1"
+  case "$target" in
+    aider-node)
+      echo "proveo/aider-node"
+      ;;
+    charles-proxy)
+      echo "proveo/charles-proxy"
+      ;;
+    claude-standalone)
+      echo "claude-code-container"
+      ;;
+    claude-chonky)
+      echo "claude-code-container-chonky"
+      ;;
+    *)
+      print_error "No image name mapping for target: $target"
+      exit 1
+      ;;
+  esac
+}
+
+find_repo_root() {
+  if git rev-parse --show-toplevel >/dev/null 2>&1; then
+    git rev-parse --show-toplevel
+  else
+    pwd
+  fi
+}
+
+CURRENT_REPO_ROOT="$(find_repo_root)"
+
+is_pnpm_monorepo() {
+  [[ -f "$CURRENT_REPO_ROOT/pnpm-workspace.yaml" ]]
+}
+
+trim() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s\n' "$value"
+}
+
+parse_pnpm_workspace_globs() {
+  local workspace_file="$CURRENT_REPO_ROOT/pnpm-workspace.yaml"
+  [[ -f "$workspace_file" ]] || return 0
+
+  awk '
+    BEGIN { in_packages = 0 }
+    /^[[:space:]]*packages:[[:space:]]*$/ { in_packages = 1; next }
+    in_packages == 1 {
+      if ($0 ~ /^[^[:space:]-]/) exit
+      if ($0 ~ /^[[:space:]]*-[[:space:]]*/) {
+        sub(/^[[:space:]]*-[[:space:]]*/, "", $0)
+        gsub(/^["'\''"]|["'\''"]$/, "", $0)
+        print $0
+      }
+    }
+  ' "$workspace_file"
+}
+
+discover_workspaces() {
+  local glob
+  local candidate
+  local -a globs=()
+
+  while IFS= read -r glob; do
+    glob="$(trim "$glob")"
+    [[ -n "$glob" ]] || continue
+    globs+=("$glob")
+  done < <(parse_pnpm_workspace_globs)
+
+  if [[ ${#globs[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  (
+    shopt -s nullglob globstar
+    cd "$CURRENT_REPO_ROOT"
+
+    for glob in "${globs[@]}"; do
+      for candidate in $glob; do
+        [[ -d "$candidate" ]] || continue
+        [[ -f "$candidate/package.json" ]] || continue
+        printf '%s\n' "$candidate"
+      done
+    done
+  ) | awk '!seen[$0]++'
+}
+
+choose_scope() {
+  local target="$1"
+  local -a workspaces=()
+  local selection
+  local i
+
+  if ! is_ai_harness "$target"; then
+    echo "$PWD"
+    return 0
+  fi
+
+  if ! is_pnpm_monorepo; then
+    echo "$PWD"
+    return 0
+  fi
+
+  while IFS= read -r workspace; do
+    [[ -n "$workspace" ]] || continue
+    workspaces+=("$workspace")
+  done < <(discover_workspaces)
+
+  if [[ ${#workspaces[@]} -eq 0 ]]; then
+    echo "$PWD"
+    return 0
+  fi
+
+  local default_scope="$PWD"
+  local default_label
+  if [[ "$PWD" == "$CURRENT_REPO_ROOT" ]]; then
+    default_label="repo root"
+  elif [[ "$PWD" == "$CURRENT_REPO_ROOT/"* ]]; then
+    default_label="${PWD#$CURRENT_REPO_ROOT/}"
+  else
+    default_label="$PWD"
+  fi
+
+  echo "Detected pnpm monorepo: $CURRENT_REPO_ROOT" >&2
+  echo "Select scope for $target:" >&2
+  echo "  0) current directory ($default_label)" >&2
+  echo "  1) repo root" >&2
+
+  for i in "${!workspaces[@]}"; do
+    printf '  %d) %s\n' "$((i + 2))" "${workspaces[$i]}" >&2
+  done
+
+  while true; do
+    read -r -p "Choice [0]: " selection
+    selection="${selection:-0}"
+
+    if [[ "$selection" =~ ^[0-9]+$ ]]; then
+      if [[ "$selection" -eq 0 ]]; then
+        echo "$default_scope"
+        return 0
+      fi
+
+      if [[ "$selection" -eq 1 ]]; then
+        echo "$CURRENT_REPO_ROOT"
+        return 0
+      fi
+
+      if [[ "$selection" -ge 2 && "$selection" -lt $(( ${#workspaces[@]} + 2 )) ]]; then
+        echo "$CURRENT_REPO_ROOT/${workspaces[$((selection - 2))]}"
+        return 0
+      fi
+    fi
+
+    print_error "Invalid selection."
+  done
+}
+
+container_name_for_scope() {
+  local scope_dir="$1"
+  local repo_name
+  local scope_name
+
+  repo_name="$(basename "$CURRENT_REPO_ROOT")"
+
+  if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
+    echo "$repo_name"
+    return 0
+  fi
+
+  scope_name="${scope_dir#$CURRENT_REPO_ROOT/}"
+  scope_name="${scope_name//\//-}"
+  echo "${repo_name}-${scope_name}"
+}
+
+ensure_docker_available() {
+  if ! command -v docker >/dev/null 2>&1; then
+    print_error "Docker is required but was not found."
+    echo "Install Docker from:"
+    echo "  https://docs.docker.com/get-docker/"
+    exit 1
+  fi
+}
+
+ensure_image_available() {
+  local image="$1"
+  if ! docker image inspect "$image" >/dev/null 2>&1; then
+    print_info "Docker image not found locally: $image"
+    print_info "Attempting to pull $image ..."
+    docker pull "$image"
+  fi
+}
+
+default_claude_data_dir() {
+  local scope_dir="$1"
+  local candidate="$scope_dir/workspace/data"
+  if [[ -d "$candidate" ]]; then
+    echo "$candidate"
+  fi
+}
+
+default_claude_output_dir() {
+  local scope_dir="$1"
+  echo "$scope_dir/reports"
+}
+
+run_aider_node() {
+  local scope_dir="$1"
+  shift
+  local -a extra_args=("$@")
+
+  local image
+  local repo_name
+  image="$(image_name "aider-node")"
+  ensure_image_available "$image"
+
+  repo_name="$(container_name_for_scope "$scope_dir")"
+
+  if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
+    print_info "Running aider-node at repo root"
+    docker run -it --rm \
+      --name "$repo_name" \
+      -v "$CURRENT_REPO_ROOT:/app" \
+      -w /app \
+      "$image" \
+      "${extra_args[@]}"
+    return 0
+  fi
+
+  if [[ "$scope_dir" != "$CURRENT_REPO_ROOT/"* ]]; then
+    print_info "Running aider-node in current directory"
+    docker run -it --rm \
+      --name "$repo_name" \
+      -v "$scope_dir:/app" \
+      -w /app \
+      "$image" \
+      "${extra_args[@]}"
+    return 0
+  fi
+
+  local relative_scope
+  relative_scope="${scope_dir#$CURRENT_REPO_ROOT/}"
+
+  print_info "Running aider-node with monorepo workspace: $relative_scope"
+
+  local -a docker_args=(
+    run -it --rm
+    --name "$repo_name"
+    -v "$scope_dir:/app/$relative_scope"
+    -v "$CURRENT_REPO_ROOT/.git:/app/.git"
+    -w /app
+  )
+
+  if [[ -f "$scope_dir/.aiderignore" ]]; then
+    docker_args+=(-v "$scope_dir/.aiderignore:/app/.aiderignore")
+  fi
+
+  docker_args+=("$image")
+  docker_args+=("${extra_args[@]}")
+
+  docker "${docker_args[@]}"
+}
+
+run_claude_container() {
+  local image="$1"
+  local scope_dir="$2"
+  shift 2
+  local -a extra_args=("$@")
+
+  local output_dir
+  local data_dir
+  output_dir="$(default_claude_output_dir "$scope_dir")"
+  data_dir="$(default_claude_data_dir "$scope_dir" || true)"
+
+  mkdir -p "$output_dir"
+
+  local -a docker_args=(
+    run -it --rm
+    --cap-drop=ALL
+    --security-opt=no-new-privileges:true
+    --tmpfs /tmp:noexec,nosuid,size=100m
+    --tmpfs /workspace/temp:noexec,nosuid,size=2g
+    --pids-limit=100
+    --network=bridge
+    --add-host=host.docker.internal:127.0.0.1
+    -v "$scope_dir:/workspace/input:ro"
+    -v "$output_dir:/workspace/output:rw"
+    -e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}"
+  )
+
+  if [[ -n "$data_dir" ]]; then
+    docker_args+=(-v "$data_dir:/workspace/data:ro")
+    echo "📚 Using reference data from: $data_dir"
+  fi
+
+  echo "🚀 Starting Claude Code..."
+  echo "📁 Input: $scope_dir"
+  echo "📊 Output: $output_dir"
+  if [[ ${#extra_args[@]} -gt 0 ]]; then
+    echo "🔧 Claude options: ${extra_args[*]}"
+  fi
+  echo ""
+
+  docker "${docker_args[@]}" "$image" "${extra_args[@]}"
+}
+
+run_charles_proxy() {
+  local image
+  image="$(image_name "charles-proxy")"
+  ensure_image_available "$image"
+
+  local sessions_dir="$PWD/sessions"
+  local config_dir="$PWD/config"
+
+  mkdir -p "$sessions_dir" "$config_dir"
+
+  print_info "Running charles-proxy on port 8888"
+  docker run -it --rm \
+    -p 8888:8888 \
+    -v "$sessions_dir:/sessions" \
+    -v "$config_dir:/config" \
+    "$image"
+}
+
+run_target() {
+  local target="$1"
+  shift
+  local -a extra_args=("$@")
+  local scope_dir
+
+  ensure_docker_available
+
+  case "$target" in
+    aider-node)
+      scope_dir="$(choose_scope "$target")"
+      run_aider_node "$scope_dir" "${extra_args[@]}"
+      ;;
+    claude-standalone|claude-chonky)
+      scope_dir="$(choose_scope "$target")"
+      run_claude_container "$(image_name "$target")" "$scope_dir" "${extra_args[@]}"
+      ;;
+    charles-proxy)
+      run_charles_proxy
+      ;;
+    *)
+      print_error "Unsupported run target: $target"
+      exit 1
+      ;;
+  esac
+}
+
+show_help_command() {
+  "$SCRIPT_DIR/help.sh"
+}
+
+run_uninstall() {
+  "$INSTALL_ROOT/uninstall.sh"
+}
+
+parse_args() {
+  local command="${1:-}"
+  shift || true
+
+  case "$command" in
+    list)
+      if [[ $# -ne 0 ]]; then
+        print_error "Command 'list' does not accept arguments."
+        exit 1
+      fi
+      list_targets
+      ;;
+    help)
+      if [[ $# -ne 0 ]]; then
+        print_error "Command 'help' does not accept arguments."
+        exit 1
+      fi
+      show_help_command
+      ;;
+    run)
+      local target="${1:-}"
+      require_target "$target"
+      shift || true
+
+      if [[ "${1:-}" == "--" ]]; then
+        shift
+      fi
+
+      run_target "$target" "$@"
+      ;;
+    uninstall)
+      if [[ $# -ne 0 ]]; then
+        print_error "Command 'uninstall' does not accept arguments."
+        exit 1
+      fi
+      run_uninstall
+      ;;
+    -h|--help|"")
+      usage
+      ;;
+    *)
+      print_error "Unknown command: $command"
+      echo ""
+      usage
+      exit 1
+      ;;
+  esac
+}
+
+parse_args "$@"
