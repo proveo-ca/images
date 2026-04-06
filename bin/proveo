@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "This root-level bin/proveo is no longer the source of truth."
+echo "Use or edit the consumer CLI at:"
+echo "  apps/cli/public/images/bin/proveo"
+echo ""
+echo "For installed consumer usage, use the hosted installer:"
+echo "  curl -fsSL https://proveo.ca/images/install.sh | bash"

@@ -182,6 +182,8 @@ The consumer CLI now has a single source of truth:
 
 These are the files served by Cloudflare and they should be edited directly there.
 
+The old root-level consumer files are compatibility stubs only and should not be treated as the primary implementation.
+
 ### Deployment engine
 
 `wrangler` is the actual deployment engine.
@@ -237,6 +239,7 @@ probe test claude-standalone
 probe run aider-node
 probe debug claude-chonky
 probe deploy charles-proxy --tag latest
+probe uninstall
 ```
 
 ### What `probe` is for
@@ -248,6 +251,7 @@ probe deploy charles-proxy --tag latest
 - **run** images during development
 - **debug** containers and wrappers
 - **deploy** published image tags
+- invoke the consumer uninstall script from `apps/cli` when needed
 
 ### Build images with `probe`
 

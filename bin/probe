@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONSUMER_UNINSTALL_SCRIPT="$REPO_ROOT/apps/cli/public/images/uninstall.sh"
 
 TARGETS=(
   "aider-node"
@@ -693,12 +694,13 @@ deploy_target() {
   print_success "Deployed $publish_image"
 }
 
-show_help_command() {
-  "$SCRIPT_DIR/help.sh"
-}
-
 run_uninstall() {
-  "$REPO_ROOT/uninstall.sh"
+  if [[ ! -f "$CONSUMER_UNINSTALL_SCRIPT" ]]; then
+    print_error "Consumer uninstall script not found: $CONSUMER_UNINSTALL_SCRIPT"
+    exit 1
+  fi
+
+  "$CONSUMER_UNINSTALL_SCRIPT"
 }
 
 parse_args() {
@@ -718,7 +720,7 @@ parse_args() {
         print_error "Command 'help' does not accept arguments."
         exit 1
       fi
-      show_help_command
+      usage
       ;;
     build)
       local target="${1:-}"
