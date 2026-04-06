@@ -2,7 +2,7 @@
   "numStartups": 1,
   "installMethod": "docker",
   "autoUpdates": false,
-  "theme": "light",
+  "theme": "dark",
   "dangerouslySkipPermissions": true,
   "autoAcceptPermissions": true,
   "autoTrustNewProjects": true,

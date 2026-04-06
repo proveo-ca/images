@@ -6,8 +6,8 @@ proveo - container helper
 
 Available containers:
   aider-node         Coding harness for Aider with Node.js, pnpm, and Playwright
-  claude-standalone  Coding harness for Claude Code without extra MCP servers
-  claude-chonky      Coding harness for Claude Code with Chonky MCP integrations
+  claude-code        Default Claude Code container with MCP integrations
+  claude-code-solo   Claude Code container without the default MCP-integrated stack
   charles-proxy      Utility container for running Charles Proxy headlessly
 
 Core commands:

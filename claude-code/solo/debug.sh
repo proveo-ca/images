@@ -111,4 +111,4 @@ echo "   - MCP servers: ls -la /workspace/mcp-servers/"
 echo "   - Test Claude: claude --help"
 echo ""
 
-docker "${DOCKER_ARGS[@]}" claude-code-container "${BASH_ARGS[@]}"
+docker "${DOCKER_ARGS[@]}" proveo/claude-code-solo "${BASH_ARGS[@]}"

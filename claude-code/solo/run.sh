@@ -1,10 +1,15 @@
 #!/bin/bash
 
-# Debug Shell - Get a bash shell inside the Docker container (Chonky Version)
+# Interactive Claude Code Shell
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 [--input-dir PATH] [--output-dir PATH] [--data-dir PATH] [bash args...]"
+    echo "Usage: $0 [--input-dir PATH] [--output-dir PATH] [--data-dir PATH] [claude args...]"
+    echo ""
+    echo "Runs Claude Code in Docker with:"
+    echo "  - input directory mounted read-only at /workspace/input"
+    echo "  - output directory mounted read-write at /workspace/output"
+    echo "  - optional data directory mounted read-only at /workspace/data"
     echo ""
     echo "Options:"
     echo "  --input-dir PATH    Directory to mount as input (default: current directory)"
@@ -13,14 +18,12 @@ usage() {
     echo ""
     echo "Environment:"
     echo "  CLAUDE_CODE_OAUTH_TOKEN   Claude Code OAuth token"
-    echo ""
-    echo "This script starts a bash shell inside the container for debugging."
 }
 
 INPUT_DIR="$(pwd)"
 OUTPUT_DIR="$(pwd)/reports"
 DATA_DIR=""
-BASH_ARGS=()
+CLAUDE_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -54,11 +57,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --)
             shift
-            BASH_ARGS+=("$@")
+            CLAUDE_ARGS+=("$@")
             break
             ;;
         *)
-            BASH_ARGS+=("$1")
+            CLAUDE_ARGS+=("$1")
             shift
             ;;
     esac
@@ -75,7 +78,7 @@ if [[ -n "$DATA_DIR" && ! -d "$DATA_DIR" ]]; then
 fi
 
 if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
-    echo "⚠️  Warning: CLAUDE_CODE_OAUTH_TOKEN not set."
+    echo "⚠️  Warning: CLAUDE_CODE_OAUTH_TOKEN not set. Claude Code may not work properly."
     echo "   Set it with: export CLAUDE_CODE_OAUTH_TOKEN='your-oauth-token'"
     echo ""
 fi
@@ -84,7 +87,6 @@ mkdir -p "$OUTPUT_DIR"
 
 DOCKER_ARGS=(
     "run" "-it" "--rm"
-    "--entrypoint" "bash"
     "--cap-drop=ALL"
     "--security-opt=no-new-privileges:true"
     "--tmpfs" "/tmp:noexec,nosuid,size=100m"
@@ -102,17 +104,12 @@ if [[ -n "$DATA_DIR" ]]; then
     echo "📚 Using reference data from: $DATA_DIR"
 fi
 
-echo "🐚 Starting debug shell inside container (Chonky)..."
-echo "📄 Configuration: claude-config.chonky.json"
+echo "🚀 Starting Claude Code in interactive mode..."
 echo "📁 Input: $INPUT_DIR"
 echo "📊 Output: $OUTPUT_DIR"
-if [[ ${#BASH_ARGS[@]} -gt 0 ]]; then
-    echo "🔧 Bash options: ${BASH_ARGS[*]}"
+if [[ ${#CLAUDE_ARGS[@]} -gt 0 ]]; then
+    echo "🔧 Claude options: ${CLAUDE_ARGS[*]}"
 fi
-echo "🔍 Use this shell to debug the container environment"
-echo "   - Claude config: cat ~/.claude.json"
-echo "   - MCP servers: ls -la /workspace/mcp-servers/"
-echo "   - Test Claude: claude-code --help"
 echo ""
 
-docker "${DOCKER_ARGS[@]}" claude-code-container-chonky "${BASH_ARGS[@]}"
+docker "${DOCKER_ARGS[@]}" proveo/claude-code-solo "${CLAUDE_ARGS[@]}"

@@ -6,7 +6,7 @@ set -euo pipefail
 usage() {
     echo "Usage: $0 [--input-dir PATH] [--output-dir PATH] [--data-dir PATH] [claude args...]"
     echo ""
-    echo "Runs Claude Code in Docker with:"
+    echo "Runs the Claude Code container in Docker with:"
     echo "  - input directory mounted read-only at /workspace/input"
     echo "  - output directory mounted read-write at /workspace/output"
     echo "  - optional data directory mounted read-only at /workspace/data"
@@ -112,4 +112,4 @@ if [[ ${#CLAUDE_ARGS[@]} -gt 0 ]]; then
 fi
 echo ""
 
-docker "${DOCKER_ARGS[@]}" claude-code-container "${CLAUDE_ARGS[@]}"
+docker "${DOCKER_ARGS[@]}" proveo/claude-code "${CLAUDE_ARGS[@]}"

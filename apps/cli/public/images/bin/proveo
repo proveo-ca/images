@@ -7,8 +7,8 @@ INSTALL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TARGETS=(
   "aider-node"
   "charles-proxy"
-  "claude-standalone"
-  "claude-chonky"
+  "claude-code"
+  "claude-code-solo"
 )
 
 usage() {
@@ -22,14 +22,14 @@ Usage:
 Targets:
   aider-node
   charles-proxy
-  claude-standalone
-  claude-chonky
+  claude-code
+  claude-code-solo
 
 Examples:
   proveo help
   proveo list
   proveo run aider-node
-  proveo run claude-chonky -- --debug --mcp-debug
+  proveo run claude-code -- --debug --mcp-debug
   proveo uninstall
 EOF
 }
@@ -80,7 +80,7 @@ list_targets() {
 is_ai_harness() {
   local target="$1"
   case "$target" in
-    aider-node|claude-standalone|claude-chonky)
+    aider-node|claude-code|claude-code-solo)
       return 0
       ;;
     *)
@@ -98,11 +98,11 @@ image_name() {
     charles-proxy)
       echo "proveo/charles-proxy"
       ;;
-    claude-standalone)
-      echo "proveo/claude-standalone"
+    claude-code)
+      echo "proveo/claude-code"
       ;;
-    claude-chonky)
-      echo "proveo/claude-chonky"
+    claude-code-solo)
+      echo "proveo/claude-code-solo"
       ;;
     *)
       print_error "No image name mapping for target: $target"
@@ -428,7 +428,7 @@ run_target() {
       scope_dir="$(choose_scope "$target")"
       run_aider_node "$scope_dir" "${extra_args[@]}"
       ;;
-    claude-standalone|claude-chonky)
+    claude-code|claude-code-solo)
       scope_dir="$(choose_scope "$target")"
       run_claude_container "$(image_name "$target")" "$scope_dir" "${extra_args[@]}"
       ;;

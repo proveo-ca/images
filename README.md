@@ -67,8 +67,8 @@ Use this mode when you only want to:
 In consumer mode, users install the lightweight CLI and then run published images such as:
 - `proveo/aider-node`
 - `proveo/charles-proxy`
-- `proveo/claude-standalone`
-- `proveo/claude-chonky`
+- `proveo/claude-code`
+- `proveo/claude-code-solo`
 
 For coding harness targets, `proveo` also supports pnpm monorepo scope selection when run from inside a git repository.
 
@@ -81,8 +81,8 @@ Coding harness containers are interactive developer and AI-agent environments fo
 Current coding harnesses in this repo:
 
 - `proveo/aider-node`
-- `proveo/claude-standalone`
-- `proveo/claude-chonky`
+- `proveo/claude-code`
+- `proveo/claude-code-solo`
 
 These containers are designed to:
 
@@ -120,15 +120,21 @@ docker run -it --rm \
   proveo/aider-node
 ```
 
-### claude-standalone
+### claude-code
 
-> Claude Code container without extra MCP server configuration.
+> Claude Code container with MCP integrations and the default `proveo/claude-code` image name.
+
+Implementation path:
+- `claude-code/mcp`
 
 See [claude-code/README.md](./claude-code/README.md) for details.
 
-### claude-chonky
+### claude-code-solo
 
-> Claude Code container with Chonky-specific configuration and MCP integrations.
+> Claude Code container without the MCP-integrated default stack.
+
+Implementation path:
+- `claude-code/solo`
 
 See [claude-code/README.md](./claude-code/README.md) for details.
 
@@ -235,9 +241,9 @@ Use the dev CLI from a local checkout when working on this repo.
 probe help
 probe list
 probe build aider-node --tag latest
-probe test claude-standalone
+probe test claude-code
 probe run aider-node
-probe debug claude-chonky
+probe debug claude-code
 probe deploy charles-proxy --tag latest
 probe uninstall
 ```
@@ -260,8 +266,8 @@ Examples:
 ```bash
 probe build aider-node --tag latest
 probe build charles-proxy --tag latest
-probe build claude-standalone --tag latest
-probe build claude-chonky --tag latest
+probe build claude-code --tag latest
+probe build claude-code-solo --tag latest
 ```
 
 ### Test images with `probe`
@@ -271,8 +277,8 @@ Examples:
 ```bash
 probe test aider-node
 probe test charles-proxy
-probe test claude-standalone
-probe test claude-chonky
+probe test claude-code
+probe test claude-code-solo
 ```
 
 ### Run images with `probe`
@@ -281,8 +287,8 @@ Examples:
 
 ```bash
 probe run aider-node
-probe run claude-standalone
-probe run claude-chonky
+probe run claude-code
+probe run claude-code-solo
 probe run charles-proxy
 ```
 
@@ -292,8 +298,8 @@ Examples:
 
 ```bash
 probe debug aider-node
-probe debug claude-standalone
-probe debug claude-chonky
+probe debug claude-code
+probe debug claude-code-solo
 probe debug charles-proxy
 ```
 
@@ -304,8 +310,8 @@ Examples:
 ```bash
 probe deploy aider-node --tag latest
 probe deploy charles-proxy --tag latest
-probe deploy claude-standalone --tag latest
-probe deploy claude-chonky --tag latest
+probe deploy claude-code --tag latest
+probe deploy claude-code-solo --tag latest
 ```
 
 ## Consumer Workflow (`proveo`)
@@ -334,7 +340,7 @@ This installs the consumer CLI into a local user directory, adds it to your PATH
 proveo help
 proveo list
 proveo run aider-node
-proveo run claude-chonky
+proveo run claude-code
 proveo run charles-proxy
 proveo uninstall
 ```

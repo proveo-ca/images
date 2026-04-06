@@ -8,8 +8,8 @@ CONSUMER_UNINSTALL_SCRIPT="$REPO_ROOT/apps/cli/public/images/uninstall.sh"
 TARGETS=(
   "aider-node"
   "charles-proxy"
-  "claude-standalone"
-  "claude-chonky"
+  "claude-code"
+  "claude-code-solo"
 )
 
 usage() {
@@ -27,16 +27,17 @@ Usage:
 Targets:
   aider-node
   charles-proxy
-  claude-standalone
-  claude-chonky
+  claude-code
+  claude-code-solo
 
 Examples:
   bin/probe list
   bin/probe help
   bin/probe build aider-node --tag latest
+  bin/probe build claude-code --tag latest
   bin/probe run aider-node
-  bin/probe run claude-chonky -- --debug --mcp-debug
-  bin/probe debug claude-standalone
+  bin/probe run claude-code -- --debug --mcp-debug
+  bin/probe debug claude-code-solo
   bin/probe deploy charles-proxy --tag latest
   bin/probe uninstall
 EOF
@@ -101,7 +102,7 @@ list_targets() {
 is_ai_harness() {
   local target="$1"
   case "$target" in
-    aider-node|claude-standalone|claude-chonky)
+    aider-node|claude-code|claude-code-solo)
       return 0
       ;;
     *)
@@ -119,11 +120,11 @@ image_name() {
     charles-proxy)
       echo "proveo/charles-proxy"
       ;;
-    claude-standalone)
-      echo "proveo/claude-standalone"
+    claude-code)
+      echo "proveo/claude-code"
       ;;
-    claude-chonky)
-      echo "proveo/claude-chonky"
+    claude-code-solo)
+      echo "proveo/claude-code-solo"
       ;;
     *)
       print_error "No image name mapping for target: $target"
@@ -141,11 +142,11 @@ local_image_name() {
     charles-proxy)
       echo "proveo/charles-proxy"
       ;;
-    claude-standalone)
-      echo "claude-code-container"
-      ;;
-    claude-chonky)
+    claude-code)
       echo "claude-code-container-chonky"
+      ;;
+    claude-code-solo)
+      echo "claude-code-container"
       ;;
     *)
       print_error "No local image mapping for target: $target"
@@ -337,27 +338,27 @@ build_target() {
       docker build ${no_cache:+$no_cache} -t "$(image_name "$target"):$tag" "$REPO_ROOT/charles-proxy"
       print_success "Built $(image_name "$target"):$tag"
       ;;
-    claude-standalone)
+    claude-code)
       print_info "Building $target with tag $tag..."
       (
-        cd "$REPO_ROOT/claude-code/standalone"
+        cd "$REPO_ROOT/claude-code/mcp"
         if [[ -n "$no_cache" ]]; then
-          ./build.sh --no-cache
+          ./build.chonky.sh --no-cache
         else
-          ./build.sh
+          ./build.chonky.sh
         fi
       )
       docker tag "$(local_image_name "$target")" "$(image_name "$target"):$tag"
       print_success "Built $(local_image_name "$target") and tagged $(image_name "$target"):$tag"
       ;;
-    claude-chonky)
+    claude-code-solo)
       print_info "Building $target with tag $tag..."
       (
-        cd "$REPO_ROOT/claude-code/chonky"
+        cd "$REPO_ROOT/claude-code/solo"
         if [[ -n "$no_cache" ]]; then
-          ./build.chonky.sh --no-cache
+          ./build.sh --no-cache
         else
-          ./build.chonky.sh
+          ./build.sh
         fi
       )
       docker tag "$(local_image_name "$target")" "$(image_name "$target"):$tag"
@@ -374,7 +375,7 @@ test_target() {
   local target="$1"
 
   case "$target" in
-    claude-standalone|claude-chonky)
+    claude-code|claude-code-solo)
       print_info "Running Claude test suite for $target..."
       (
         cd "$REPO_ROOT/claude-code/tests"
@@ -535,13 +536,13 @@ run_claude_wrapper() {
   wrapper_args+=("${extra_args[@]}")
 
   case "$target" in
-    claude-standalone)
+    claude-code)
       ensure_image_available "$(local_image_name "$target")" "$target"
-      "$REPO_ROOT/claude-code/standalone/run_claude.sh" "${wrapper_args[@]}"
+      "$REPO_ROOT/claude-code/mcp/run_claude.chonky.sh" "${wrapper_args[@]}"
       ;;
-    claude-chonky)
+    claude-code-solo)
       ensure_image_available "$(local_image_name "$target")" "$target"
-      "$REPO_ROOT/claude-code/chonky/run_claude.chonky.sh" "${wrapper_args[@]}"
+      "$REPO_ROOT/claude-code/solo/run_claude.sh" "${wrapper_args[@]}"
       ;;
     *)
       print_error "Unsupported Claude run target: $target"
@@ -572,13 +573,13 @@ debug_claude_wrapper() {
   wrapper_args+=("${extra_args[@]}")
 
   case "$target" in
-    claude-standalone)
+    claude-code)
       ensure_image_available "$(local_image_name "$target")" "$target"
-      "$REPO_ROOT/claude-code/standalone/debug-shell.sh" "${wrapper_args[@]}"
+      "$REPO_ROOT/claude-code/mcp/debug-shell.chonky.sh" "${wrapper_args[@]}"
       ;;
-    claude-chonky)
+    claude-code-solo)
       ensure_image_available "$(local_image_name "$target")" "$target"
-      "$REPO_ROOT/claude-code/chonky/debug-shell.chonky.sh" "${wrapper_args[@]}"
+      "$REPO_ROOT/claude-code/solo/debug-shell.sh" "${wrapper_args[@]}"
       ;;
     *)
       print_error "Unsupported Claude debug target: $target"
@@ -635,7 +636,7 @@ run_target() {
       scope_dir="$(choose_scope "$target")"
       run_aider_node "$scope_dir" "${extra_args[@]}"
       ;;
-    claude-standalone|claude-chonky)
+    claude-code|claude-code-solo)
       scope_dir="$(choose_scope "$target")"
       run_claude_wrapper "$target" "$scope_dir" "${extra_args[@]}"
       ;;
@@ -660,7 +661,7 @@ debug_target() {
       scope_dir="$(choose_scope "$target")"
       debug_aider_node "$scope_dir" "${extra_args[@]}"
       ;;
-    claude-standalone|claude-chonky)
+    claude-code|claude-code-solo)
       scope_dir="$(choose_scope "$target")"
       debug_claude_wrapper "$target" "$scope_dir" "${extra_args[@]}"
       ;;
