@@ -133,26 +133,39 @@ image_name() {
   esac
 }
 
-local_image_name() {
+target_dir() {
   local target="$1"
   case "$target" in
     aider-node)
-      echo "proveo/aider-node"
+      echo "$REPO_ROOT/aider-node"
       ;;
     charles-proxy)
-      echo "proveo/charles-proxy"
+      echo "$REPO_ROOT/charles-proxy"
       ;;
     claude-code)
-      echo "claude-code-container-chonky"
+      echo "$REPO_ROOT/claude-code/mcp"
       ;;
     claude-code-solo)
-      echo "claude-code-container"
+      echo "$REPO_ROOT/claude-code/solo"
       ;;
     *)
-      print_error "No local image mapping for target: $target"
+      print_error "No directory mapping for target: $target"
       exit 1
       ;;
   esac
+}
+
+find_script_in_dir() {
+  local dir="$1"
+  shift
+  local script_name
+  for script_name in "$@"; do
+    if [[ -f "$dir/$script_name" ]]; then
+      echo "$dir/$script_name"
+      return 0
+    fi
+  done
+  return 1
 }
 
 is_pnpm_monorepo() {
@@ -326,62 +339,56 @@ build_target() {
   local target="$1"
   local tag="$2"
   local no_cache="${3:-}"
+  local dir
+  dir="$(target_dir "$target")"
 
-  case "$target" in
-    aider-node)
-      print_info "Building $target with tag $tag..."
-      docker build ${no_cache:+$no_cache} -t "$(image_name "$target"):$tag" "$REPO_ROOT/aider-node"
-      print_success "Built $(image_name "$target"):$tag"
-      ;;
-    charles-proxy)
-      print_info "Building $target with tag $tag..."
-      docker build ${no_cache:+$no_cache} -t "$(image_name "$target"):$tag" "$REPO_ROOT/charles-proxy"
-      print_success "Built $(image_name "$target"):$tag"
-      ;;
-    claude-code)
-      print_info "Building $target with tag $tag..."
-      (
-        cd "$REPO_ROOT/claude-code/mcp"
-        if [[ -n "$no_cache" ]]; then
-          ./build.chonky.sh --no-cache
-        else
-          ./build.chonky.sh
-        fi
-      )
-      docker tag "$(local_image_name "$target")" "$(image_name "$target"):$tag"
-      print_success "Built $(local_image_name "$target") and tagged $(image_name "$target"):$tag"
-      ;;
-    claude-code-solo)
-      print_info "Building $target with tag $tag..."
-      (
-        cd "$REPO_ROOT/claude-code/solo"
-        if [[ -n "$no_cache" ]]; then
-          ./build.sh --no-cache
-        else
-          ./build.sh
-        fi
-      )
-      docker tag "$(local_image_name "$target")" "$(image_name "$target"):$tag"
-      print_success "Built $(local_image_name "$target") and tagged $(image_name "$target"):$tag"
-      ;;
-    *)
-      print_error "Unsupported build target: $target"
-      exit 1
-      ;;
-  esac
+  local build_script=""
+  build_script="$(find_script_in_dir "$dir" build.sh build.bash 2>/dev/null || true)"
+
+  if [[ -n "$build_script" ]]; then
+    print_info "Building $target with tag $tag via $(basename "$build_script")..."
+    (
+      cd "$dir"
+      if [[ -n "$no_cache" ]]; then
+        "$build_script" --no-cache
+      else
+        "$build_script"
+      fi
+    )
+
+    if docker image inspect "$(image_name "$target")" >/dev/null 2>&1; then
+      docker tag "$(image_name "$target")" "$(image_name "$target"):$tag"
+    fi
+
+    ensure_image_available "$(image_name "$target"):$tag" "$target"
+    print_success "Built $(image_name "$target"):$tag"
+    return 0
+  fi
+
+  print_info "Building $target with tag $tag via docker build fallback..."
+  docker build ${no_cache:+$no_cache} -t "$(image_name "$target"):$tag" -f "$dir/Dockerfile" "$dir"
+  print_success "Built $(image_name "$target"):$tag"
 }
 
 test_target() {
   local target="$1"
+  local dir
+  dir="$(target_dir "$target")"
+
+  local test_script=""
+  test_script="$(find_script_in_dir "$dir" test.sh test.bash 2>/dev/null || true)"
+
+  if [[ -n "$test_script" ]]; then
+    print_info "Running tests for $target via $(basename "$test_script")..."
+    (
+      cd "$dir"
+      "$test_script"
+    )
+    print_success "Tests passed for $target"
+    return 0
+  fi
 
   case "$target" in
-    claude-code|claude-code-solo)
-      print_info "Running Claude test suite for $target..."
-      (
-        cd "$REPO_ROOT/claude-code/tests"
-        ./run_tests.sh
-      )
-      ;;
     aider-node)
       print_info "Running smoke tests for aider-node..."
       ensure_image_available "$(image_name "$target"):latest" "$target"
@@ -393,7 +400,7 @@ test_target() {
       docker run --rm --entrypoint /bin/bash "$(image_name "$target"):latest" -lc 'charles -help >/dev/null'
       ;;
     *)
-      print_error "Unsupported test target: $target"
+      print_error "No test script found for $target and no fallback is defined."
       exit 1
       ;;
   esac
@@ -520,35 +527,57 @@ run_claude_wrapper() {
   shift 2
   local -a extra_args=("$@")
 
+  local dir
   local output_dir
   local data_dir
-  local -a wrapper_args=()
-
+  dir="$(target_dir "$target")"
   output_dir="$(default_claude_output_dir "$scope_dir")"
   data_dir="$(default_claude_data_dir "$scope_dir" || true)"
 
   mkdir -p "$output_dir"
 
-  wrapper_args+=(--input-dir "$scope_dir" --output-dir "$output_dir")
-  if [[ -n "$data_dir" ]]; then
-    wrapper_args+=(--data-dir "$data_dir")
-  fi
-  wrapper_args+=("${extra_args[@]}")
+  local run_script=""
+  run_script="$(find_script_in_dir "$dir" run.sh run_claude.sh 2>/dev/null || true)"
 
-  case "$target" in
-    claude-code)
-      ensure_image_available "$(local_image_name "$target")" "$target"
-      "$REPO_ROOT/claude-code/mcp/run_claude.chonky.sh" "${wrapper_args[@]}"
-      ;;
-    claude-code-solo)
-      ensure_image_available "$(local_image_name "$target")" "$target"
-      "$REPO_ROOT/claude-code/solo/run_claude.sh" "${wrapper_args[@]}"
-      ;;
-    *)
-      print_error "Unsupported Claude run target: $target"
-      exit 1
-      ;;
-  esac
+  if [[ -n "$run_script" ]]; then
+    print_info "Running $target via $(basename "$run_script")..."
+    (
+      cd "$dir"
+      if [[ -n "$data_dir" ]]; then
+        "$run_script" --input-dir "$scope_dir" --output-dir "$output_dir" --data-dir "$data_dir" "${extra_args[@]}"
+      else
+        "$run_script" --input-dir "$scope_dir" --output-dir "$output_dir" "${extra_args[@]}"
+      fi
+    )
+    return 0
+  fi
+
+  local image
+  image="$(image_name "$target"):latest"
+  ensure_image_available "$image" "$target"
+
+  local -a docker_args=(
+    run -it --rm
+    --cap-drop=ALL
+    --security-opt=no-new-privileges:true
+    --tmpfs /tmp:noexec,nosuid,size=100m
+    --tmpfs /workspace/temp:noexec,nosuid,size=2g
+    --pids-limit=100
+    --network=bridge
+    --add-host=host.docker.internal:127.0.0.1
+    -v "$scope_dir:/workspace/input:ro"
+    -v "$output_dir:/workspace/output:rw"
+    -e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}"
+  )
+
+  if [[ -n "$data_dir" ]]; then
+    docker_args+=(-v "$data_dir:/workspace/data:ro")
+  fi
+
+  docker_args+=("$image")
+  docker_args+=("${extra_args[@]}")
+
+  docker "${docker_args[@]}"
 }
 
 debug_claude_wrapper() {
@@ -557,35 +586,58 @@ debug_claude_wrapper() {
   shift 2
   local -a extra_args=("$@")
 
+  local dir
   local output_dir
   local data_dir
-  local -a wrapper_args=()
-
+  dir="$(target_dir "$target")"
   output_dir="$(default_claude_output_dir "$scope_dir")"
   data_dir="$(default_claude_data_dir "$scope_dir" || true)"
 
   mkdir -p "$output_dir"
 
-  wrapper_args+=(--input-dir "$scope_dir" --output-dir "$output_dir")
-  if [[ -n "$data_dir" ]]; then
-    wrapper_args+=(--data-dir "$data_dir")
-  fi
-  wrapper_args+=("${extra_args[@]}")
+  local debug_script=""
+  debug_script="$(find_script_in_dir "$dir" debug.sh debug-shell.sh 2>/dev/null || true)"
 
-  case "$target" in
-    claude-code)
-      ensure_image_available "$(local_image_name "$target")" "$target"
-      "$REPO_ROOT/claude-code/mcp/debug-shell.chonky.sh" "${wrapper_args[@]}"
-      ;;
-    claude-code-solo)
-      ensure_image_available "$(local_image_name "$target")" "$target"
-      "$REPO_ROOT/claude-code/solo/debug-shell.sh" "${wrapper_args[@]}"
-      ;;
-    *)
-      print_error "Unsupported Claude debug target: $target"
-      exit 1
-      ;;
-  esac
+  if [[ -n "$debug_script" ]]; then
+    print_info "Debugging $target via $(basename "$debug_script")..."
+    (
+      cd "$dir"
+      if [[ -n "$data_dir" ]]; then
+        "$debug_script" --input-dir "$scope_dir" --output-dir "$output_dir" --data-dir "$data_dir" "${extra_args[@]}"
+      else
+        "$debug_script" --input-dir "$scope_dir" --output-dir "$output_dir" "${extra_args[@]}"
+      fi
+    )
+    return 0
+  fi
+
+  local image
+  image="$(image_name "$target"):latest"
+  ensure_image_available "$image" "$target"
+
+  local -a docker_args=(
+    run -it --rm
+    --entrypoint bash
+    --cap-drop=ALL
+    --security-opt=no-new-privileges:true
+    --tmpfs /tmp:noexec,nosuid,size=100m
+    --tmpfs /workspace/temp:noexec,nosuid,size=2g
+    --pids-limit=100
+    --network=bridge
+    --add-host=host.docker.internal:127.0.0.1
+    -v "$scope_dir:/workspace/input:ro"
+    -v "$output_dir:/workspace/output:rw"
+    -e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}"
+  )
+
+  if [[ -n "$data_dir" ]]; then
+    docker_args+=(-v "$data_dir:/workspace/data:ro")
+  fi
+
+  docker_args+=("$image")
+  docker_args+=("${extra_args[@]}")
+
+  docker "${docker_args[@]}"
 }
 
 run_charles_proxy() {
@@ -680,14 +732,9 @@ deploy_target() {
   local tag="$2"
 
   local publish_image
-  local local_image
   publish_image="$(image_name "$target"):$tag"
-  local_image="$(local_image_name "$target")"
 
-  ensure_image_available "$local_image" "$target"
-
-  print_info "Tagging $local_image as $publish_image"
-  docker tag "$local_image" "$publish_image"
+  ensure_image_available "$publish_image" "$target"
 
   print_info "Pushing $publish_image"
   docker push "$publish_image"

@@ -394,7 +394,10 @@ run_claude_container() {
   fi
   echo ""
 
-  docker "${docker_args[@]}" "$image" "${extra_args[@]}"
+  docker_args+=("$image")
+  docker_args+=("${extra_args[@]}")
+
+  docker "${docker_args[@]}"
 }
 
 run_charles_proxy() {
