@@ -10,7 +10,8 @@ The repo is being organized around these root concepts:
 
 ```text
 .
-├── apps/              # deployable apps/utilities such as Cloudflare-hosted install assets
+├── apps/
+│   └── cli/           # Cloudflare-hosted install/distribution assets for the proveo CLI
 ├── packages/          # reusable tooling, libraries, or shared workspace code
 ├── aider-node/        # container project
 ├── claude-code/       # container project
@@ -101,6 +102,11 @@ Root workspaces are declared in `pnpm-workspace.yaml` and currently cover:
 
 - `apps/*`
 - `packages/*`
+
+The primary app workspace is currently:
+
+- `apps/cli`
+  - the Cloudflare-deployed workspace that serves install/distribution assets for the `proveo` CLI
 
 This allows new deployable apps and reusable packages to be added without restructuring the container folders yet.
 

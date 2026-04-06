@@ -7,7 +7,7 @@
   },
   "scripts": {
     "wrangler": "wrangler",
-    "deploy:install": "wrangler deploy",
-    "dev:install": "wrangler dev"
+    "deploy:cli": "wrangler deploy --cwd apps/cli",
+    "dev:cli": "wrangler dev --cwd apps/cli"
   }
 }
