@@ -2,7 +2,28 @@
 
 https://hub.docker.com/repositories/proveo
 
-This repository contains multiple Docker images under the `proveo/` namespace.
+This repository contains multiple Docker images under the `proveo/` namespace and now uses a light monorepo control-plane at the root for shared tooling and deployment workflows.
+
+## Repository Layout
+
+The repo is being organized around these root concepts:
+
+```text
+.
+├── apps/              # deployable apps/utilities such as Cloudflare-hosted install assets
+├── packages/          # reusable tooling, libraries, or shared workspace code
+├── aider-node/        # container project
+├── claude-code/       # container project
+├── charles-proxy/     # container project
+├── bin/               # CLI entrypoints
+├── install.sh
+├── uninstall.sh
+├── package.json
+├── pnpm-workspace.yaml
+└── mise.toml
+```
+
+For now, the container/image folders remain at the repository root instead of moving under a dedicated `images/` directory. This keeps path churn low while still letting the repo adopt root-level monorepo tooling.
 
 ## Container Types
 
@@ -69,6 +90,34 @@ See [claude-code/README.md](./claude-code/README.md) for details.
 > Charles Proxy running in a containerized headless setup.
 
 See `charles-proxy/` for image details.
+
+## Root Tooling
+
+The repository now has a root workspace/tooling layer intended for local developer workflows.
+
+### pnpm workspace
+
+Root workspaces are declared in `pnpm-workspace.yaml` and currently cover:
+
+- `apps/*`
+- `packages/*`
+
+This allows new deployable apps and reusable packages to be added without restructuring the container folders yet.
+
+### Wrangler
+
+`wrangler` is installed at the root as a dev dependency so Cloudflare-hosted install/distribution assets can be built and deployed from a consistent local toolchain.
+
+### mise
+
+`mise` is used as an optional developer toolchain manager for pinning commonly used tools such as:
+
+- `node`
+- `pnpm`
+
+and for defining lightweight shared tasks.
+
+Consumer installation of `proveo` still does **not** depend on `mise`, Node, or pnpm.
 
 ## Unified CLI
 

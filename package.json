@@ -1,0 +1,13 @@
+{
+  "name": "proveo-monorepo",
+  "private": true,
+  "packageManager": "pnpm@10",
+  "devDependencies": {
+    "wrangler": "^4.11.1"
+  },
+  "scripts": {
+    "wrangler": "wrangler",
+    "deploy:install": "wrangler deploy",
+    "dev:install": "wrangler dev"
+  }
+}

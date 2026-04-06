@@ -1,0 +1,19 @@
+[tools]
+node = "22"
+pnpm = "10"
+
+[tasks.install]
+description = "Install root workspace dependencies"
+run = "pnpm install"
+
+[tasks.wrangler-version]
+description = "Show the local wrangler version"
+run = "pnpm exec wrangler --version"
+
+[tasks.deploy-install]
+description = "Deploy Cloudflare install/distribution assets with Wrangler"
+run = "pnpm exec wrangler deploy"
+
+[tasks.dev-install]
+description = "Run Cloudflare install/distribution assets locally with Wrangler"
+run = "pnpm exec wrangler dev"
