@@ -13,6 +13,7 @@ The repo is being organized around these root concepts:
 ├── apps/
 │   └── cli/           # Cloudflare-hosted install/distribution assets for the proveo CLI
 ├── packages/          # reusable tooling, libraries, or shared workspace code
+├── scripts/           # maintenance and sync scripts
 ├── aider-node/        # container project
 ├── claude-code/       # container project
 ├── charles-proxy/     # container project
@@ -171,6 +172,85 @@ and for defining lightweight shared tasks.
 
 Consumer installation of `proveo` still does **not** depend on `mise`, Node, or pnpm.
 
+## CLI Asset Sync and Deploy Hierarchy
+
+The consumer CLI files now have a clear hierarchy of responsibility.
+
+### Source of truth
+
+These root files are the only files that should be edited directly for the consumer CLI:
+
+- `install.sh`
+- `uninstall.sh`
+- `bin/proveo`
+- `bin/help.sh`
+
+### Deploy artifacts
+
+The Cloudflare app serves synced copies under:
+
+- `apps/cli/public/images/install.sh`
+- `apps/cli/public/images/uninstall.sh`
+- `apps/cli/public/images/bin/proveo`
+- `apps/cli/public/images/bin/help.sh`
+
+These should be treated as generated deploy artifacts, not hand-maintained primary copies.
+
+### Sync step
+
+The sync step is handled by:
+
+```bash
+./scripts/sync-cli-assets.sh
+```
+
+It copies the root source-of-truth files into `apps/cli/public/images/...` before local dev serving or deployment.
+
+### Deployment engine
+
+`wrangler` is the actual deployment engine.
+
+It is the tool that:
+- reads `apps/cli/wrangler.toml`
+- serves `apps/cli/public/...` locally
+- deploys the assets to Cloudflare
+
+### Command hierarchy
+
+Recommended mental model:
+
+```text
+root source files
+  -> scripts/sync-cli-assets.sh
+  -> apps/cli/public/images/*
+  -> wrangler dev/deploy
+  -> Cloudflare
+```
+
+Developer command wrappers simply orchestrate this:
+
+- `mise` = preferred maintainer task runner
+- `package.json` scripts = Node/pnpm convenience wrappers
+- `wrangler` = actual deploy engine
+
+### Common sync/dev/deploy commands
+
+Using `mise`:
+
+```bash
+mise run sync-cli-assets
+mise run dev-cli
+mise run deploy-cli
+```
+
+Using pnpm:
+
+```bash
+pnpm run sync:cli
+pnpm run dev:cli
+pnpm run deploy:cli
+```
+
 ## Local Dev Workflow (`probe`)
 
 Use the dev CLI from a local checkout when working on this repo.
@@ -180,7 +260,7 @@ Use the dev CLI from a local checkout when working on this repo.
 ```bash
 probe help
 probe list
-probe build aider-node
+probe build aider-node --tag latest
 probe test claude-standalone
 probe run aider-node
 probe debug claude-chonky
@@ -202,10 +282,10 @@ probe deploy charles-proxy --tag latest
 Examples:
 
 ```bash
-probe build aider-node
-probe build charles-proxy
-probe build claude-standalone
-probe build claude-chonky
+probe build aider-node --tag latest
+probe build charles-proxy --tag latest
+probe build claude-standalone --tag latest
+probe build claude-chonky --tag latest
 ```
 
 ### Test images with `probe`
