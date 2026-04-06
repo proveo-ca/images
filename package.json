@@ -7,8 +7,7 @@
   },
   "scripts": {
     "wrangler": "wrangler",
-    "sync:cli": "./scripts/sync-cli-assets.sh",
-    "deploy:cli": "pnpm run sync:cli && wrangler deploy --cwd apps/cli",
-    "dev:cli": "pnpm run sync:cli && wrangler dev --cwd apps/cli"
+    "deploy:cli": "wrangler deploy --cwd apps/cli",
+    "dev:cli": "wrangler dev --cwd apps/cli"
   }
 }

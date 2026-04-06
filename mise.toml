@@ -6,24 +6,14 @@ pnpm = "10"
 description = "Install root workspace dependencies"
 run = "pnpm install"
 
-[tasks.sync-cli-assets]
-description = "Sync root consumer CLI files into apps/cli/public/images"
-run = "./scripts/sync-cli-assets.sh"
-
 [tasks.wrangler-version]
 description = "Show the local wrangler version"
 run = "pnpm exec wrangler --version"
 
 [tasks.deploy-cli]
-description = "Sync assets and deploy the apps/cli Cloudflare workspace with Wrangler"
-run = """
-./scripts/sync-cli-assets.sh
-pnpm exec wrangler deploy --cwd apps/cli
-"""
+description = "Deploy the apps/cli Cloudflare workspace with Wrangler"
+run = "pnpm exec wrangler deploy --cwd apps/cli"
 
 [tasks.dev-cli]
-description = "Sync assets and run the apps/cli Cloudflare workspace locally with Wrangler"
-run = """
-./scripts/sync-cli-assets.sh
-pnpm exec wrangler dev --cwd apps/cli
-"""
+description = "Run the apps/cli Cloudflare workspace locally with Wrangler"
+run = "pnpm exec wrangler dev --cwd apps/cli"

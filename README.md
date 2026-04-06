@@ -13,13 +13,10 @@ The repo is being organized around these root concepts:
 ├── apps/
 │   └── cli/           # Cloudflare-hosted install/distribution assets for the proveo CLI
 ├── packages/          # reusable tooling, libraries, or shared workspace code
-├── scripts/           # maintenance and sync scripts
 ├── aider-node/        # container project
 ├── claude-code/       # container project
 ├── charles-proxy/     # container project
-├── bin/               # CLI entrypoints
-├── install.sh
-├── uninstall.sh
+├── bin/               # developer CLI entrypoints such as probe
 ├── package.json
 ├── pnpm-workspace.yaml
 └── mise.toml
@@ -70,6 +67,8 @@ Use this mode when you only want to:
 In consumer mode, users install the lightweight CLI and then run published images such as:
 - `proveo/aider-node`
 - `proveo/charles-proxy`
+- `proveo/claude-standalone`
+- `proveo/claude-chonky`
 
 For coding harness targets, `proveo` also supports pnpm monorepo scope selection when run from inside a git repository.
 
@@ -172,39 +171,16 @@ and for defining lightweight shared tasks.
 
 Consumer installation of `proveo` still does **not** depend on `mise`, Node, or pnpm.
 
-## CLI Asset Sync and Deploy Hierarchy
+## Consumer CLI Source of Truth
 
-The consumer CLI files now have a clear hierarchy of responsibility.
-
-### Source of truth
-
-These root files are the only files that should be edited directly for the consumer CLI:
-
-- `install.sh`
-- `uninstall.sh`
-- `bin/proveo`
-- `bin/help.sh`
-
-### Deploy artifacts
-
-The Cloudflare app serves synced copies under:
+The consumer CLI now has a single source of truth:
 
 - `apps/cli/public/images/install.sh`
 - `apps/cli/public/images/uninstall.sh`
 - `apps/cli/public/images/bin/proveo`
 - `apps/cli/public/images/bin/help.sh`
 
-These should be treated as generated deploy artifacts, not hand-maintained primary copies.
-
-### Sync step
-
-The sync step is handled by:
-
-```bash
-./scripts/sync-cli-assets.sh
-```
-
-It copies the root source-of-truth files into `apps/cli/public/images/...` before local dev serving or deployment.
+These are the files served by Cloudflare and they should be edited directly there.
 
 ### Deployment engine
 
@@ -220,9 +196,7 @@ It is the tool that:
 Recommended mental model:
 
 ```text
-root source files
-  -> scripts/sync-cli-assets.sh
-  -> apps/cli/public/images/*
+apps/cli/public/images/*
   -> wrangler dev/deploy
   -> Cloudflare
 ```
@@ -233,12 +207,11 @@ Developer command wrappers simply orchestrate this:
 - `package.json` scripts = Node/pnpm convenience wrappers
 - `wrangler` = actual deploy engine
 
-### Common sync/dev/deploy commands
+### Common dev/deploy commands
 
 Using `mise`:
 
 ```bash
-mise run sync-cli-assets
 mise run dev-cli
 mise run deploy-cli
 ```
@@ -246,7 +219,6 @@ mise run deploy-cli
 Using pnpm:
 
 ```bash
-pnpm run sync:cli
 pnpm run dev:cli
 pnpm run deploy:cli
 ```
@@ -388,7 +360,7 @@ For coding harness targets, the CLI can:
 - prompt you to choose repo root or a workspace
 - launch the selected harness against that explicit scope
 
-`proveo help` is backed by `bin/help.sh`. When adding, renaming, or removing container targets, update `bin/help.sh` so the installed CLI help stays accurate.
+`proveo help` is backed by `apps/cli/public/images/bin/help.sh`. When adding, renaming, or removing container targets, update that file so the installed CLI help stays accurate.
 
 ## Coding Harness Specification
 
@@ -486,7 +458,7 @@ my-harness/
    - run and debug logic
    - test and deploy logic
 
-7. Update `bin/help.sh`
+7. Update `apps/cli/public/images/bin/help.sh`
    - add the new target and its short description
    - keep the installed `proveo help` output accurate
 

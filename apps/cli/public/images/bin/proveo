@@ -99,10 +99,10 @@ image_name() {
       echo "proveo/charles-proxy"
       ;;
     claude-standalone)
-      echo "claude-code-container"
+      echo "proveo/claude-standalone"
       ;;
     claude-chonky)
-      echo "claude-code-container-chonky"
+      echo "proveo/claude-chonky"
       ;;
     *)
       print_error "No image name mapping for target: $target"
