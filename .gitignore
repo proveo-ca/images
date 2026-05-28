@@ -1,3 +1,6 @@
+# Ignore package managers
+node_modules
+
 # Ignore build outputs
 *.tar
 *.img
@@ -12,3 +15,6 @@
 
 # Assistants
 .aider*
+
+# Misc
+.pki

@@ -1,0 +1,19 @@
+[tools]
+node = "24"
+pnpm = "10"
+
+[tasks.install]
+description = "Install root workspace dependencies"
+run = "pnpm install"
+
+[tasks.wrangler-version]
+description = "Show the local wrangler version"
+run = "pnpm exec wrangler --version"
+
+[tasks.deploy-cli]
+description = "Deploy the apps/cli Cloudflare workspace with Wrangler"
+run = "pnpm exec wrangler deploy --cwd apps/cli"
+
+[tasks.dev-cli]
+description = "Run the apps/cli Cloudflare workspace locally with Wrangler"
+run = "pnpm exec wrangler dev --cwd apps/cli"

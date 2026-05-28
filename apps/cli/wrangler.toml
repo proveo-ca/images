@@ -1,0 +1,5 @@
+name = "proveo-cli"
+compatibility_date = "2026-04-06"
+
+[assets]
+directory = "./public"

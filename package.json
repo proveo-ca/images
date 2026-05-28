@@ -1,0 +1,13 @@
+{
+  "name": "proveo-monorepo",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "devDependencies": {
+    "wrangler": "^4.11.1"
+  },
+  "scripts": {
+    "wrangler": "wrangler",
+    "deploy:cli": "wrangler deploy --cwd apps/cli",
+    "dev:cli": "wrangler dev --cwd apps/cli"
+  }
+}
