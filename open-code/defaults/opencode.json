@@ -1,0 +1,30 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4-5",
+  "small_model": "anthropic/claude-haiku-4-5",
+  "autoupdate": false,
+  "agent": {
+    "plan": {
+      "description": "Read-only planner. Produces specs and step lists; never edits or runs shell.",
+      "mode": "primary",
+      "temperature": 0.1,
+      "permission": {
+        "edit": "deny",
+        "bash": "deny"
+      }
+    },
+    "build": {
+      "description": "Implementer. Edits allowed; bash requires human approval per command.",
+      "mode": "primary",
+      "temperature": 0.2,
+      "permission": {
+        "edit": "allow",
+        "bash": "ask"
+      }
+    }
+  },
+  "context": {
+    "rot": true,
+    "summarize": true
+  }
+}
