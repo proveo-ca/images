@@ -114,6 +114,7 @@ Expected behavior:
   - lockfiles: `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `poetry.lock`;
   - shared config: `tsconfig*.json`, `.npmrc`, `.yarnrc.yml`, `.tool-versions`;
   - agent instructions: `AGENTS.md`, `CONVENTIONS.md`, `CLAUDE.md`;
+  - runtime env files: root `.env` for provider keys, model aliases, and harness flags;
   - tool config: `.aider.conf.yml`, `.aiderignore`, `.cecli.config.yml`, `.cecliignore`, `opencode.json`.
 - Use ignore files to limit agent visibility/edit scope where supported. For example, aider can run from a monorepo subfolder with an `.aiderignore` that ignores everything except the target package.
 - Make the chosen scope visible in the container name or startup preamble so parallel harness sessions are distinguishable.
