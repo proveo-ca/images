@@ -26,7 +26,7 @@ Steps:
 3. Keep this `PLAN.md` focused on next actions only.
 4. Keep `_spec/components.puml` aligned with actual ownership boundaries:
    - consumer surface: `apps/cli/public/images/bin/proveo`
-   - maintainer wrapper: `bin/probe`
+   - maintainer wrapper: `bin/proveo`
    - image definitions: `defs/`
    - future shared code: `packages/`
 
@@ -67,20 +67,20 @@ Status: next implementation pass.
 
 Steps:
 
-1. Audit `bin/probe` for harness-specific Docker behavior.
+1. Audit `bin/proveo` for harness-specific Docker behavior.
 2. For each behavior found, decide whether it belongs in:
    - `defs/<name>/build.sh`
    - `defs/<name>/run.sh`
    - `defs/<name>/test.sh`
    - `defs/<name>/debug.sh`
 3. Move behavior into the definition-local script first.
-4. Change `bin/probe` to delegate instead of duplicating the Docker invocation.
+4. Change `bin/proveo` to delegate instead of duplicating the Docker invocation.
 5. Keep compatibility output and flags stable where possible.
 
 Acceptance checks:
 
-- `./defs/<name>/build.sh`, `run.sh`, and `test.sh` work without `bin/probe`
-- `bin/probe` is a thin maintainer wrapper
+- `./defs/<name>/build.sh`, `run.sh`, and `test.sh` work without `bin/proveo`
+- `bin/proveo` is a thin maintainer wrapper
 - command examples in definition READMEs match the scripts
 
 ## Phase 4: Clarify `probe` vs `proveo`
@@ -101,7 +101,7 @@ Steps:
 
 Acceptance checks:
 
-- consumer docs do not require knowing `bin/probe`
+- consumer docs do not require knowing `bin/proveo`
 - maintainer docs can use definition-local scripts directly
 - uninstall behavior is represented in docs/spec before distribution work expands
 
@@ -151,6 +151,6 @@ Acceptance checks:
 
 1. Review the current `defs/` README changes for accuracy against scripts.
 2. Move any remaining raw Docker examples in definition READMEs behind definition-local scripts where practical.
-3. Audit `bin/probe` for behavior that should delegate to `defs/<name>/*.sh`.
+3. Audit `bin/proveo` for behavior that should delegate to `defs/<name>/*.sh`.
 4. Update `_spec/components.puml` only when ownership boundaries change.
 5. Keep `ROADMAP.md` strategic; keep this plan executable.

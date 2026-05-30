@@ -48,8 +48,13 @@ echo "--- Phase 6: Volume Mounts ---"
 source "$SCRIPT_DIR/test_volumes.sh"
 echo ""
 
-# --- Phase 7: Functional ---
-echo "--- Phase 7: Functional Tests ---"
+# --- Phase 7: Wrapper Contracts ---
+echo "--- Phase 7: Wrapper Contracts ---"
+source "$SCRIPT_DIR/test_wrappers.sh"
+echo ""
+
+# --- Phase 8: Functional ---
+echo "--- Phase 8: Functional Tests ---"
 source "$SCRIPT_DIR/test_functional.sh"
 echo ""
 

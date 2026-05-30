@@ -40,6 +40,55 @@ else
   printf "${RED}FAIL${NC} [%d] entrypoint detects config (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
+# Entrypoint bridges common .env model aliases to opencode env vars.
+# Use a fake opencode binary so this checks the entrypoint logic without a real model call.
+mkdir -p "$FIXTURE_DIR/fake-bin"
+cat >"$FIXTURE_DIR/fake-bin/opencode" <<'EOF'
+#!/usr/bin/env bash
+printf 'OPENCODE_MODEL=%s\n' "${OPENCODE_MODEL:-}"
+printf 'OPENCODE_SMALL_MODEL=%s\n' "${OPENCODE_SMALL_MODEL:-}"
+if [[ "${1:-}" == "--version" ]]; then
+  echo "9.9.9"
+fi
+EOF
+chmod +x "$FIXTURE_DIR/fake-bin/opencode"
+cat >"$FIXTURE_DIR/.env" <<'EOF'
+ARCHITECT_MODEL=gpt-5.5
+EDITOR_MODEL=xai/grok-4.3
+SMALL_MODEL=xai/grok-small
+EOF
+
+TESTS_RUN=$((TESTS_RUN + 1))
+RESULT=$(timeout 30s docker run --rm \
+  -v "$FIXTURE_DIR:/app" \
+  --entrypoint bash \
+  "$IMAGE" -c 'PATH="/app/fake-bin:$PATH" /entrypoint.sh --version' 2>&1 || true)
+if echo "$RESULT" | grep -q "OPENCODE_MODEL=openai/gpt-5.5" \
+   && echo "$RESULT" | grep -q "OPENCODE_SMALL_MODEL=xai/grok-4.3"; then
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  printf "${GREEN}PASS${NC} [%d] entrypoint bridges .env model aliases to opencode env vars\n" "$TESTS_RUN"
+else
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  FAILURES+=("entrypoint bridges .env model aliases to opencode env vars")
+  printf "${RED}FAIL${NC} [%d] opencode model bridge (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
+fi
+
+# run.sh preserves monorepo structure and root config mounts for repo-aware operation.
+TESTS_RUN=$((TESTS_RUN + 1))
+RUN_WRAPPER="$PROJECT_ROOT/run.sh"
+if grep -q -- '--repo-root' "$RUN_WRAPPER" \
+   && grep -q 'RELATIVE_SCOPE=' "$RUN_WRAPPER" \
+   && grep -q '.git:/app/.git' "$RUN_WRAPPER" \
+   && grep -q '.opencode' "$RUN_WRAPPER" \
+   && grep -q '.env' "$RUN_WRAPPER"; then
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  printf "${GREEN}PASS${NC} [%d] run.sh preserves monorepo path and root opencode config mounts\n" "$TESTS_RUN"
+else
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  FAILURES+=("run.sh preserves monorepo path and root opencode config mounts")
+  printf "${RED}FAIL${NC} [%d] opencode run.sh monorepo contract\n" "$TESTS_RUN"
+fi
+
 # Entrypoint forwards args to opencode
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(timeout 30s docker run --rm "$IMAGE" --version 2>&1 || true)

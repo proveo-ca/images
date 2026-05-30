@@ -101,6 +101,14 @@ if [[ -n "$DATA_DIR" ]]; then
     echo "📚 Using reference data from: $DATA_DIR"
 fi
 
+if [[ -d "$INPUT_DIR/.claude" ]]; then
+    DOCKER_ARGS+=("-v" "${INPUT_DIR}/.claude:/workspace/.claude:ro")
+    echo "🧩 Using project Claude config: $INPUT_DIR/.claude"
+elif [[ -d "${HOME:-}/.claude" ]]; then
+    DOCKER_ARGS+=("-v" "${HOME}/.claude:/home/claude/.claude:ro")
+    echo "🧩 Using home Claude config: ${HOME}/.claude"
+fi
+
 echo "🐚 Starting debug shell inside container..."
 echo "📄 Configuration: claude-config.json"
 echo "📁 Input: $INPUT_DIR"

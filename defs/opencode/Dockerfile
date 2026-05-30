@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true \
     && rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true
 
-RUN npm install -g pnpm@10.0.0
+RUN npm install -g pnpm@10.33.0
 
 RUN npm install -g opencode-ai@latest
 
@@ -26,6 +26,7 @@ RUN mkdir -p /workspace \
 # Pre-baked defaults (config + subagents). Seeded into ~/.config/opencode on first run
 # by entrypoint.sh, or re-seeded when OPENCODE_RESEED=1.
 COPY defaults/ /opt/opencode/defaults/
+COPY sample_opencode.json /opt/opencode/sample_opencode.json
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
@@ -39,6 +40,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     RLIMIT_CORE=0 \
     RLIMIT_NOFILE=1024 \
     OPENCODE_AUTO_UPDATE=false \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     PATH="/usr/local/bin:${PATH}"
 
 LABEL security.non-root=true \

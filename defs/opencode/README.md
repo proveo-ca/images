@@ -21,6 +21,8 @@ Candidate coding harness definition. This definition exposes:
 
 `debug.sh` is not present yet; it is optional unless this definition needs a dedicated troubleshooting workflow.
 
+This definition follows the shared [coding harness container contract](../../CODING_HARNESSES.md), including runtime config discovery, `.env` bridging, and monorepo mount expectations.
+
 ## Image Names and Mounts
 
 - Default image: `proveo/opencode:latest`

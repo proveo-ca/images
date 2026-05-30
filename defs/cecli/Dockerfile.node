@@ -6,7 +6,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     CECLI_HOME=/app/.cecli \
     NPM_CONFIG_AUDIT=false \
-    NPM_CONFIG_FUND=false
+    NPM_CONFIG_FUND=false \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
@@ -21,8 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
   && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable \
-  && corepack prepare pnpm@10.33.0 --activate
+RUN npm install -g pnpm@10.33.0
 
 RUN python3 -m venv /opt/cecli \
   && /opt/cecli/bin/pip install --upgrade pip setuptools wheel \

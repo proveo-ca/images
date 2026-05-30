@@ -16,14 +16,14 @@ TARGETS=(
 usage() {
   cat <<'EOF'
 Usage:
-  bin/probe list
-  bin/probe help
-  bin/probe build <target> --tag <tag> [--no-cache]
-  bin/probe test <target>
-  bin/probe run <target> --tag <tag> [-- <args...>]
-  bin/probe debug <target> --tag <tag> [-- <args...>]
-  bin/probe deploy <target> --tag <tag>
-  bin/probe uninstall
+  bin/proveo list
+  bin/proveo help
+  bin/proveo build <target> --tag <tag> [--no-cache]
+  bin/proveo test <target>
+  bin/proveo run <target> --tag <tag> [-- <args...>]
+  bin/proveo debug <target> --tag <tag> [-- <args...>]
+  bin/proveo deploy <target> --tag <tag>
+  bin/proveo uninstall
 
 Targets:
   aider-node
@@ -33,16 +33,16 @@ Targets:
   claudecode-solo
 
 Examples:
-  bin/probe list
-  bin/probe help
-  bin/probe build aider-node --tag latest
-  bin/probe build claudecode --tag latest
-  bin/probe build opencode --tag latest
-  bin/probe run aider-node --tag latest
-  bin/probe run claudecode --tag latest -- --debug --mcp-debug
-  bin/probe debug claudecode-solo --tag latest
-  bin/probe deploy charles-proxy --tag latest
-  bin/probe uninstall
+  bin/proveo list
+  bin/proveo help
+  bin/proveo build aider-node --tag latest
+  bin/proveo build claudecode --tag latest
+  bin/proveo build opencode --tag latest
+  bin/proveo run aider-node --tag latest
+  bin/proveo run claudecode --tag latest -- --debug --mcp-debug
+  bin/proveo debug claudecode-solo --tag latest
+  bin/proveo deploy charles-proxy --tag latest
+  bin/proveo uninstall
 EOF
 }
 
@@ -323,7 +323,7 @@ ensure_image_available() {
   local image="$1"
   if ! docker image inspect "$image" >/dev/null 2>&1; then
     print_error "Docker image not found locally: $image"
-    print_info "Build it first with: bin/probe build ${2:-<target>} --tag <tag>"
+    print_info "Build it first with: bin/proveo build ${2:-<target>} --tag <tag>"
     exit 1
   fi
 }

@@ -79,18 +79,23 @@ if [[ -n "${CODE_THEME:-}" ]]; then
   export CECLI_CODE_THEME="${CECLI_CODE_THEME:-$CODE_THEME}"
 fi
 
-echo "cecli version:      $(cecli --version 2>/dev/null || echo 'installed')"
+command_version() {
+  local fallback="$1"; shift
+  timeout 5s "$@" 2>/dev/null || echo "$fallback"
+}
+
+echo "cecli version:      $(command_version installed cecli --version)"
 
 if command -v curl >/dev/null 2>&1; then
-  echo "curl version:       $(curl --version | head -n1)"
+  echo "curl version:       $(command_version unknown curl --version | head -n1)"
 fi
 
 if command -v npm >/dev/null 2>&1; then
-  echo "npm version:        $(npm -v)"
+  echo "npm version:        $(command_version unknown npm -v)"
 fi
 
 if command -v pnpm >/dev/null 2>&1; then
-  echo "pnpm version:       $(pnpm -v)"
+  echo "pnpm version:       $(command_version n/a pnpm -v)"
 fi
 
 if [[ -n "${CECLI_MODEL:-${AIDER_MODEL:-}}" ]]; then
@@ -114,12 +119,16 @@ if [[ -n "${CECLI_CODE_THEME:-}" ]]; then
 fi
 
 echo "── Configuration Check ──────────────────────────────"
-if [[ -f .cecli.conf.yml ]]; then
+if [[ -f .cecli.config.yml ]]; then
+  echo "✅ Found .cecli.config.yml"
+elif [[ -f .cecli.config.yaml ]]; then
+  echo "✅ Found .cecli.config.yaml"
+elif [[ -f .cecli.conf.yml ]]; then
   echo "✅ Found .cecli.conf.yml"
 elif [[ -f .cecli.conf.yaml ]]; then
   echo "✅ Found .cecli.conf.yaml"
 else
-  echo "🔎 Not found .cecli.conf.yml"
+  echo "🔎 Not found .cecli.config.yml"
 fi
 
 if [[ -f .cecliignore ]]; then echo "✅ Found .cecliignore"; else echo "🔎 Not found .cecliignore"; fi

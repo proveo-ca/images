@@ -79,13 +79,13 @@ Examples:
 ./defs/charles-proxy/run.sh
 
 # Transitional maintainer compatibility wrapper
-bin/probe list
-bin/probe build aider-node --tag latest
-bin/probe test claudecode
-bin/probe run charles-proxy --tag latest
+bin/proveo list
+bin/proveo build aider-node --tag latest
+bin/proveo test claudecode
+bin/proveo run charles-proxy --tag latest
 ```
 
-`bin/probe` is now treated as a maintainer compatibility wrapper, not the long-term source of harness behavior. New deterministic behavior should live under `defs/<name>/` first, with `bin/probe` delegating where useful. The consumer-facing CLI assets live under `apps/cli/public/images/bin/`.
+`bin/proveo` is now treated as a maintainer compatibility wrapper, not the long-term source of harness behavior. New deterministic behavior should live under `defs/<name>/` first, with `bin/probe` delegating where useful. The consumer-facing CLI assets live under `apps/cli/public/images/bin/`.
 
 ## Common Environment Variables
 

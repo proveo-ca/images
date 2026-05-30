@@ -4,7 +4,7 @@
 
 This roadmap tracks Proveo's evolution from a personal collection of containerized AI coding tools into a coherent harness-definition monorepo.
 
-The repository currently contains multiple Docker-based harness definitions under `defs/`, a maintainer command surface in `bin/probe`, consumer CLI assets under `apps/cli/`, and planned space for shared packages and portable agent skills. The near-term goal is documentation clarity and consistent contracts before deeper refactors.
+The repository currently contains multiple Docker-based harness definitions under `defs/`, a maintainer command surface in `bin/proveo`, consumer CLI assets under `apps/cli/`, and planned space for shared packages and portable agent skills. The near-term goal is documentation clarity and consistent contracts before deeper refactors.
 
 ---
 
@@ -78,7 +78,7 @@ Provide predictable commands that agents and humans can choose instead of recons
 ### Current Split
 
 - `defs/<name>/*.sh`: preferred deterministic command surface for harness-specific build/run/debug/test behavior.
-- `bin/probe`: transitional maintainer-facing wrapper for local build/test/run/debug/deploy workflows; it should delegate to `defs/` instead of owning harness-specific Docker behavior.
+- `bin/proveo`: transitional maintainer-facing wrapper for local build/test/run/debug/deploy workflows; it should delegate to `defs/` instead of owning harness-specific Docker behavior.
 - `apps/cli/public/images/bin/proveo`: consumer-facing CLI asset for installed usage.
 
 ### Roadmap

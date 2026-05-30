@@ -1,7 +1,7 @@
 FROM ghcr.io/tarampampam/curl AS curl-static
 FROM node:22-slim AS node-tools
 
-RUN corepack enable && corepack use pnpm@latest-10
+RUN npm install -g pnpm@10.33.0
 RUN npm i -g playwright @rollup/rollup-linux-x64-gnu && npx playwright install --with-deps chromium
 
 # https://github.com/Aider-AI/aider/blob/main/docker/Dockerfile
@@ -19,7 +19,8 @@ RUN chown -R appuser:appuser /usr/local/bin /usr/local/lib/node_modules /home/ap
 # Install xclip for clipboard support
 RUN apt-get update && apt-get install -y xclip && rm -rf /var/lib/apt/lists/*
 
-ENV PATH="/usr/local/bin:${PATH}"
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    PATH="/usr/local/bin:${PATH}"
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

@@ -45,10 +45,15 @@ if [[ -n "${CODE_THEME:-}" ]]; then
   export AIDER_CODE_THEME="${AIDER_CODE_THEME:-$CODE_THEME}"
 fi
 
-echo "curl version:       $(curl --version | head -n1)"
-echo "npm version:        $(npm -v)"
-echo "pnpm version:       $(pnpm -v)"
-echo "playwright:         $(playwright --version)"
+command_version() {
+  local fallback="$1"; shift
+  timeout 5s "$@" 2>/dev/null || echo "$fallback"
+}
+
+echo "curl version:       $(command_version unknown curl --version | head -n1)"
+echo "npm version:        $(command_version unknown npm -v)"
+echo "pnpm version:       $(command_version n/a pnpm -v)"
+echo "playwright:         $(command_version unknown playwright --version)"
 
 if [[ -n "${AIDER_MODEL:-}" ]]; then
   echo "model:              $AIDER_MODEL"
