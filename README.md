@@ -19,7 +19,7 @@ bin/
   proveo                        # Transitional maintainer wrapper; delegates toward defs/* commands
 
 apps/
-  cli/                          # Consumer-facing CLI assets and Cloudflare worker config
+  cli/                          # Cloudflare-hosted consumer CLI installer/assets
 
 defs/
   aider-node/                   # Aider runner with Node/pnpm/playwright support
@@ -85,7 +85,15 @@ bin/proveo test claudecode
 bin/proveo run charles-proxy --tag latest
 ```
 
-`bin/proveo` is now treated as a maintainer compatibility wrapper, not the long-term source of harness behavior. New deterministic behavior should live under `defs/<name>/` first, with `bin/proveo` delegating where useful. The consumer-facing CLI assets live under `apps/cli/public/images/bin/`.
+`bin/proveo` is now treated as a maintainer compatibility wrapper, not the long-term source of harness behavior. New deterministic behavior should live under `defs/<name>/` first, with `bin/proveo` delegating where useful.
+
+The public consumer install URL is:
+
+```bash
+curl -fsSL https://proveo.ca/cli/install.sh | bash
+```
+
+For now, `apps/cli` is effectively the `proveo/images` distribution surface: `/cli/install.sh` is the product-facing entrypoint, while the installed command assets still live under `apps/cli/public/images/bin/`. This keeps the URL ready for a future standalone CLI without pretending that the CLI is already a separate package.
 
 ## Common Environment Variables
 

@@ -25,6 +25,7 @@ Targets:
   charles-proxy
   claudecode
   claudecode-solo
+  opencode
 
 Examples:
   proveo help

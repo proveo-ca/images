@@ -25,7 +25,7 @@ Steps:
 2. Keep `ROADMAP.md` focused on long-running direction and maturity criteria.
 3. Keep this `PLAN.md` focused on next actions only.
 4. Keep `_spec/components.puml` aligned with actual ownership boundaries:
-   - consumer surface: `apps/cli/public/images/bin/proveo`
+   - consumer surface: `apps/cli/public/cli/install.sh`, with current bin assets under `apps/cli/public/images/bin/`
    - maintainer wrapper: `bin/proveo`
    - image definitions: `defs/`
    - future shared code: `packages/`
@@ -93,15 +93,16 @@ Steps:
     - `proveo`: consumer/distribution lifecycle
     - `bin/proveo`: maintainer/development compatibility wrapper
 2. Keep the distributable `proveo` surface intentionally small:
+   - `help`
+   - `list`
    - `run`
-   - `build`
    - `uninstall.sh`
 3. Decide whether repo-local `bin/proveo` remains separate, becomes an internal consumer `proveo` mode, or is removed after delegation is complete.
 4. Avoid adding new harness-specific behavior to `proveo` until the split is settled.
 
 Acceptance checks:
 
-- consumer docs do not require knowing `bin/proveo`
+- consumer docs use `https://proveo.ca/cli/install.sh` and do not require knowing `bin/proveo`
 - maintainer docs can use definition-local scripts directly
 - uninstall behavior is represented in docs/spec before distribution work expands
 

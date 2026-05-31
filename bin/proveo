@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONSUMER_UNINSTALL_SCRIPT="$REPO_ROOT/apps/cli/public/images/uninstall.sh"
+CONSUMER_UNINSTALL_SCRIPT="$REPO_ROOT/apps/cli/public/cli/uninstall.sh"
 
 TARGETS=(
   "aider-node"
