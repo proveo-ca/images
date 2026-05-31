@@ -121,6 +121,46 @@ seed_defaults() {
 }
 seed_defaults
 
+list_available_lsps() {
+  local path_dir bin name
+  local -a path_dirs=()
+  local -a lsps=()
+  declare -A seen=()
+
+  IFS=: read -r -a path_dirs <<< "${PATH}"
+  for path_dir in "${path_dirs[@]}"; do
+    [[ -d "${path_dir}" ]] || continue
+    while IFS= read -r bin; do
+      name="$(basename "${bin}")"
+      case "${name}" in
+        *language-server*|*languageserver*|*langserver*|*lsp*|\
+        bash-language-server|docker-langserver|yaml-language-server|\
+        typescript-language-server|vscode-css-language-server|\
+        vscode-html-language-server|vscode-json-language-server|\
+        pyright-langserver|ruff-lsp|rust-analyzer|gopls|clangd|jdtls|\
+        lua-language-server|terraform-ls|marksman|taplo|nil|zls)
+          if [[ -z "${seen[${name}]:-}" ]]; then
+            lsps+=("${name}")
+            seen["${name}"]=1
+          fi
+          ;;
+      esac
+    done < <(find "${path_dir}" -maxdepth 1 \( -type f -o -type l \) -executable 2>/dev/null | sort)
+  done
+
+  echo "── Language Servers ─────────────────────────────────"
+  if (( ${#lsps[@]} > 0 )); then
+    printf '✅ Available LSPs:'
+    for name in "${lsps[@]}"; do
+      printf ' %s' "${name}"
+    done
+    printf '\n'
+  else
+    echo "🔎 No language servers detected on PATH"
+  fi
+  echo "   Visit https://langserver.org/ to find more language servers."
+  echo "─────────────────────────────────────────────────────"
+}
 command_version() {
   local name="$1"; shift
   local fallback="${1:-n/a}"; shift || true
@@ -134,6 +174,7 @@ command_version() {
 echo "opencode version:   $(command_version opencode unknown --version)"
 echo "node version:       $(command_version node unknown --version)"
 echo "pnpm version:       $(command_version pnpm n/a -v)"
+list_available_lsps
 
 # ── Configuration check ────────────────────────────────────
 echo "── Configuration Check ──────────────────────────────"

@@ -1,11 +1,24 @@
 FROM node:22-slim
 
-ARG USER_ID=1001
+ARG USER_ID=1000
 ARG USER_NAME=opencode
 
-RUN groupadd -g ${USER_ID} ${USER_NAME} && \
-    useradd -m -u ${USER_ID} -g ${USER_ID} -s /bin/bash ${USER_NAME}
-
+# node images already include uid/gid 1000 as node:node. Reuse that uid by
+# renaming the existing account so host-owned files remain writable by opencode.
+RUN if getent passwd "${USER_ID}" >/dev/null; then \
+      existing_user="$(getent passwd "${USER_ID}" | cut -d: -f1)"; \
+      existing_group="$(getent group "${USER_ID}" | cut -d: -f1)"; \
+      if [ "${existing_group}" != "${USER_NAME}" ]; then \
+        groupmod -n "${USER_NAME}" "${existing_group}"; \
+      fi; \
+      if [ "${existing_user}" != "${USER_NAME}" ]; then \
+        usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m "${existing_user}"; \
+      fi; \
+      usermod -s /bin/bash "${USER_NAME}"; \
+    else \
+      groupadd -g "${USER_ID}" "${USER_NAME}" && \
+      useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
+    fi
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates dumb-init unzip xclip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \

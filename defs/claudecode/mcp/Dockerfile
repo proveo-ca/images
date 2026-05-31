@@ -1,12 +1,26 @@
 FROM node:20-bookworm-slim
 
-# Security: Use specific user ID and avoid conflicts
-ARG USER_ID=1001
+# Security: Use uid 1000 by default so mounted host files owned by a typical
+# developer user are writable inside the container. The node base image already
+# includes uid/gid 1000 as node:node, so rename/reuse that account.
+ARG USER_ID=1000
 ARG USER_NAME=claude
 
-# Create non-root user with specific UID/GID
-RUN groupadd -g ${USER_ID} ${USER_NAME} && \
-    useradd -m -u ${USER_ID} -g ${USER_ID} -s /bin/bash ${USER_NAME}
+# Create or reuse the non-root user with specific UID/GID
+RUN if getent passwd "${USER_ID}" >/dev/null; then \
+      existing_user="$(getent passwd "${USER_ID}" | cut -d: -f1)"; \
+      existing_group="$(getent group "${USER_ID}" | cut -d: -f1)"; \
+      if [ "${existing_group}" != "${USER_NAME}" ]; then \
+        groupmod -n "${USER_NAME}" "${existing_group}"; \
+      fi; \
+      if [ "${existing_user}" != "${USER_NAME}" ]; then \
+        usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m "${existing_user}"; \
+      fi; \
+      usermod -s /bin/bash "${USER_NAME}"; \
+    else \
+      groupadd -g "${USER_ID}" "${USER_NAME}" && \
+      useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
+    fi
 
 # Install system dependencies with security hardening
 RUN apt-get update && apt-get install -y --no-install-recommends \
