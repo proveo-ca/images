@@ -6,9 +6,10 @@ proveo - container helper
 
 Available containers:
   aider-node         Coding harness for Aider with Node.js, pnpm, and Playwright
-  claude-code        Default Claude Code container with MCP integrations
-  claude-code-solo   Claude Code container without the default MCP-integrated stack
+  claudecode        Default Claude Code container with MCP integrations
+  claudecode-solo   Claude Code container without the default MCP-integrated stack
   charles-proxy      Utility container for running Charles Proxy headlessly
+  opencode           Coding harness for opencode with baked-in defaults
 
 Core commands:
   proveo help

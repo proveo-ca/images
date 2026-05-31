@@ -15,6 +15,7 @@ node_modules
 
 # Assistants
 .aider*
+.cecli*
 
 # Misc
 .pki

@@ -1,0 +1,135 @@
+@startuml ProveoComponents
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam nodesep 100
+skinparam ranksep 80
+
+left to right direction
+
+title Proveo Harness Component Map
+
+actor "User / Agent" as User
+actor "Maintainer" as Maintainer
+
+package "Distributable CLI\napps/cli" as AppsCli {
+  component "proveo\nconsumer CLI" as Proveo <<app>>
+  interface "run" as ProveoRun
+  interface "build" as ProveoBuild
+  interface "uninstall.sh" as ProveoUninstall
+
+  Proveo - ProveoRun
+  Proveo - ProveoBuild
+  Proveo - ProveoUninstall
+}
+
+package "Internal Maintainer Surface\nbin/" as Bin {
+  component "probe\ncompatibility wrapper" as Probe <<internal>>
+  interface "list" as ProbeList
+  interface "build" as ProbeBuild
+  interface "test" as ProbeTest
+  interface "run" as ProbeRun
+  interface "debug" as ProbeDebug
+  interface "deploy" as ProbeDeploy
+  interface "uninstall" as ProbeUninstall
+
+  Probe - ProbeList
+  Probe - ProbeBuild
+  Probe - ProbeTest
+  Probe - ProbeRun
+  Probe - ProbeDebug
+  Probe - ProbeDeploy
+  Probe - ProbeUninstall
+}
+
+package "Image Definitions\ndefs/" as Defs {
+  package "Coding harness definitions\ncontract applies here" as CodingDefs {
+    component "aider-node\nexperimental" as DefAider <<definition>>
+    component "cecli\ncandidate" as DefCecli <<definition>>
+    component "claudecode\ncandidate; variants: mcp, solo" as DefClaude <<definition>>
+    component "opencode\ncandidate" as DefOpen <<definition>>
+  }
+
+  component "charles-proxy\nnon-harness image" as DefCharles <<definition>>
+}
+
+package "Shared Utilities\npackages/" as Packages {
+  component "bash utilities\nplanned" as BashUtils <<package>>
+  component "CLI libraries\nplanned" as CliLibs <<package>>
+  component "skill renderer\npossible future" as SkillRenderer <<package>>
+}
+
+package "Container Images" as Images {
+  component "proveo/aider-node" as ImgAider <<image>>
+  component "proveo/cecli" as ImgCecli <<image>>
+  component "proveo/charles-proxy" as ImgCharles <<image>>
+  component "proveo/claudecode" as ImgClaudeMcp <<image>>
+  component "proveo/claudecode-solo" as ImgClaudeSolo <<image>>
+  component "proveo/opencode" as ImgOpen <<image>>
+}
+
+package "Runtime Substrate" as Runtime {
+  component "Docker / containerd" as Containerd <<runtime>>
+}
+
+package "Contracts" as Contracts {
+  component "Coding harness command contract\nmandatory: build/run/test\noptional: debug/help" as HarnessContract <<contract>>
+  component "Entrypoint contract\nenv loading, model defaults, tool setup" as EntrypointContract <<contract>>
+  component "Image contract\nnames, tags, mounts, env, security flags" as ImageContract <<contract>>
+}
+
+User --> Proveo : installed usage
+Maintainer --> Probe : repo-local workflows
+Maintainer --> Defs : direct deterministic commands
+
+ProveoRun ..> Defs : runs selected harness
+ProveoBuild ..> Defs : builds selected harness
+
+ProbeBuild ..> Defs
+ProbeTest ..> Defs
+ProbeRun ..> Defs
+ProbeDebug ..> Defs
+ProbeDeploy ..> Images : pushes tagged image
+ProbeUninstall ..> Proveo : consumer lifecycle helper
+
+CodingDefs ..> HarnessContract : standard command surface
+CodingDefs ..> EntrypointContract : where applicable
+Defs ..> ImageContract
+Defs ..> BashUtils : reuse when duplication warrants
+Proveo ..> CliLibs : future shared CLI code
+Proveo ..> SkillRenderer : future skill export/rendering
+
+
+ImgAider ..> Containerd
+ImgCecli ..> Containerd
+ImgCharles ..> Containerd
+ImgClaudeMcp ..> Containerd
+ImgClaudeSolo ..> Containerd
+ImgOpen ..> Containerd
+
+DefAider --> ImgAider
+DefCecli --> ImgCecli
+DefCharles --> ImgCharles
+DefClaude --> ImgClaudeMcp
+DefClaude --> ImgClaudeSolo
+DefOpen --> ImgOpen
+
+note left of Proveo
+Distributable surface should stay small:
+only run/build and uninstall.sh are exposed here.
+end note
+
+note right of Probe
+Internal maintainer wrapper may expose
+extended commands while compatibility lasts.
+It should not own harness-specific behavior.
+end note
+
+note bottom of Defs
+`defs/` may contain coding harnesses
+and other image definitions.
+end note
+
+@enduml

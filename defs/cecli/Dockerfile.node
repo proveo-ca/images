@@ -1,0 +1,39 @@
+FROM node:22-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    CECLI_HOME=/app/.cecli \
+    NPM_CONFIG_AUDIT=false \
+    NPM_CONFIG_FUND=false \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    git \
+    curl \
+    ca-certificates \
+    build-essential \
+    less \
+    gosu \
+    dumb-init \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g pnpm@10.33.0
+
+RUN python3 -m venv /opt/cecli \
+  && /opt/cecli/bin/pip install --upgrade pip setuptools wheel \
+  && /opt/cecli/bin/pip install cecli-dev boto3 botocore
+
+ENV PATH="/opt/cecli/bin:${PATH}"
+
+WORKDIR /app
+
+COPY entrypoint.sh /usr/local/bin/cecli-entrypoint
+RUN chmod +x /usr/local/bin/cecli-entrypoint
+
+ENTRYPOINT ["dumb-init", "--", "cecli-entrypoint"]
+CMD ["cecli"]

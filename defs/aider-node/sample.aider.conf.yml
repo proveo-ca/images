@@ -1,0 +1,42 @@
+# Aider Configuration
+# Copy this file to .aider.conf.yml in your project root
+# See all options: https://aider.chat/docs/config/options.html
+
+# Model selection (aliases: sonnet, opus, gpt-4o, grok-4-latest, gemini, deepseek)
+model: sonnet
+
+# Git settings
+auto-commits: true
+gitignore: false
+
+# Read conventions file on startup
+read:
+  - CONVENTIONS.md
+
+# Editor behavior
+# auto-lint: true
+# auto-test: false
+
+# UI settings
+# dark-mode: true
+# stream: true
+
+# Advanced
+# map-tokens: 1024
+# cache-prompts: true
+
+# ─────────────────────────────────────────────────────────────
+# Environment Variable Bridge (recommended over config file)
+# These standardized variables are translated by the container:
+#
+#   ARCHITECT_MODEL   → Main model (AIDER_MODEL)
+#   EDITOR_MODEL      → Editor model (AIDER_EDITOR_MODEL)
+#   SMALL_MODEL       → Weak model (AIDER_WEAK_MODEL)
+#   DARK_MODE=true    → Enables dark mode UI (AIDER_DARK_MODE)
+#
+# Example usage in .env:
+#   ARCHITECT_MODEL=claude-opus-4-5
+#   EDITOR_MODEL=sonnet
+#   SMALL_MODEL=gpt-5.1
+#   DARK_MODE=true
+# ─────────────────────────────────────────────────────────────
