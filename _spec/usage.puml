@@ -1,0 +1,87 @@
+@startuml ProveoUsage
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+left to right direction
+
+title Proveo Command Entrypoints and Component Usage
+
+actor "Consumer" as Consumer
+actor "Maintainer" as Maintainer
+
+package "Consumer Entrypoint\napps/cli/public/images/bin" as ConsumerEntrypoint {
+  component "proveo" as ConsumerCli <<app>>
+  component "help\nlist\nrun <target>\nuninstall" as ConsumerCommands <<commands>>
+  component "help.sh\nuninstall.sh" as ConsumerScripts <<script>>
+}
+
+package "Maintainer Entrypoint\nbin/" as MaintainerEntrypoint {
+  component "bin/proveo" as MaintainerCli <<internal>>
+  component "help\nlist\nbuild <target>\ntest <target>\nrun <target>\ndebug <target>\ndeploy <target>\nuninstall" as MaintainerCommands <<commands>>
+}
+
+package "Definition-Local Entrypoints\ndefs/<target>/" as DefinitionEntrypoints {
+  component "build.sh\nrun.sh\ntest.sh / tests/\ndebug.sh" as DefinitionCommands <<script>>
+}
+
+package "Definitions and Defaults\ndefs/" as Definitions {
+  component "Dockerfile*\nentrypoint.sh / start scripts" as DefinitionRuntime <<definition>>
+  component "sample configs\ndefault agents\ndefinition tests" as DefinitionAssets <<asset>>
+}
+
+package "Monorepo Discovery" as Monorepo {
+  component "git repo root\npnpm-workspace.yaml\nscope picker" as ScopeSelection <<logic>>
+}
+
+package "Runtime and Artifacts" as Runtime {
+  component "Docker CLI" as DockerCli <<runtime>>
+  component "local images\nproveo/*" as LocalImages <<image>>
+  component "remote registry\nproveo/*" as Registry <<external>>
+  component "selected workspace\nreports / sessions / config dirs" as RuntimeMounts <<storage>>
+}
+
+Consumer --> ConsumerEntrypoint : installed usage
+Maintainer --> MaintainerEntrypoint : repo-local wrapper
+Maintainer --> DefinitionEntrypoints : direct deterministic commands
+
+ConsumerEntrypoint --> Runtime : run uses Docker and images
+ConsumerEntrypoint --> Monorepo : run selects workspace scope
+ConsumerEntrypoint --> ConsumerScripts : help and uninstall delegate here
+
+MaintainerEntrypoint --> DefinitionEntrypoints : build, test, run, debug delegate where possible
+MaintainerEntrypoint --> Definitions : build/test fallback and target metadata
+MaintainerEntrypoint --> Runtime : deploy pushes images; run/debug use images and mounts
+MaintainerEntrypoint --> Monorepo : run/debug select workspace scope
+MaintainerEntrypoint --> ConsumerScripts : uninstall delegates here
+
+DefinitionEntrypoints --> Definitions : scripts consume definition files and defaults
+DefinitionEntrypoints --> Runtime : build/run/test/debug use Docker, images, and mounts
+
+Definitions --> Runtime : produces proveo/* images
+Monorepo --> Runtime : resolves selected workspace mount
+
+note right of ConsumerEntrypoint
+Consumer commands:
+- help: prints packaged help
+- list: prints packaged target list
+- run: pulls/runs proveo/* images
+- uninstall: runs packaged uninstall script
+end note
+
+note right of MaintainerEntrypoint
+Maintainer commands:
+- help/list: embedded command metadata
+- build/test/run/debug: use defs/<target>/ scripts
+- deploy: pushes a tagged local image
+- uninstall: reuses consumer lifecycle script
+end note
+
+note bottom of Definitions
+Reusable agent definitions currently live as
+definition defaults. A future packages/subagents
+boundary can feed these defaults into CLIs/images.
+end note
+
+@enduml

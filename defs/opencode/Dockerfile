@@ -1,3 +1,7 @@
+FROM golang:1.22-bookworm AS plantuml-lsp-builder
+
+RUN GOBIN=/out go install github.com/ptdewey/plantuml-lsp@latest
+
 FROM node:22-slim
 
 ARG USER_ID=1000
@@ -20,7 +24,7 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl ca-certificates dumb-init unzip xclip \
+    git curl ca-certificates dumb-init unzip xclip python3 plantuml \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && find / -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true \
     && find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true \
@@ -28,7 +32,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN npm install -g pnpm@10.33.0
 
-RUN npm install -g opencode-ai@latest
+RUN npm install -g \
+    opencode-ai@latest \
+    typescript-language-server \
+    vscode-langservers-extracted \
+    bash-language-server \
+    dockerfile-language-server-nodejs \
+    yaml-language-server \
+    pyright
+
+COPY --from=plantuml-lsp-builder /out/plantuml-lsp /usr/local/bin/plantuml-lsp
 
 RUN mkdir -p /workspace \
              /home/${USER_NAME}/.config/opencode \

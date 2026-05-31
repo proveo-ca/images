@@ -9,59 +9,66 @@ skinparam ranksep 80
 
 left to right direction
 
-title Proveo Harness Component Map
+title Proveo Project Component Map
 
-actor "User / Agent" as User
+actor "Consumer" as Consumer
 actor "Maintainer" as Maintainer
+actor "AI Agent" as Agent
 
-package "Distributable CLI\napps/cli" as AppsCli {
-  component "proveo\nconsumer CLI" as Proveo <<app>>
-  interface "run" as ProveoRun
-  interface "build" as ProveoBuild
-  interface "uninstall.sh" as ProveoUninstall
-
-  Proveo - ProveoRun
-  Proveo - ProveoBuild
-  Proveo - ProveoUninstall
+package "Repository Root" as RepoRoot {
+  component "README / PLAN / CONVENTIONS" as RootDocs <<doc>>
+  component "pnpm workspace" as WorkspaceConfig <<config>>
+  component "mise toolchain" as ToolchainConfig <<config>>
 }
 
-package "Internal Maintainer Surface\nbin/" as Bin {
-  component "probe\ncompatibility wrapper" as Probe <<internal>>
-  interface "list" as ProbeList
-  interface "build" as ProbeBuild
-  interface "test" as ProbeTest
-  interface "run" as ProbeRun
-  interface "debug" as ProbeDebug
-  interface "deploy" as ProbeDeploy
-  interface "uninstall" as ProbeUninstall
-
-  Probe - ProbeList
-  Probe - ProbeBuild
-  Probe - ProbeTest
-  Probe - ProbeRun
-  Probe - ProbeDebug
-  Probe - ProbeDeploy
-  Probe - ProbeUninstall
+package "Specifications\n_spec/" as Specs {
+  component "components.puml" as ComponentsSpec <<spec>>
+  component "usage.puml" as UsageSpec <<spec>>
 }
 
-package "Image Definitions\ndefs/" as Defs {
-  package "Coding harness definitions\ncontract applies here" as CodingDefs {
+package "Applications\napps/" as Apps {
+  package "apps/cli" as AppsCli {
+    component "public image assets" as CliAssets <<app>>
+    component "proveo\nconsumer CLI" as ConsumerCli <<app>>
+    component "help.sh" as ConsumerHelp <<script>>
+    component "uninstall.sh" as ConsumerUninstall <<script>>
+    component "wrangler.toml" as WranglerConfig <<config>>
+  }
+}
+
+package "Maintainer Tools\nbin/" as Bin {
+  component "bin/proveo\nrepo-local wrapper" as MaintainerCli <<internal>>
+}
+
+package "Definitions\ndefs/" as Defs {
+  package "Coding Harness Definitions" as CodingDefs {
     component "aider-node\nexperimental" as DefAider <<definition>>
     component "cecli\ncandidate" as DefCecli <<definition>>
     component "claudecode\ncandidate; variants: mcp, solo" as DefClaude <<definition>>
     component "opencode\ncandidate" as DefOpen <<definition>>
   }
 
-  component "charles-proxy\nnon-harness image" as DefCharles <<definition>>
+  component "charles-proxy\nutility image" as DefCharles <<definition>>
+  component "definition-local scripts\nbuild/run/test/debug" as DefinitionScripts <<script>>
+  component "Dockerfiles and entrypoints" as DefinitionRuntime <<definition>>
+  component "tests/" as DefinitionTests <<test>>
+  component "sample configs" as DefinitionConfigs <<config>>
+  component "default agent prompts" as DefinitionAgents <<prompt>>
 }
 
-package "Shared Utilities\npackages/" as Packages {
-  component "bash utilities\nplanned" as BashUtils <<package>>
-  component "CLI libraries\nplanned" as CliLibs <<package>>
-  component "skill renderer\npossible future" as SkillRenderer <<package>>
+package "Shared Packages\npackages/" as Packages {
+  component "shared Bash utilities\nfuture extraction" as BashUtils <<package>>
+  component "shared CLI libraries\nfuture extraction" as CliLibs <<package>>
+  component "subagent definitions\npossible package boundary" as SubagentPackage <<package>>
 }
 
-package "Container Images" as Images {
+package "Contracts and Docs" as Contracts {
+  component "CODING_HARNESSES.md" as HarnessContract <<contract>>
+  component "defs/README.md" as DefsContract <<contract>>
+  component "per-definition README.md" as DefinitionReadmes <<doc>>
+}
+
+package "Artifacts" as Artifacts {
   component "proveo/aider-node" as ImgAider <<image>>
   component "proveo/cecli" as ImgCecli <<image>>
   component "proveo/charles-proxy" as ImgCharles <<image>>
@@ -70,44 +77,38 @@ package "Container Images" as Images {
   component "proveo/opencode" as ImgOpen <<image>>
 }
 
-package "Runtime Substrate" as Runtime {
+package "Runtime and External Systems" as Runtime {
   component "Docker / containerd" as Containerd <<runtime>>
+  component "image registry" as Registry <<external>>
+  component "host workspace" as HostWorkspace <<workspace>>
+  component "reports / sessions / config dirs" as RuntimeStorage <<storage>>
+  component "provider APIs and credentials" as ProviderApis <<external>>
 }
 
-package "Contracts" as Contracts {
-  component "Coding harness command contract\nmandatory: build/run/test\noptional: debug/help" as HarnessContract <<contract>>
-  component "Entrypoint contract\nenv loading, model defaults, tool setup" as EntrypointContract <<contract>>
-  component "Image contract\nnames, tags, mounts, env, security flags" as ImageContract <<contract>>
-}
+Consumer --> ConsumerCli : installed usage
+Maintainer --> MaintainerCli : repo-local workflows
+Maintainer --> DefinitionScripts : direct deterministic commands
+Agent --> RootDocs : collaboration rules
+Agent --> Specs : architecture context
 
-User --> Proveo : installed usage
-Maintainer --> Probe : repo-local workflows
-Maintainer --> Defs : direct deterministic commands
+ConsumerCli *-- ConsumerHelp
+ConsumerCli *-- ConsumerUninstall
+CliAssets *-- ConsumerCli
+AppsCli *-- WranglerConfig
 
-ProveoRun ..> Defs : runs selected harness
-ProveoBuild ..> Defs : builds selected harness
+MaintainerCli ..> DefinitionScripts : delegates or wraps
+MaintainerCli ..> ConsumerUninstall : lifecycle helper
+MaintainerCli ..> WorkspaceConfig : scope discovery
 
-ProbeBuild ..> Defs
-ProbeTest ..> Defs
-ProbeRun ..> Defs
-ProbeDebug ..> Defs
-ProbeDeploy ..> Images : pushes tagged image
-ProbeUninstall ..> Proveo : consumer lifecycle helper
+DefinitionScripts *-- DefinitionRuntime
+DefinitionScripts *-- DefinitionTests
+DefinitionRuntime *-- DefinitionConfigs
+DefinitionRuntime *-- DefinitionAgents
 
-CodingDefs ..> HarnessContract : standard command surface
-CodingDefs ..> EntrypointContract : where applicable
-Defs ..> ImageContract
-Defs ..> BashUtils : reuse when duplication warrants
-Proveo ..> CliLibs : future shared CLI code
-Proveo ..> SkillRenderer : future skill export/rendering
-
-
-ImgAider ..> Containerd
-ImgCecli ..> Containerd
-ImgCharles ..> Containerd
-ImgClaudeMcp ..> Containerd
-ImgClaudeSolo ..> Containerd
-ImgOpen ..> Containerd
+CodingDefs ..> HarnessContract : standard contract
+CodingDefs ..> DefsContract : classification
+CodingDefs ..> DefinitionReadmes : target-specific usage
+DefCharles ..> DefsContract : non-harness allowed
 
 DefAider --> ImgAider
 DefCecli --> ImgCecli
@@ -116,20 +117,40 @@ DefClaude --> ImgClaudeMcp
 DefClaude --> ImgClaudeSolo
 DefOpen --> ImgOpen
 
-note left of Proveo
-Distributable surface should stay small:
-only run/build and uninstall.sh are exposed here.
+ConsumerCli ..> Artifacts : runs published images
+DefinitionScripts ..> Artifacts : builds and tests images
+MaintainerCli ..> Registry : deploy command pushes images
+
+Artifacts ..> Containerd
+ConsumerCli ..> Containerd
+DefinitionScripts ..> Containerd
+DefinitionScripts ..> HostWorkspace : mounts selected scope
+DefinitionScripts ..> RuntimeStorage : writes outputs where applicable
+DefinitionRuntime ..> ProviderApis : runtime credentials only
+
+Packages ..> DefinitionScripts : extract only when duplication warrants
+Packages ..> ConsumerCli : future shared implementation
+SubagentPackage ..> DefinitionAgents : possible source of reusable prompts
+
+Specs ..> RootDocs : document project boundaries
+UsageSpec ..> ComponentsSpec : command-level view of components
+
+note right of ConsumerCli
+Consumer CLI lives under apps/cli assets.
+It should remain small and consume images,
+not own definition-specific behavior.
 end note
 
-note right of Probe
-Internal maintainer wrapper may expose
-extended commands while compatibility lasts.
-It should not own harness-specific behavior.
+note right of MaintainerCli
+bin/proveo is a repo-local compatibility wrapper.
+Definition-local scripts remain the preferred
+source of deterministic target behavior.
 end note
 
-note bottom of Defs
-`defs/` may contain coding harnesses
-and other image definitions.
+note bottom of SubagentPackage
+Reusable subagents can become a package when
+multiple CLIs/images need the same prompt assets.
+Until then, defaults may stay with definitions.
 end note
 
 @enduml

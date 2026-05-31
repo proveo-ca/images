@@ -83,20 +83,20 @@ Acceptance checks:
 - `bin/proveo` is a thin maintainer wrapper
 - command examples in definition READMEs match the scripts
 
-## Phase 4: Clarify `probe` vs `proveo`
+## Phase 4: Clarify Maintainer vs Consumer CLI
 
 Status: pending after Phase 3.
 
 Steps:
 
 1. Document the intended user for each surface:
-   - `proveo`: consumer/distribution lifecycle
-   - `probe`: maintainer/development compatibility wrapper
+    - `proveo`: consumer/distribution lifecycle
+    - `bin/proveo`: maintainer/development compatibility wrapper
 2. Keep the distributable `proveo` surface intentionally small:
    - `run`
    - `build`
    - `uninstall.sh`
-3. Decide whether `probe` remains separate, becomes an internal `proveo` mode, or is removed after delegation is complete.
+3. Decide whether repo-local `bin/proveo` remains separate, becomes an internal consumer `proveo` mode, or is removed after delegation is complete.
 4. Avoid adding new harness-specific behavior to `proveo` until the split is settled.
 
 Acceptance checks:

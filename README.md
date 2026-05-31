@@ -16,7 +16,7 @@ The current repo is still personal-tooling oriented, but the direction is toward
 
 ```txt
 bin/
-  probe                         # Transitional maintainer wrapper; delegates toward defs/* commands
+  proveo                        # Transitional maintainer wrapper; delegates toward defs/* commands
 
 apps/
   cli/                          # Consumer-facing CLI assets and Cloudflare worker config
@@ -85,7 +85,7 @@ bin/proveo test claudecode
 bin/proveo run charles-proxy --tag latest
 ```
 
-`bin/proveo` is now treated as a maintainer compatibility wrapper, not the long-term source of harness behavior. New deterministic behavior should live under `defs/<name>/` first, with `bin/probe` delegating where useful. The consumer-facing CLI assets live under `apps/cli/public/images/bin/`.
+`bin/proveo` is now treated as a maintainer compatibility wrapper, not the long-term source of harness behavior. New deterministic behavior should live under `defs/<name>/` first, with `bin/proveo` delegating where useful. The consumer-facing CLI assets live under `apps/cli/public/images/bin/`.
 
 ## Common Environment Variables
 
@@ -131,7 +131,7 @@ Near-term documentation and structure goals:
 - keep `defs/` as the source of harness definitions unless/until a package migration is justified
 - standardize the per-definition contract for build/run/debug/test files
 - consolidate duplicated Bash behavior into shared utilities
-- clarify the relationship between `bin/probe` and the consumer `proveo` CLI
+- clarify the relationship between repo-local `bin/proveo` and the consumer `proveo` CLI
 - add `skills/` as portable, reusable agent instructions consumed by multiple harnesses
 - use `packages/` for shared CLI/library code when duplication becomes costly
 
