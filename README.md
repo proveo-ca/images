@@ -78,12 +78,28 @@ Examples:
 ./defs/claudecode/run.sh --variant solo
 ./defs/charles-proxy/run.sh
 
+# Run every committed test suite, including detached Docker image smoke tests
+mise run test
+
 # Transitional maintainer compatibility wrapper
 bin/proveo list
 bin/proveo build aider-node --tag latest
 bin/proveo test claudecode
 bin/proveo run charles-proxy --tag latest
 ```
+
+The detached Docker smoke suite skips `aider-node` by default because older
+published/local images fall through to Aider's interactive provider prompt before
+emitting the smoke-ready signal. After rebuilding `proveo/aider-node:latest` with
+the current entrypoint, include it with:
+
+```bash
+PROVEO_DOCKER_SMOKE_INCLUDE_AIDER_NODE=1 tests/docker-detached-smoke.sh
+```
+
+The smoke suite generates and mounts a temporary `.env` with dummy non-secret
+model/API values to keep CLIs from falling into authentication prompts before the
+smoke-ready log is emitted.
 
 The distributed `proveo` command under `apps/cli/public/cli/bin/proveo` is the consumer base CLI. Root `bin/proveo` is the internal maintainer extension with extra powers such as build, test, debug, and deploy. Maintainer behavior may extend or override the consumer surface, but consumer install/uninstall should only manage the distributed `~/.proveo` install.
 
@@ -93,6 +109,13 @@ The public consumer install URL is:
 
 ```bash
 curl -fsSL https://proveo.ca/cli/install.sh | bash
+```
+
+Initialize a project `.env` from provider API keys already present in your host
+environment with:
+
+```bash
+proveo init
 ```
 
 For now, `apps/cli` is effectively the CLI distribution slice of `proveo/images`. The full install flow is served from `/cli`, which keeps the URL ready for a future standalone CLI without pretending that the CLI is already a separate package.

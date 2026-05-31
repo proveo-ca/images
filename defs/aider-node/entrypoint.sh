@@ -8,10 +8,13 @@ fi
 
 # ── Source .env file if present ────────────────────────────
 if [[ -f .env ]]; then
+  echo "✅ Found .env"
   set -a
   source .env
   set +a
   echo "✅ Loaded environment variables from .env"
+else
+  echo "🔎 No .env found"
 fi
 
 # ── Environment Variable Bridge ────────────────────────────
@@ -88,6 +91,11 @@ if [[ -f .aiderrc ]]; then echo "✅ Found .aiderrc"; else echo "🔎 Not found 
 if [[ -f .aiderignore ]]; then echo "✅ Found .aiderignore"; else echo "🔎 Not found .aiderignore"; fi
 if [[ -f CONVENTIONS.md ]]; then echo "✅ Found CONVENTIONS.md"; else echo "🔎 Not found CONVENTIONS.md"; fi
 echo "─────────────────────────────────────────────────────"
+
+if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
+  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-aider-node}"
+  exec sleep infinity
+fi
 
 ensure_node_deps() {
   # Only attempt installs if we're in a Node project

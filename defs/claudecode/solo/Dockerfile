@@ -93,6 +93,10 @@ ENV PATH="/home/${USER_NAME}/.foundry/bin:$PATH"
 RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "Starting Claude Code..."\n\
+if [ "${PROVEO_SMOKE_TEST:-0}" = "1" ]; then\n\
+  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-claudecode-solo}"\n\
+  exec sleep infinity\n\
+fi\n\
 exec claude --dangerously-skip-permissions "$@"\n\
 ' > /home/${USER_NAME}/start-claude.sh \
     && chmod +x /home/${USER_NAME}/start-claude.sh

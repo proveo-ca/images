@@ -95,23 +95,17 @@ if $MCP_IMAGE_AVAILABLE; then
     printf "${RED}FAIL${NC} [%d] [mcp] claude -p (output: %.200s)\n" "$TESTS_RUN" "$RESULT"
   fi
 
-  # MCP server syntax check
-  assert_success \
-    "[mcp] MCP server index.js is valid node syntax" \
-    "$MCP_IMAGE" \
-    "node -c /workspace/mcp-servers/chonky-mcp-server/build/index.js"
-
-  # claude lists MCP tools
+  # claude can still answer MCP-related questions even when no server is baked in.
   TESTS_RUN=$((TESTS_RUN + 1))
   RESULT=$(docker run --rm --entrypoint bash \
     -e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}" \
     "$MCP_IMAGE" -c 'timeout 120 claude -p "List your available MCP tools" 2>&1 || true')
-  if echo "$RESULT" | grep -qiE "chonky|mcp|tool"; then
+  if echo "$RESULT" | grep -qiE "mcp|tool"; then
     TESTS_PASSED=$((TESTS_PASSED + 1))
     printf "${GREEN}PASS${NC} [%d] [mcp] claude recognizes MCP tools\n" "$TESTS_RUN"
   else
     TESTS_FAILED=$((TESTS_FAILED + 1))
-    FAILURES+=("[mcp] claude recognizes MCP tools")
-    printf "${RED}FAIL${NC} [%d] [mcp] claude recognizes MCP tools (output: %.200s)\n" "$TESTS_RUN" "$RESULT"
+    FAILURES+=("[mcp] claude responds to MCP tools prompt")
+    printf "${RED}FAIL${NC} [%d] [mcp] claude responds to MCP tools prompt (output: %.200s)\n" "$TESTS_RUN" "$RESULT"
   fi
 fi

@@ -20,6 +20,15 @@ public/
     bin/
       proveo
       help.sh
+      init.sh
+    tests/
+      run_tests.sh  # distributable CLI smoke/regression tests
 ```
 
 `/cli` is the durable product URL namespace and contains every asset needed by the installer. This keeps the install flow independent from `/images` while the repository is still primarily `proveo/images`.
+
+Run the distributable CLI test suite with:
+
+```bash
+apps/cli/public/cli/tests/run_tests.sh
+```

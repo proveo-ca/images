@@ -6,6 +6,8 @@ INSTALL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TARGETS=(
   "aider-node"
+  "cecli"
+  "cecli-node"
   "charles-proxy"
   "opencode"
   "claudecode"
@@ -16,12 +18,15 @@ usage() {
   cat <<'EOF'
 Usage:
   proveo help
+  proveo init
   proveo list
   proveo run <target> [-- <args...>]
   proveo uninstall
 
 Targets:
   aider-node
+  cecli
+  cecli-node
   charles-proxy
   claudecode
   claudecode-solo
@@ -29,8 +34,10 @@ Targets:
 
 Examples:
   proveo help
+  proveo init
   proveo list
   proveo run aider-node
+  proveo run cecli-node
   proveo run claudecode -- --debug --mcp-debug
   proveo run opencode
   proveo uninstall
@@ -83,7 +90,7 @@ list_targets() {
 is_ai_harness() {
   local target="$1"
   case "$target" in
-    aider-node|claudecode|claudecode-solo|opencode)
+    aider-node|cecli|cecli-node|claudecode|claudecode-solo|opencode)
       return 0
       ;;
     *)
@@ -97,6 +104,12 @@ image_name() {
   case "$target" in
     aider-node)
       echo "proveo/aider-node"
+      ;;
+    cecli)
+      echo "proveo/cecli"
+      ;;
+    cecli-node)
+      echo "proveo/cecli-node"
       ;;
     charles-proxy)
       echo "proveo/charles-proxy"
@@ -113,6 +126,36 @@ image_name() {
     *)
       print_error "No image name mapping for target: $target"
       exit 1
+      ;;
+  esac
+}
+
+target_description() {
+  local target="$1"
+  case "$target" in
+    aider-node)
+      echo "Aider with Node.js, pnpm, and Playwright"
+      ;;
+    cecli)
+      echo "Cecli with baked-in Proveo defaults"
+      ;;
+    cecli-node)
+      echo "Cecli with Node.js, pnpm, and Playwright"
+      ;;
+    charles-proxy)
+      echo "Headless Charles Proxy utility container"
+      ;;
+    claudecode)
+      echo "Claude Code with MCP integrations"
+      ;;
+    claudecode-solo)
+      echo "Claude Code without the MCP-integrated stack"
+      ;;
+    opencode)
+      echo "opencode with baked-in Proveo defaults"
+      ;;
+    *)
+      echo "Container target"
       ;;
   esac
 }
@@ -415,9 +458,63 @@ run_opencode() {
   image="$(image_name "opencode")"
   ensure_image_available "$image"
 
+  local -a docker_args=(run -it --rm)
+
+  if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
+    docker_args+=(--name "$(basename "$CURRENT_REPO_ROOT")-opencode")
+    docker_args+=(-v "$CURRENT_REPO_ROOT:/app" -w /app)
+  elif [[ "$scope_dir" == "$CURRENT_REPO_ROOT/"* ]]; then
+    local relative_scope
+    relative_scope="${scope_dir#$CURRENT_REPO_ROOT/}"
+
+    docker_args+=(--name "$(basename "$CURRENT_REPO_ROOT")-${relative_scope//\//-}-opencode")
+    docker_args+=(-v "$scope_dir:/app/$relative_scope" -v "$CURRENT_REPO_ROOT/.git:/app/.git" -w /app)
+
+    for root_file in .env AGENTS.md CONVENTIONS.md CLAUDE.md opencode.json opencode.jsonc package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
+      if [[ -e "$CURRENT_REPO_ROOT/$root_file" && ! -e "$scope_dir/$root_file" ]]; then
+        docker_args+=(-v "$CURRENT_REPO_ROOT/$root_file:/app/$root_file:ro")
+      fi
+    done
+
+    if [[ -d "$CURRENT_REPO_ROOT/.opencode" && ! -e "$scope_dir/.opencode" ]]; then
+      docker_args+=(-v "$CURRENT_REPO_ROOT/.opencode:/app/.opencode:ro")
+    fi
+
+    if [[ -f "$scope_dir/.env" && ! -e "$CURRENT_REPO_ROOT/.env" ]]; then
+      docker_args+=(-v "$scope_dir/.env:/app/.env:ro")
+    fi
+  else
+    docker_args+=(--name "$(basename "$scope_dir")-opencode")
+    docker_args+=(-v "$scope_dir:/app" -w /app)
+  fi
+
+  docker_args+=("$image")
+  docker_args+=("${extra_args[@]}")
+
+  docker "${docker_args[@]}"
+}
+
+run_cecli() {
+  local target="$1"
+  local scope_dir="$2"
+  shift 2
+  local -a extra_args=("$@")
+
+  local image
+  local output_dir
+  image="$(image_name "$target"):latest"
+  output_dir="$scope_dir/reports"
+  mkdir -p "$output_dir"
+  ensure_image_available "$image"
+
   docker run -it --rm \
-    --name "$(basename "$scope_dir")-opencode" \
+    --name "$(basename "$scope_dir")-$target" \
+    -e "LOCAL_UID=$(id -u)" \
+    -e "LOCAL_GID=$(id -g)" \
+    -e "CECLI_HOME=/app/.cecli" \
+    -e "CECLI_INSTALL_NODE_DEPS=${CECLI_INSTALL_NODE_DEPS:-0}" \
     -v "$scope_dir:/app" \
+    -v "$output_dir:/app/output:rw" \
     -w /app \
     "$image" \
     "${extra_args[@]}"
@@ -454,6 +551,10 @@ run_target() {
       scope_dir="$(choose_scope "$target")"
       run_aider_node "$scope_dir" "${extra_args[@]}"
       ;;
+    cecli|cecli-node)
+      scope_dir="$(choose_scope "$target")"
+      run_cecli "$target" "$scope_dir" "${extra_args[@]}"
+      ;;
     claudecode|claudecode-solo)
       scope_dir="$(choose_scope "$target")"
       run_claude_container "$(image_name "$target")" "$scope_dir" "${extra_args[@]}"
@@ -476,8 +577,12 @@ show_help_command() {
   "$SCRIPT_DIR/help.sh"
 }
 
+run_init() {
+  "$SCRIPT_DIR/init.sh"
+}
+
 run_uninstall() {
-  "$INSTALL_ROOT/uninstall.sh"
+  PROVEO_INSTALL_ROOT="$INSTALL_ROOT" "$INSTALL_ROOT/uninstall.sh"
 }
 
 parse_args() {
@@ -498,6 +603,13 @@ parse_args() {
         exit 1
       fi
       show_help_command
+      ;;
+    init)
+      if [[ $# -ne 0 ]]; then
+        print_error "Command 'init' does not accept arguments."
+        exit 1
+      fi
+      run_init
       ;;
     run)
       local target="${1:-}"
@@ -529,4 +641,6 @@ parse_args() {
   esac
 }
 
-parse_args "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  parse_args "$@"
+fi

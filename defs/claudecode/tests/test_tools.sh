@@ -32,15 +32,10 @@ for image in $(images_to_test); do
   done
 done
 
-# MCP-specific: verify MCP server files
+# MCP-specific: no server is baked in by default; users mount or add their own.
 if $MCP_IMAGE_AVAILABLE; then
   assert_success \
-    "[mcp] MCP server build/index.js exists" \
+    "[mcp] MCP server directory exists" \
     "$MCP_IMAGE" \
-    "test -f /workspace/mcp-servers/chonky-mcp-server/build/index.js"
-
-  assert_success \
-    "[mcp] MCP server node_modules present" \
-    "$MCP_IMAGE" \
-    "test -d /workspace/mcp-servers/chonky-mcp-server/node_modules"
+    "test -d /workspace/mcp-servers"
 fi

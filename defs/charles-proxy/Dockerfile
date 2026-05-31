@@ -27,6 +27,8 @@ USER charles
 VOLUME ["/sessions", "/config"]
 EXPOSE 8888
 
-CMD ["/bin/bash","-lc","[ -f \"$CHARLES_CONFIG\" ] \
+CMD ["/bin/bash","-lc","echo \"✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-charles-proxy}\"; \
+ if [ \"${PROVEO_SMOKE_TEST:-0}\" = \"1\" ]; then exec sleep infinity; fi; \
+ [ -f \"$CHARLES_CONFIG\" ] \
  && exec charles -headless -config \"$CHARLES_CONFIG\" \
  || exec charles -headless"]

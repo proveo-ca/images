@@ -93,47 +93,29 @@ if $MCP_IMAGE_AVAILABLE; then
     "cat /home/claude/.claude.json" \
     '"hasCompletedOnboarding": true'
 
-  # MCP server configured
+  # MCP variant permits MCP tools but does not currently bake in a server.
   assert_output_contains \
-    "[mcp] mcpServers has chonky key" \
+    "[mcp] mcpServers is present" \
     "$IMAGE" \
     "cat /home/claude/.claude.json" \
-    '"chonky"'
+    '"mcpServers"'
 
   assert_output_contains \
-    "[mcp] chonky command is node" \
+    "[mcp] mcpServers is empty" \
     "$IMAGE" \
     "cat /home/claude/.claude.json" \
-    '"command": "node"'
+    '"mcpServers": {}'
 
   assert_output_contains \
-    "[mcp] chonky points to correct index.js" \
+    "[mcp] MCP wildcard permission is configured" \
     "$IMAGE" \
     "cat /home/claude/.claude.json" \
-    '/workspace/mcp-servers/chonky-mcp-server/build/index.js'
-
-  assert_output_contains \
-    "[mcp] chonky is trusted" \
-    "$IMAGE" \
-    "cat /home/claude/.claude.json" \
-    '"trusted": true'
-
-  assert_output_contains \
-    "[mcp] chonky has autoStart" \
-    "$IMAGE" \
-    "cat /home/claude/.claude.json" \
-    '"autoStart": true'
-
-  assert_output_contains \
-    "[mcp] chonky has CHONKY_PRIMER_REPOS env" \
-    "$IMAGE" \
-    "cat /home/claude/.claude.json" \
-    'CHONKY_PRIMER_REPOS'
+    'mcp__*'
 
   # MCP permissions in settings.local
   assert_output_contains \
-    "[mcp] settings.local.json allows mcp__chonky" \
+    "[mcp] settings.local.json allows MCP wildcard" \
     "$IMAGE" \
     "cat /home/claude/.claude/settings.local.json" \
-    'mcp__chonky'
+    'mcp__*'
 fi

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+HELP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$HELP_SCRIPT_DIR/proveo"
+
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   BOLD=$'\033[1m'
   DIM=$'\033[2m'
@@ -34,20 +37,21 @@ printf '\n'
 
 printf '  %s%sCommands%s\n' "$BOLD" "$YELLOW" "$RESET"
 printf '    %-34s %s\n' "proveo help" "Show this help text"
+printf '    %-34s %s\n' "proveo init" "Create a .env from host API keys"
 printf '    %-34s %s\n' "proveo list" "List supported container targets"
 printf '    %-34s %s\n' "proveo run <target> [-- <args...>]" "Run a container target"
 printf '    %-34s %s\n' "proveo uninstall" "Remove proveo from PATH"
 printf '\n'
 
 printf '  %s%sTargets%s\n' "$BOLD" "$YELLOW" "$RESET"
-printf '    %-18s %s\n' "aider-node" "Aider with Node.js, pnpm, and Playwright"
-printf '    %-18s %s\n' "claudecode" "Claude Code with MCP integrations"
-printf '    %-18s %s\n' "claudecode-solo" "Claude Code without the MCP-integrated stack"
-printf '    %-18s %s\n' "charles-proxy" "Headless Charles Proxy utility container"
-printf '    %-18s %s\n' "opencode" "opencode with baked-in Proveo defaults"
+for target in "${TARGETS[@]}"; do
+  printf '    %-18s %s\n' "$target" "$(target_description "$target")"
+done
 printf '\n'
 
 printf '  %s%sExamples%s\n' "$BOLD" "$YELLOW" "$RESET"
+printf '    %s\n' "proveo init"
+printf '    %s\n' "proveo run cecli-node"
 printf '    %s\n' "proveo run opencode"
 printf '    %s\n' "proveo run aider-node"
 printf '    %s\n' "proveo run claudecode -- --debug --mcp-debug"

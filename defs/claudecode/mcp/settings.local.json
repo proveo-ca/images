@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "mcp__chonky"
+      "mcp__*"
     ],
     "deny": [],
     "ask": []

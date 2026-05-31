@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE_NAME="${CECLI_IMAGE:-proveo/cecli:node}"
+IMAGE_NAME="${CECLI_IMAGE:-proveo/cecli-node:latest}"
 INPUT_DIR="${CECLI_INPUT_DIR:-$(pwd)}"
 OUTPUT_DIR="${CECLI_OUTPUT_DIR:-$(pwd)/reports}"
 REPO_ROOT=""
@@ -20,9 +20,9 @@ usage() {
   echo "  --input-dir PATH       Workspace directory to mount at /app. Defaults to current directory."
   echo "  --output-dir PATH      Output directory to mount at /app/output. Defaults to ./reports."
   echo "  --repo-root PATH       Repository root for monorepo-aware mounts. Auto-detected when possible."
-  echo "  --image IMAGE          Docker image to run. Defaults to proveo/cecli:node."
+  echo "  --image IMAGE          Docker image to run. Defaults to proveo/cecli-node:latest."
   echo "  --python               Use proveo/cecli:python."
-  echo "  --node                 Use proveo/cecli:node."
+  echo "  --node                 Use proveo/cecli-node:latest."
   echo "  --read-only            Mount input directory read-only and store CECLI state in /tmp/.cecli."
   echo "  --help, -h             Show this help."
   echo ""
@@ -75,7 +75,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --node)
-      IMAGE_NAME="proveo/cecli:node"
+      IMAGE_NAME="proveo/cecli-node:latest"
       shift
       ;;
     --read-only)

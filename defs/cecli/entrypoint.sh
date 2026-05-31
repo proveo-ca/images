@@ -73,10 +73,13 @@ has_cecli_agent_config() {
 }
 
 if [[ -f .env ]]; then
+  echo "✅ Found .env"
   set -a
   source .env
   set +a
   echo "✅ Loaded environment variables from .env"
+else
+  echo "🔎 No .env found"
 fi
 
 # ── Environment Variable Bridge ────────────────────────────
@@ -185,6 +188,11 @@ if [[ -d "$CECLI_HOME/agents" ]]; then
   fi
 fi
 echo "─────────────────────────────────────────────────────"
+
+if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
+  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-cecli}"
+  exec sleep infinity
+fi
 
 ensure_node_deps() {
   if [[ "${CECLI_INSTALL_NODE_DEPS:-0}" != "1" ]]; then

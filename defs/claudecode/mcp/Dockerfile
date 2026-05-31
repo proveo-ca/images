@@ -63,12 +63,6 @@ RUN cp -r /root/.foundry /home/${USER_NAME}/ && chown -R ${USER_NAME}:${USER_NAM
 # Install Claude Code
 RUN npm install -g @anthropic-ai/claude-code
 
-# Copy pre-built MCP server into container
-COPY --chown=${USER_NAME}:${USER_NAME} mcp/chonky /workspace/mcp-servers/chonky-mcp-server
-
-# Install MCP server runtime dependencies only
-RUN cd /workspace/mcp-servers/chonky-mcp-server && npm ci --production
-
 # Setup secure workspace with proper permissions
 RUN mkdir -p /workspace/input \
     && mkdir -p /workspace/output \
@@ -86,9 +80,9 @@ RUN mkdir -p /workspace/input \
     && chmod 755 /workspace/mcp-servers
 
 # Copy Claude configuration directly into final locations
-COPY --chown=${USER_NAME}:${USER_NAME} claude-config.chonky.json /home/${USER_NAME}/.claude.json
-COPY --chown=${USER_NAME}:${USER_NAME} settings.local.chonky.json /home/${USER_NAME}/.claude/settings.local.json
-COPY --chown=${USER_NAME}:${USER_NAME} settings.local.chonky.json /workspace/.claude/settings.local.json
+COPY --chown=${USER_NAME}:${USER_NAME} claude-config.json /home/${USER_NAME}/.claude.json
+COPY --chown=${USER_NAME}:${USER_NAME} settings.local.json /home/${USER_NAME}/.claude/settings.local.json
+COPY --chown=${USER_NAME}:${USER_NAME} settings.local.json /workspace/.claude/settings.local.json
 
 # Switch to non-root user for security
 USER ${USER_NAME}
@@ -99,6 +93,10 @@ ENV PATH="/home/${USER_NAME}/.foundry/bin:$PATH"
 RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "Starting Claude Code..."\n\
+if [ "${PROVEO_SMOKE_TEST:-0}" = "1" ]; then\n\
+  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-claudecode}"\n\
+  exec sleep infinity\n\
+fi\n\
 exec claude --dangerously-skip-permissions "$@"\n\
 ' > /home/${USER_NAME}/start-claude.sh \
     && chmod +x /home/${USER_NAME}/start-claude.sh

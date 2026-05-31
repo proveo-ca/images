@@ -18,21 +18,22 @@ This definition exposes the required candidate harness commands:
 
 ## Image Names and Tags
 
-`build.sh` builds both runtime variants using `IMAGE_NAME`, defaulting to `proveo/cecli`:
+`build.sh` builds both runtime variants using `IMAGE_NAME`, defaulting to `proveo/cecli`, and `NODE_IMAGE_NAME`, defaulting to `proveo/cecli-node`:
 
 ```bash
 ./build.sh
 IMAGE_NAME=example/cecli ./build.sh
+NODE_IMAGE_NAME=example/cecli-node ./build.sh
 ```
 
 Produced tags:
 
 - `proveo/cecli:python`
-- `proveo/cecli:node`
+- `proveo/cecli-node:latest`
 - `proveo/cecli:latest` aliasing the Node variant
 - `proveo/cecli:local` aliasing the Node variant
 
-`run.sh` defaults to `proveo/cecli:node`. Override it with `--image` or `CECLI_IMAGE`.
+`run.sh` defaults to `proveo/cecli-node:latest`. Override it with `--image` or `CECLI_IMAGE`.
 
 ## Mounts
 
@@ -51,7 +52,8 @@ Use `--read-only` to mount the input workspace read-only and place Cecli state u
 ## Environment Variables
 
 - `IMAGE_NAME`: base image name used by `build.sh`; defaults to `proveo/cecli`
-- `CECLI_IMAGE`: image used by `run.sh`; defaults to `proveo/cecli:node`
+- `NODE_IMAGE_NAME`: Node image name used by `build.sh`; defaults to `proveo/cecli-node`
+- `CECLI_IMAGE`: image used by `run.sh`; defaults to `proveo/cecli-node:latest`
 - `CECLI_INPUT_DIR`: input workspace override
 - `CECLI_OUTPUT_DIR`: output directory override
 - `CECLI_INSTALL_NODE_DEPS=1`: install Node dependencies when `package.json` is present
@@ -106,5 +108,5 @@ Run smoke tests against the latest image:
 Override the image under test:
 
 ```bash
-PROVEO_CECLI_IMAGE=proveo/cecli:node ./test.sh
+PROVEO_CECLI_IMAGE=proveo/cecli-node:latest ./test.sh
 ```

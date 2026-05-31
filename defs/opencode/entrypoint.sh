@@ -8,10 +8,13 @@ fi
 
 # ── Source .env file if present ────────────────────────────
 if [[ -f .env ]]; then
+  echo "✅ Found .env"
   set -a
   source .env
   set +a
   echo "✅ Loaded environment variables from .env"
+else
+  echo "🔎 No .env found"
 fi
 
 # ── Bridge common .env model aliases to opencode config vars ─────────
@@ -372,9 +375,14 @@ if (( ${#agent_files[@]} > 0 )); then
 fi
 echo "─────────────────────────────────────────────────────"
 
+if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
+  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-opencode}"
+  exec sleep infinity
+fi
+
 # ── Ensure node deps if this is a Node project ─────────────
 ensure_node_deps() {
-  [[ -f package.json ]] || return
+  [[ -f package.json ]] || return 0
   [[ -d node_modules ]] && return
   echo "No node_modules found in $(pwd); installing dependencies..."
   if [[ -f pnpm-lock.yaml ]]; then

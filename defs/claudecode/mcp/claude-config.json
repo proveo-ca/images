@@ -32,11 +32,8 @@
           "WebSearch",
           "NotebookRead",
           "NotebookWrite",
-          "mcp__chonky",
           "mcp",
-          "mcp__",
-          "mcp__chon",
-          "MCP_chonky"
+          "mcp__*"
         ],
         "defaultMode": "acceptEdits",
         "additionalDirectories": ["/workspace/input", "/workspace/output", "/workspace/data", "/workspace/temp"]
@@ -45,18 +42,7 @@
       "autoAcceptMcpTools": true,
       "history": [],
       "mcpContextUris": [],
-      "mcpServers": {
-        "chonky": {
-          "type": "stdio",
-          "command": "node",
-          "args": ["/workspace/mcp-servers/chonky-mcp-server/build/index.js", "stdio"],
-          "env": {
-            "CHONKY_PRIMER_REPOS": "/workspace/mcp-servers/chonky-mcp-server/.chonky"
-          },
-          "trusted": true,
-          "autoStart": true
-        }
-      },
+      "mcpServers": {},
       "enabledMcpjsonServers": [],
       "disabledMcpjsonServers": [],
       "hasTrustDialogAccepted": true,
