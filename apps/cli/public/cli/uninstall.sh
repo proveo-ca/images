@@ -11,22 +11,55 @@ print_info() {
   printf '%s\n' "$*"
 }
 
+print_warning() {
+  printf 'Warning: %s\n' "$*" >&2
+}
+
 remove_path_block() {
   local config_file="$1"
   local tmp_file
+  local status=0
 
   [[ -f "$config_file" ]] || return 0
-  grep -Fq "$PATH_MARKER_START" "$config_file" || return 0
 
   tmp_file="$(mktemp)"
-  awk -v start="$PATH_MARKER_START" -v end="$PATH_MARKER_END" '
+  awk \
+    -v start="$PATH_MARKER_START" \
+    -v end="$PATH_MARKER_END" \
+    -v posix_path="export PATH=\"$BIN_DIR:\$PATH\"" \
+    -v fish_path="set -gx PATH \"$BIN_DIR\" $PATH" '
     $0 == start { skip = 1; next }
     $0 == end { skip = 0; next }
+    $0 == posix_path { changed = 1; next }
+    $0 == fish_path { changed = 1; next }
     skip != 1 { print }
-  ' "$config_file" > "$tmp_file"
+    skip == 1 { changed = 1 }
+    END { if (skip == 1) changed = 1; exit changed ? 2 : 0 }
+  ' "$config_file" > "$tmp_file" || status="$?"
+
+  if [[ "${status:-0}" -eq 0 ]]; then
+    rm -f "$tmp_file"
+    return 0
+  fi
+
+  if [[ "${status:-0}" -ne 2 ]]; then
+    rm -f "$tmp_file"
+    print_warning "Could not update $config_file"
+    return 0
+  fi
+
   mv "$tmp_file" "$config_file"
 
-  print_info "Removed proveo PATH block from $config_file"
+  print_info "Removed proveo PATH entries from $config_file"
+}
+
+remove_install_root() {
+  if [[ -z "$INSTALL_ROOT" || "$INSTALL_ROOT" == "/" || "$INSTALL_ROOT" == "$HOME" ]]; then
+    print_warning "Refusing to remove unsafe install root: $INSTALL_ROOT"
+    return 0
+  fi
+
+  rm -rf -- "$INSTALL_ROOT"
 }
 
 confirm_uninstall() {
@@ -55,8 +88,12 @@ remove_path_block "$HOME/.bash_profile"
 remove_path_block "$HOME/.profile"
 remove_path_block "$HOME/.config/fish/config.fish"
 
-rm -f "$BIN_DIR/proveo" "$BIN_DIR/help.sh" "$INSTALL_ROOT/uninstall.sh"
-rmdir "$BIN_DIR" 2>/dev/null || true
-rmdir "$INSTALL_ROOT" 2>/dev/null || true
+remove_install_root
 
-print_info "proveo uninstalled. Open a new shell for PATH changes to take effect."
+if command -v proveo >/dev/null 2>&1; then
+  print_warning "proveo is still resolvable in this shell: $(command -v proveo)"
+  print_warning "If this points at the repo, it is your internal maintainer CLI, not the distributed install."
+  print_warning "Open a new shell, or run 'hash -r' in bash / 'rehash' in zsh."
+else
+  print_info "proveo uninstalled."
+fi

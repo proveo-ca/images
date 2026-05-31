@@ -85,7 +85,9 @@ bin/proveo test claudecode
 bin/proveo run charles-proxy --tag latest
 ```
 
-`bin/proveo` is now treated as a maintainer compatibility wrapper, not the long-term source of harness behavior. New deterministic behavior should live under `defs/<name>/` first, with `bin/proveo` delegating where useful.
+The distributed `proveo` command under `apps/cli/public/cli/bin/proveo` is the consumer base CLI. Root `bin/proveo` is the internal maintainer extension with extra powers such as build, test, debug, and deploy. Maintainer behavior may extend or override the consumer surface, but consumer install/uninstall should only manage the distributed `~/.proveo` install.
+
+New deterministic harness behavior should live under `defs/<name>/` first, with `bin/proveo` delegating where useful.
 
 The public consumer install URL is:
 
