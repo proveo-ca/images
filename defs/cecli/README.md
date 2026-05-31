@@ -12,6 +12,7 @@ This definition exposes the required candidate harness commands:
 - `run.sh`
 - `test.sh`
 - `sample.cecli.conf.yml`
+- `defaults/agents/` baked-in subagent prompts
 
 `debug.sh` and `tests/` are not present yet. They are optional unless this definition graduates to require deeper troubleshooting or regression coverage.
 
@@ -55,6 +56,20 @@ Use `--read-only` to mount the input workspace read-only and place Cecli state u
 - `CECLI_OUTPUT_DIR`: output directory override
 - `CECLI_INSTALL_NODE_DEPS=1`: install Node dependencies when `package.json` is present
 - `CECLI_HOME`: Cecli state directory inside the container
+- `CECLI_AGENT_CONFIG`: override the generated Agent Mode JSON configuration
+- `CECLI_RESEED=1`: overwrite existing `$CECLI_HOME/agents/*.md` with baked-in defaults
+
+## Baked-in Subagents
+
+The image ships default Cecli subagent definitions in `/opt/cecli/defaults/agents/` and seeds them into `$CECLI_HOME/agents/` on startup. The entrypoint also sets a default `CECLI_AGENT_CONFIG` when one is not already provided:
+
+```json
+{"large_file_token_threshold":8192,"skip_cli_confirmations":false,"subagent_paths":["$CECLI_HOME/agents","/app/.cecli/agents"]}
+```
+
+This makes the agents available to Cecli Agent Mode through the `Delegate` tool. Project-specific agents can be added under `.cecli/agents/*.md`; they are included by the generated `subagent_paths` without modifying the image. Set `CECLI_RESEED=1` to refresh `$CECLI_HOME/agents/` from the baked-in copy.
+
+Included defaults mirror the opencode reviewer set: `adversarial-reviewer`, `security-reviewer`, `architect`, `systems-design`, `frontend`, `backend`, `sre`, `devops`, `monorepo-coordinator`, and `spec-keeper`.
 
 ## Commands
 

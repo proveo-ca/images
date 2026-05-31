@@ -41,6 +41,10 @@ read:
 agent-config:
   large_file_token_threshold: 8192
   skip_cli_confirmations: false
+  max_sub_agents: 3
+  subagent_paths:
+    - .cecli/agents
+    - /app/.cecli/agents
 
 mcp-servers:
   mcpServers:

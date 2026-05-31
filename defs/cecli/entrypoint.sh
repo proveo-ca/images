@@ -36,6 +36,42 @@ fi
 
 mkdir -p "$CECLI_HOME" 2>/dev/null || true
 
+seed_cecli_subagents() {
+  local src="/opt/cecli/defaults/agents"
+  local dst="$CECLI_HOME/agents"
+  local seeded=()
+
+  mkdir -p "$dst" 2>/dev/null || true
+  if [[ ! -d "$src" || ! -d "$dst" ]]; then
+    return
+  fi
+
+  for f in "$src/"*.md; do
+    [[ -e "$f" ]] || continue
+    local name; name="$(basename "$f")"
+    if [[ "${CECLI_RESEED:-0}" == "1" || ! -f "$dst/$name" ]]; then
+      if cp -f "$f" "$dst/$name" 2>/dev/null; then
+        seeded+=("agents/$name")
+      fi
+    fi
+  done
+
+  if (( ${#seeded[@]} > 0 )); then
+    echo "🌱 Seeded Cecli subagents into $dst: ${seeded[*]}"
+  fi
+}
+
+has_cecli_agent_config() {
+  local config_file
+  for config_file in .cecli.config.yml .cecli.config.yaml .cecli.conf.yml .cecli.conf.yaml; do
+    [[ -f "$config_file" ]] || continue
+    if grep -qE '^[[:space:]]*agent-config:' "$config_file"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 if [[ -f .env ]]; then
   set -a
   source .env
@@ -77,6 +113,13 @@ esac
 
 if [[ -n "${CODE_THEME:-}" ]]; then
   export CECLI_CODE_THEME="${CECLI_CODE_THEME:-$CODE_THEME}"
+fi
+
+seed_cecli_subagents
+
+if [[ -z "${CECLI_AGENT_CONFIG:-}" ]] && ! has_cecli_agent_config; then
+  CECLI_AGENT_CONFIG="{\"large_file_token_threshold\":8192,\"skip_cli_confirmations\":false,\"subagent_paths\":[\"$CECLI_HOME/agents\",\"/app/.cecli/agents\"]}"
+  export CECLI_AGENT_CONFIG
 fi
 
 command_version() {
@@ -133,6 +176,14 @@ fi
 
 if [[ -f .cecliignore ]]; then echo "✅ Found .cecliignore"; else echo "🔎 Not found .cecliignore"; fi
 if [[ -f CONVENTIONS.md ]]; then echo "✅ Found CONVENTIONS.md"; else echo "🔎 Not found CONVENTIONS.md"; fi
+if [[ -d "$CECLI_HOME/agents" ]]; then
+  subagent_files=()
+  while IFS= read -r f; do subagent_files+=("@$(basename "${f%.md}")"); done \
+    < <(find "$CECLI_HOME/agents" -maxdepth 1 -name '*.md' 2>/dev/null | sort)
+  if (( ${#subagent_files[@]} > 0 )); then
+    echo "🧑‍💻 Subagents available: ${subagent_files[*]}"
+  fi
+fi
 echo "─────────────────────────────────────────────────────"
 
 ensure_node_deps() {

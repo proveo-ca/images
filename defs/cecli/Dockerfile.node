@@ -33,6 +33,7 @@ ENV PATH="/opt/cecli/bin:${PATH}"
 WORKDIR /app
 
 COPY entrypoint.sh /usr/local/bin/cecli-entrypoint
+COPY defaults/ /opt/cecli/defaults/
 RUN chmod +x /usr/local/bin/cecli-entrypoint
 
 ENTRYPOINT ["dumb-init", "--", "cecli-entrypoint"]
