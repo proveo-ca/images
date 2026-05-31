@@ -93,7 +93,7 @@ The public consumer install URL is:
 curl -fsSL https://proveo.ca/cli/install.sh | bash
 ```
 
-For now, `apps/cli` is effectively the `proveo/images` distribution surface: `/cli/install.sh` is the product-facing entrypoint, while the installed command assets still live under `apps/cli/public/images/bin/`. This keeps the URL ready for a future standalone CLI without pretending that the CLI is already a separate package.
+For now, `apps/cli` is effectively the CLI distribution slice of `proveo/images`. The full install flow is served from `/cli`, which keeps the URL ready for a future standalone CLI without pretending that the CLI is already a separate package.
 
 ## Common Environment Variables
 

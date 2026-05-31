@@ -25,7 +25,7 @@ Steps:
 2. Keep `ROADMAP.md` focused on long-running direction and maturity criteria.
 3. Keep this `PLAN.md` focused on next actions only.
 4. Keep `_spec/components.puml` aligned with actual ownership boundaries:
-   - consumer surface: `apps/cli/public/cli/install.sh`, with current bin assets under `apps/cli/public/images/bin/`
+   - consumer surface: `apps/cli/public/cli/install.sh`, with install assets under `apps/cli/public/cli/`
    - maintainer wrapper: `bin/proveo`
    - image definitions: `defs/`
    - future shared code: `packages/`

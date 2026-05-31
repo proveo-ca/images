@@ -3,7 +3,7 @@ set -euo pipefail
 
 INSTALL_ROOT="${PROVEO_INSTALL_ROOT:-$HOME/.proveo}"
 BIN_DIR="$INSTALL_ROOT/bin"
-ASSET_BASE_URL="${PROVEO_ASSET_BASE_URL:-https://proveo.ca/images}"
+ASSET_BASE_URL="${PROVEO_ASSET_BASE_URL:-https://proveo.ca/cli}"
 CLI_BASE_URL="${PROVEO_CLI_BASE_URL:-https://proveo.ca/cli}"
 
 PATH_MARKER_START="# Added by proveo install.sh"

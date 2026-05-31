@@ -15,10 +15,9 @@ public/
   cli/
     install.sh      # product-facing installer
     uninstall.sh    # product-facing uninstaller
-  images/
     bin/
       proveo
       help.sh
 ```
 
-`/cli` is the durable product URL namespace. `/images/bin` is the current command asset namespace while this repository is still primarily `proveo/images`. When the CLI becomes standalone, move the command assets under `/cli` without changing the public install command.
+`/cli` is the durable product URL namespace and contains every asset needed by the installer. This keeps the install flow independent from `/images` while the repository is still primarily `proveo/images`.
