@@ -55,6 +55,8 @@ umask 077
     quote_env_value "${!key}"
     printf '\n'
   done
+  # RTK (https://github.com/rtk-ai/rtk) — set ATTACH_RTK=1|true|yes|on to auto-clone in supported harnesses
+  echo "ATTACH_RTK=false"
 } >"$ENV_FILE"
 
 echo "✅ Created $ENV_FILE with ${#found_keys[@]} provider key(s): ${found_keys[*]}"

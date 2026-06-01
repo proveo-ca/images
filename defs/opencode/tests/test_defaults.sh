@@ -45,6 +45,18 @@ assert_output_contains \
   'cat /opt/opencode/defaults/opencode.json' \
   '"rot": true'
 
+assert_output_contains \
+  "default opencode.json: plan model uses OPENCODE_MODEL" \
+  "$IMAGE" \
+  'cat /opt/opencode/defaults/opencode.json' \
+  '"model": "{env:OPENCODE_MODEL}"'
+
+assert_output_contains \
+  "default opencode.json: build model uses OPENCODE_BUILD_MODEL" \
+  "$IMAGE" \
+  'cat /opt/opencode/defaults/opencode.json' \
+  '"model": "{env:OPENCODE_BUILD_MODEL}"'
+
 # --- Runtime seeding via entrypoint ---
 # A fresh container's HOME has no ~/.config/opencode/opencode.json until the
 # entrypoint runs. Drive the entrypoint (it forwards --version and exits).

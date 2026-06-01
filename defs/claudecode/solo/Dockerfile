@@ -84,22 +84,14 @@ COPY --chown=${USER_NAME}:${USER_NAME} claude-config.json /home/${USER_NAME}/.cl
 COPY --chown=${USER_NAME}:${USER_NAME} settings.local.json /home/${USER_NAME}/.claude/settings.local.json
 COPY --chown=${USER_NAME}:${USER_NAME} settings.local.json /workspace/.claude/settings.local.json
 
+# Copy shared entrypoint
+COPY --chown=${USER_NAME}:${USER_NAME} entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Switch to non-root user for security
 USER ${USER_NAME}
 WORKDIR /workspace
 ENV PATH="/home/${USER_NAME}/.foundry/bin:$PATH"
-
-# Create simple startup script for runtime
-RUN echo '#!/bin/bash\n\
-set -e\n\
-echo "Starting Claude Code..."\n\
-if [ "${PROVEO_SMOKE_TEST:-0}" = "1" ]; then\n\
-  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-claudecode-solo}"\n\
-  exec sleep infinity\n\
-fi\n\
-exec claude --dangerously-skip-permissions "$@"\n\
-' > /home/${USER_NAME}/start-claude.sh \
-    && chmod +x /home/${USER_NAME}/start-claude.sh
 
 # Security: Set secure environment variables and limits
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -120,4 +112,4 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD test -f /home/claude/.claude.json && test -f /home/claude/.claude/settings.local.json || exit 1
 
 # Security: Use dumb-init for proper signal handling and process reaping
-ENTRYPOINT ["dumb-init", "--", "/home/claude/start-claude.sh"]
+ENTRYPOINT ["dumb-init", "--", "/entrypoint.sh"]

@@ -47,6 +47,7 @@ cat >"$FIXTURE_DIR/fake-bin/opencode" <<'EOF'
 #!/usr/bin/env bash
 printf 'OPENCODE_MODEL=%s\n' "${OPENCODE_MODEL:-}"
 printf 'OPENCODE_SMALL_MODEL=%s\n' "${OPENCODE_SMALL_MODEL:-}"
+printf 'OPENCODE_BUILD_MODEL=%s\n' "${OPENCODE_BUILD_MODEL:-}"
 if [[ "${1:-}" == "--version" ]]; then
   echo "9.9.9"
 fi
@@ -57,6 +58,12 @@ ARCHITECT_MODEL=gpt-5.5
 EDITOR_MODEL=xai/grok-4.3
 SMALL_MODEL=xai/grok-small
 EOF
+# Also test bridging OPENCODE_SMALL_MODEL -> SMALL_MODEL when SMALL_MODEL not set
+cat >"$FIXTURE_DIR/.env2" <<'EOF'
+ARCHITECT_MODEL=gpt-5.5
+EDITOR_MODEL=xai/grok-4.3
+OPENCODE_SMALL_MODEL=xai/grok-4.3
+EOF
 
 TESTS_RUN=$((TESTS_RUN + 1))
 RESULT=$(timeout 30s docker run --rm \
@@ -64,13 +71,34 @@ RESULT=$(timeout 30s docker run --rm \
   --entrypoint bash \
   "$IMAGE" -c 'PATH="/app/fake-bin:$PATH" /entrypoint.sh --version' 2>&1 || true)
 if echo "$RESULT" | grep -q "OPENCODE_MODEL=openai/gpt-5.5" \
-   && echo "$RESULT" | grep -q "OPENCODE_SMALL_MODEL=xai/grok-4.3"; then
+   && echo "$RESULT" | grep -q "OPENCODE_SMALL_MODEL=xai/grok-4.3" \
+   && echo "$RESULT" | grep -q "OPENCODE_BUILD_MODEL=xai/grok-4.3"; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
   printf "${GREEN}PASS${NC} [%d] entrypoint bridges .env model aliases to opencode env vars\n" "$TESTS_RUN"
 else
   TESTS_FAILED=$((TESTS_FAILED + 1))
   FAILURES+=("entrypoint bridges .env model aliases to opencode env vars")
   printf "${RED}FAIL${NC} [%d] opencode model bridge (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
+fi
+
+# Entrypoint bridges OPENCODE_SMALL_MODEL into SMALL_MODEL when SMALL_MODEL is unset
+cat >"$FIXTURE_DIR/.env" <<'EOF'
+ARCHITECT_MODEL=gpt-5.5
+EDITOR_MODEL=xai/grok-4.3
+OPENCODE_SMALL_MODEL=xai/grok-4.3
+EOF
+TESTS_RUN=$((TESTS_RUN + 1))
+RESULT=$(timeout 30s docker run --rm \
+  -v "$FIXTURE_DIR:/app" \
+  --entrypoint bash \
+  "$IMAGE" -c 'PATH="/app/fake-bin:$PATH" /entrypoint.sh --version' 2>&1 || true)
+if echo "$RESULT" | grep -q "SMALL_MODEL=xai/grok-4.3"; then
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  printf "${GREEN}PASS${NC} [%d] entrypoint bridges OPENCODE_SMALL_MODEL into SMALL_MODEL\n" "$TESTS_RUN"
+else
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  FAILURES+=("entrypoint bridges OPENCODE_SMALL_MODEL into SMALL_MODEL")
+  printf "${RED}FAIL${NC} [%d] SMALL_MODEL bridge (output: %.300s)\n" "$TESTS_RUN" "$RESULT"
 fi
 
 # run.sh preserves monorepo structure and root config mounts for repo-aware operation.

@@ -15,7 +15,7 @@ Candidate coding harness definition. This definition exposes:
 - sample Claude settings/config files under each variant
 - `tests/`
 
-A root `entrypoint.sh` is not used; each variant owns its Dockerfile and runtime command surface.
+A shared `entrypoint.sh` is used by both variants (copied into each image). It handles `.env` loading, smoke-test mode, and launches `claude --dangerously-skip-permissions`.
 
 https://github.com/user-attachments/assets/81c731d9-caeb-48cf-aa3e-65a48c55519e
 

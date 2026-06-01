@@ -7,6 +7,7 @@
     "plan": {
       "description": "Read-only planner. Produces specs and step lists; never edits or runs shell.",
       "mode": "primary",
+      "model": "{env:OPENCODE_MODEL}",
       "temperature": 0.1,
       "permission": {
         "edit": "deny",
@@ -16,6 +17,7 @@
     "build": {
       "description": "Implementer. Edits allowed; bash requires human approval per command.",
       "mode": "primary",
+      "model": "{env:OPENCODE_BUILD_MODEL}",
       "temperature": 0.2,
       "permission": {
         "edit": "allow",

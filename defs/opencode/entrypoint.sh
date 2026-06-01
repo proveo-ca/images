@@ -17,6 +17,11 @@ else
   echo "🔎 No .env found"
 fi
 
+# ── Optional: attach RTK repo ──────────────────────────────
+if [[ "${ATTACH_RTK:-0}" =~ ^(1|true|yes|on)$ && ! -d rtk ]]; then
+  git clone --depth 1 https://github.com/rtk-ai/rtk.git rtk || true
+fi
+
 # ── Bridge common .env model aliases to opencode config vars ─────────
 # opencode has one primary model slot here; prefer architect/planning model over editor model.
 normalize_opencode_model() {
@@ -57,6 +62,22 @@ if [[ -z "${OPENCODE_SMALL_MODEL:-}" ]]; then
   fi
   export OPENCODE_SMALL_MODEL
 fi
+
+# Bridge OPENCODE_SMALL_MODEL into SMALL_MODEL for other tools
+if [[ -z "${SMALL_MODEL:-}" && -n "${OPENCODE_SMALL_MODEL:-}" ]]; then
+  SMALL_MODEL="$OPENCODE_SMALL_MODEL"
+  export SMALL_MODEL
+fi
+
+# Bridge EDITOR_MODEL to OPENCODE_BUILD_MODEL for the build agent
+if [[ -z "${OPENCODE_BUILD_MODEL:-}" ]]; then
+  if [[ -n "${EDITOR_MODEL:-}" ]]; then
+    OPENCODE_BUILD_MODEL="$(normalize_opencode_model "$EDITOR_MODEL")"
+  else
+    OPENCODE_BUILD_MODEL="$OPENCODE_MODEL"
+  fi
+  export OPENCODE_BUILD_MODEL
+fi
 # ── Seed global defaults (~/.config/opencode) ──────────────
 # Only seed files that are missing, unless OPENCODE_RESEED=1 forces a full re-seed.
 write_minimal_opencode_config() {
@@ -67,7 +88,23 @@ write_minimal_opencode_config() {
   "provider": {},
   "model": "{env:OPENCODE_MODEL}",
   "small_model": "{env:OPENCODE_SMALL_MODEL}",
-  "autoupdate": false
+  "autoupdate": false,
+  "agent": {
+    "plan": {
+      "description": "Read-only planner. Produces specs and step lists; never edits or runs shell.",
+      "mode": "primary",
+      "model": "{env:OPENCODE_MODEL}",
+      "temperature": 0.1,
+      "permission": { "edit": "deny", "bash": "deny" }
+    },
+    "build": {
+      "description": "Implementer. Edits allowed; bash requires human approval per command.",
+      "mode": "primary",
+      "model": "{env:OPENCODE_BUILD_MODEL}",
+      "temperature": 0.2,
+      "permission": { "edit": "allow", "bash": "ask" }
+    }
+  }
 }
 EOF
 }

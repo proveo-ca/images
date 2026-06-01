@@ -3,5 +3,9 @@
   "provider": {},
   "model": "{env:OPENCODE_MODEL}",
   "small_model": "{env:OPENCODE_SMALL_MODEL}",
-  "autoupdate": false
+  "autoupdate": false,
+  "agent": {
+    "plan": { "mode": "primary", "model": "{env:OPENCODE_MODEL}" },
+    "build": { "mode": "primary", "model": "{env:OPENCODE_BUILD_MODEL}" }
+  }
 }
