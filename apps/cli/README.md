@@ -2,7 +2,7 @@
 
 This app is the Cloudflare-hosted distribution surface for the consumer `proveo` command.
 
-The consumer CLI here is the base command. Root `bin/proveo` is the internal maintainer extension and should not be treated as part of the distributed install lifecycle.
+The consumer CLI here is the base command. Maintainer workflows live in the repo's `mise` tasks and `lib/*.sh` helpers, which are not part of the distributed install lifecycle.
 
 Public install URL:
 

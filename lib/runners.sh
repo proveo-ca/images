@@ -10,9 +10,6 @@ target_dir() {
     cecli|cecli-node)
       echo "$REPO_ROOT/defs/cecli"
       ;;
-    charles-proxy)
-      echo "$REPO_ROOT/defs/charles-proxy"
-      ;;
     opencode)
       echo "$REPO_ROOT/defs/opencode"
       ;;
@@ -44,11 +41,13 @@ run_target() {
       ;;
     claudecode)
       scope_dir="$(choose_scope "$target")"
-      "$(target_dir claudecode)/run.sh" --variant mcp --image "$(image_name claudecode):$tag" --input-dir "$scope_dir" -- ${extra_args[@]+"${extra_args[@]}"}
+      # No leading `--`: egress flags (--egress-mode/--local-model/...) must reach
+      # run.sh's own option parser, not be forwarded straight to the harness.
+      "$(target_dir claudecode)/run.sh" --variant mcp --image "$(image_name claudecode):$tag" --input-dir "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
       ;;
     claudecode-solo)
       scope_dir="$(choose_scope "$target")"
-      "$(target_dir claudecode)/run.sh" --variant solo --image "$(image_name claudecode-solo):$tag" --input-dir "$scope_dir" -- ${extra_args[@]+"${extra_args[@]}"}
+      "$(target_dir claudecode)/run.sh" --variant solo --image "$(image_name claudecode-solo):$tag" --input-dir "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
       ;;
     opencode)
       scope_dir="$(choose_scope "$target")"
@@ -57,9 +56,6 @@ run_target() {
     aider-node)
       scope_dir="$(choose_scope "$target")"
       "$(target_dir aider-node)/run.sh" --image "$(image_name aider-node):$tag" --input-dir "$scope_dir" --repo-root "$REPO_ROOT" -- ${extra_args[@]+"${extra_args[@]}"}
-      ;;
-    charles-proxy)
-      "$(target_dir charles-proxy)/run.sh" --image "$(image_name charles-proxy):$tag" ${extra_args[@]+"${extra_args[@]}"}
       ;;
     *)
       print_error "Unsupported run target: $target"
@@ -82,14 +78,12 @@ debug_target() {
       ;;
     claudecode)
       scope_dir="$(choose_scope "$target")"
-      PROVEO_CLAUDECODE_IMAGE="$(image_name claudecode):$tag" "$(target_dir claudecode)/mcp/debug.sh" --input-dir "$scope_dir" --output-dir "$(default_claude_output_dir "$scope_dir")" ${extra_args[@]+"${extra_args[@]}"}
+      # Egress consolidated per-variant debug.sh into `run.sh --shell`.
+      "$(target_dir claudecode)/run.sh" --variant mcp --image "$(image_name claudecode):$tag" --input-dir "$scope_dir" --output-dir "$(default_claude_output_dir "$scope_dir")" --shell -- ${extra_args[@]+"${extra_args[@]}"}
       ;;
     claudecode-solo)
       scope_dir="$(choose_scope "$target")"
-      PROVEO_CLAUDECODE_SOLO_IMAGE="$(image_name claudecode-solo):$tag" "$(target_dir claudecode)/solo/debug.sh" --input-dir "$scope_dir" --output-dir "$(default_claude_output_dir "$scope_dir")" ${extra_args[@]+"${extra_args[@]}"}
-      ;;
-    charles-proxy)
-      "$(target_dir charles-proxy)/debug.sh" --image "$(image_name charles-proxy):$tag" ${extra_args[@]+"${extra_args[@]}"}
+      "$(target_dir claudecode)/run.sh" --variant solo --image "$(image_name claudecode-solo):$tag" --input-dir "$scope_dir" --output-dir "$(default_claude_output_dir "$scope_dir")" --shell -- ${extra_args[@]+"${extra_args[@]}"}
       ;;
     *)
       print_error "Unsupported debug target: $target"

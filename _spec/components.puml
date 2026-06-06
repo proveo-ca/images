@@ -24,6 +24,14 @@ package "Repository Root" as RepoRoot {
 package "Specifications\n_spec/" as Specs {
   component "components.puml" as ComponentsSpec <<spec>>
   component "usage.puml" as UsageSpec <<spec>>
+  component "paradigms.md" as Paradigms <<spec>>
+  component "claudecode.paradigm.md" as ClaudePara <<spec>>
+  component "opencode.paradigm.md" as OpenPara <<spec>>
+  component "cecli.paradigm.md" as CecliPara <<spec>>
+  component "claudecode-topology.puml" as ClaudeTopo <<spec>>
+  component "claudecode-egress-topology.puml" as ClaudeEgressTopo <<spec>>
+  component "opencode-topology.puml" as OpenTopo <<spec>>
+  component "cecli-topology.puml" as CecliTopo <<spec>>
 }
 
 package "Applications\napps/" as Apps {
@@ -36,8 +44,8 @@ package "Applications\napps/" as Apps {
   }
 }
 
-package "Maintainer Tools\nbin/" as Bin {
-  component "bin/proveo\nrepo-local wrapper" as MaintainerCli <<internal>>
+package "Maintainer Tools\nmise + lib/" as Bin {
+  component "mise tasks\nlib/*.sh helpers" as MaintainerCli <<internal>>
 }
 
 package "Definitions\ndefs/" as Defs {
@@ -48,7 +56,13 @@ package "Definitions\ndefs/" as Defs {
     component "opencode\ncandidate" as DefOpen <<definition>>
   }
 
-  component "charles-proxy\nutility image" as DefCharles <<definition>>
+  package "Egress Layer\ndefs/lib + sidecars/squid-proxy + sidecars/mitmproxy + egress-dashboard" as EgressLayer {
+    component "lib/egress.sh\nshared egress lifecycle\nopen | proxy | inspected-firewall" as DefEgressLib <<script>>
+    component "squid-proxy\nenforcement proxy + provider allowlist" as DefSquid <<definition>>
+    component "mitmproxy\nTLS-inspecting sidecar" as DefMitm <<definition>>
+    component "ollama sidecar\noptional local model" as DefOllama <<definition>>
+    component "egress-dashboard\nVite + Node timeline + report" as DefDashboard <<app>>
+  }
   component "definition-local scripts\nbuild/run/test/debug" as DefinitionScripts <<script>>
   component "Dockerfiles and entrypoints" as DefinitionRuntime <<definition>>
   component "tests/" as DefinitionTests <<test>>
@@ -71,7 +85,7 @@ package "Contracts and Docs" as Contracts {
 package "Artifacts" as Artifacts {
   component "proveo/aider-node" as ImgAider <<image>>
   component "proveo/cecli" as ImgCecli <<image>>
-  component "proveo/charles-proxy" as ImgCharles <<image>>
+  component "proveo/mitmproxy" as ImgMitm <<image>>
   component "proveo/claudecode" as ImgClaudeMcp <<image>>
   component "proveo/claudecode-solo" as ImgClaudeSolo <<image>>
   component "proveo/opencode" as ImgOpen <<image>>
@@ -108,11 +122,19 @@ DefinitionRuntime *-- DefinitionAgents
 CodingDefs ..> HarnessContract : standard contract
 CodingDefs ..> DefsContract : classification
 CodingDefs ..> DefinitionReadmes : target-specific usage
-DefCharles ..> DefsContract : non-harness allowed
+DefMitm ..> DefsContract : non-harness allowed
+
+DefClaude ..> DefEgressLib : --egress-mode (open/proxy/inspected)
+DefEgressLib ..> DefSquid : starts enforcement + allowlist sidecar
+DefEgressLib ..> DefMitm : starts TLS-inspection sidecar
+DefEgressLib ..> DefOllama : starts optional local-model sidecar
+DefEgressLib ..> DefDashboard : feeds normalized logs + report
+DefEgressLib ..> ClaudeEgressTopo : SPEC
+DefEgressLib ..> RuntimeStorage : reports/egress/<session>/
 
 DefAider --> ImgAider
 DefCecli --> ImgCecli
-DefCharles --> ImgCharles
+DefMitm --> ImgMitm
 DefClaude --> ImgClaudeMcp
 DefClaude --> ImgClaudeSolo
 DefOpen --> ImgOpen
@@ -134,6 +156,13 @@ SubagentPackage ..> DefinitionAgents : possible source of reusable prompts
 
 Specs ..> RootDocs : document project boundaries
 UsageSpec ..> ComponentsSpec : command-level view of components
+Paradigms ..> ClaudePara
+Paradigms ..> OpenPara
+Paradigms ..> CecliPara
+ClaudePara ..> ClaudeTopo
+ClaudePara ..> ClaudeEgressTopo
+OpenPara ..> OpenTopo
+CecliPara ..> CecliTopo
 
 note right of ConsumerCli
 Consumer CLI lives under apps/cli assets.
@@ -142,7 +171,8 @@ not own definition-specific behavior.
 end note
 
 note right of MaintainerCli
-bin/proveo is a repo-local compatibility wrapper.
+Maintainer workflows run via mise tasks that
+source the reusable lib/*.sh helpers.
 Definition-local scripts remain the preferred
 source of deterministic target behavior.
 end note
@@ -151,6 +181,16 @@ note bottom of SubagentPackage
 Reusable subagents can become a package when
 multiple CLIs/images need the same prompt assets.
 Until then, defaults may stay with definitions.
+end note
+
+note bottom of EgressLayer
+Reusable network-egress containment for agent harnesses
+(wired into claudecode run today). ""lib/egress.sh"" orchestrates
+per-session sidecars and networks: Squid enforces protocol +
+provider allowlist, mitmproxy decrypts/records, an optional
+Ollama sidecar serves a local model. Squid (""ubuntu/squid"")
+and Ollama (""ollama/ollama"") are upstream images; only
+""proveo/mitmproxy"" is built here.
 end note
 
 @enduml

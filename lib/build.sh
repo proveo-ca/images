@@ -5,7 +5,7 @@ ensure_image_available() {
   local image="$1"
   if ! docker image inspect "$image" >/dev/null 2>&1; then
     print_error "Docker image not found locally: $image"
-    print_info "Build it first with: bin/proveo build ${2:-<target>} --tag ${DEFAULT_TAG}"
+    print_info "Build it first with: mise run build ${2:-<target>} --tag ${DEFAULT_TAG}"
     exit 1
   fi
 }

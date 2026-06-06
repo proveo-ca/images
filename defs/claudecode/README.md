@@ -10,12 +10,12 @@ Candidate coding harness definition. This definition exposes:
 - root `build.sh`
 - root `run.sh`
 - root `test.sh`
-- variant `debug.sh` scripts under `mcp/` and `solo/`
+- variant `entrypoint.sh` scripts under `mcp/` and `solo/`
 - `README.md`
 - sample Claude settings/config files under each variant
 - `tests/`
 
-A shared `entrypoint.sh` is used by both variants (copied into each image). It handles `.env` loading, smoke-test mode, and launches `claude --dangerously-skip-permissions`.
+Each variant owns its image-local `entrypoint.sh`. The root command surface remains `build.sh`, `run.sh`, and `test.sh`; root `run.sh` delegates to the variant runners.
 
 https://github.com/user-attachments/assets/81c731d9-caeb-48cf-aa3e-65a48c55519e
 
@@ -98,11 +98,11 @@ Run tests:
 ./test.sh
 ```
 
-Open a variant debug shell:
+Open a variant debug shell through the parent run wrapper:
 
 ```bash
-./mcp/debug.sh
-./solo/debug.sh
+./run.sh --variant mcp --shell
+./run.sh --variant solo --shell
 ```
 
 ## Environment Variables
@@ -176,8 +176,8 @@ export CLAUDE_CODE_OAUTH_TOKEN="sk-your-token-here"
 
 ### Debug Container Access
 ```bash
-./mcp/debug.sh   # Access the MCP variant debug shell
-./solo/debug.sh  # Access the solo variant debug shell
+./run.sh --variant mcp --shell   # Access the MCP variant debug shell
+./run.sh --variant solo --shell  # Access the solo variant debug shell
 ```
 
 ## License

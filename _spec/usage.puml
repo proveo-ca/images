@@ -17,9 +17,9 @@ package "Consumer Entrypoint\napps/cli/public/images/bin" as ConsumerEntrypoint 
   component "help.sh\nuninstall.sh" as ConsumerScripts <<script>>
 }
 
-package "Maintainer Entrypoint\nbin/" as MaintainerEntrypoint {
-  component "bin/proveo" as MaintainerCli <<internal>>
-  component "help\nlist\nbuild <target>\ntest <target>\nrun <target>\ndebug <target>\ndeploy <target>\nuninstall" as MaintainerCommands <<commands>>
+package "Maintainer Entrypoint\nmise + lib/" as MaintainerEntrypoint {
+  component "mise run <task>\nlib/*.sh helpers" as MaintainerCli <<internal>>
+  component "build <target>\ntest-defs <target>\ndebug <target>\ndeploy <target>" as MaintainerCommands <<commands>>
 }
 
 package "Definition-Local Entrypoints\ndefs/<target>/" as DefinitionEntrypoints {
@@ -33,6 +33,13 @@ package "Definitions and Defaults\ndefs/" as Definitions {
 
 package "Monorepo Discovery" as Monorepo {
   component "git repo root\npnpm-workspace.yaml\nscope picker" as ScopeSelection <<logic>>
+}
+
+package "Egress Layer (claudecode run/debug)\ndefs/lib/egress.sh" as Egress {
+  component "modes\nopen | proxy | inspected-firewall" as EgressModes <<logic>>
+  component "--local-model NAME\n(Ollama sidecar)" as EgressLocal <<logic>>
+  component "provider allowlist\nauto-detected from API key" as EgressProvider <<logic>>
+  component "Squid + mitmproxy + ollama sidecars\nreports/egress/<session>/report" as EgressSidecars <<runtime>>
 }
 
 package "Runtime and Artifacts" as Runtime {
@@ -62,6 +69,14 @@ DefinitionEntrypoints --> Runtime : build/run/test/debug use Docker, images, and
 Definitions --> Runtime : produces proveo/* images
 Monorepo --> Runtime : resolves selected workspace mount
 
+ConsumerEntrypoint ..> Egress : run claudecode --egress-mode
+MaintainerEntrypoint --> Egress : run/debug claudecode --egress-mode
+DefinitionEntrypoints --> Egress : defs/claudecode/run.sh sources egress.sh
+Egress --> Runtime : sidecars, mounts, and egress report
+EgressModes --> EgressSidecars
+EgressLocal --> EgressSidecars
+EgressProvider --> EgressSidecars
+
 note right of ConsumerEntrypoint
 Consumer commands:
 - help: prints packaged help
@@ -82,6 +97,18 @@ note bottom of Definitions
 Reusable agent definitions currently live as
 definition defaults. A future packages/subagents
 boundary can feed these defaults into CLIs/images.
+end note
+
+note bottom of Egress
+claudecode run/debug can wrap the agent in a network
+egress layer (defs/lib/egress.sh):
+- open: direct bridge (default)
+- proxy: Squid enforcement (HTTP/HTTPS only, non-web blocked)
+- inspected-firewall: mitmproxy TLS inspection upstream of Squid
+Provider egress is auto-pinned to the API key present;
+web reads stay open. --local-model adds an Ollama
+sidecar. Every run writes an egress report.
+See claudecode-egress-topology.puml.
 end note
 
 @enduml

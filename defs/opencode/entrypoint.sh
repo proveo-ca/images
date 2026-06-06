@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/defs/opencode/opencode-topology.puml, _spec/defs/opencode/opencode.paradigm.md
 set -e
 
 # Source shared entrypoint library if present
@@ -100,6 +101,22 @@ seed_defaults() {
   fi
 }
 seed_defaults
+
+# ── Seed project-level AGENTS.md if missing ───────────────
+seed_project_agents_md() {
+  local src="/opt/opencode/defaults/AGENTS.md"
+  local dst="AGENTS.md"
+  [[ -f "$src" ]] || return 0
+
+  if [[ "${OPENCODE_RESEED:-0}" == "1" ]]; then
+    cp -f "$src" "$dst"
+    echo "🔁 Re-seeded AGENTS.md into workspace"
+  elif [[ ! -f "$dst" ]]; then
+    cp "$src" "$dst"
+    echo "🌱 Seeded AGENTS.md into workspace"
+  fi
+}
+seed_project_agents_md
 
 detect_workspace_lsps() {
   local scan_root="${1:-$(pwd)}"
@@ -318,9 +335,28 @@ command_version() {
 }
 
 echo "opencode version:   $(command_version opencode unknown --version)"
+echo "Paradigm: GStack subagent crew (software engineering team)"
 echo "node version:       $(command_version node unknown --version)"
 echo "pnpm version:       $(command_version pnpm n/a -v)"
 configure_workspace_lsps
+
+echo "── Team Workflow ────────────────────────────────────"
+echo "Lead flow: classify → plan/design → delegate → build → verify → review"
+echo "Review gates: @adversarial-reviewer always; @security-reviewer for sensitive changes; @spec-keeper for _spec/docs contracts"
+echo "HITL: approve risky bash, destructive ops, publishes, deploys, secrets, and network/security changes"
+echo "─────────────────────────────────────────────────────"
+
+# ── Verification command discovery ────────────────────────
+if [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
+  # shellcheck source=/dev/null
+  source /opt/proveo/lib/detect-verify.sh
+  echo "── Verification Commands ────────────────────────────"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    cat <<< "  $line"
+  done < <(detect_verify_commands "$(pwd)")
+  echo "─────────────────────────────────────────────────────"
+fi
 
 # ── Configuration check ────────────────────────────────────
 echo "── Configuration Check ──────────────────────────────"

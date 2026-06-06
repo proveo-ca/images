@@ -58,6 +58,11 @@ echo "--- Phase 8: Functional Tests ---"
 source "$SCRIPT_DIR/test_functional.sh"
 echo ""
 
+# --- Phase 9: Egress Modes ---
+echo "--- Phase 9: Egress Mode Tests ---"
+source "$SCRIPT_DIR/test_egress.sh"
+echo ""
+
 # --- Summary ---
 print_summary
 exit $?

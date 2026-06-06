@@ -83,6 +83,8 @@ RUN mkdir -p /workspace/input \
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/solo/claude-config.json /home/${USER_NAME}/.claude.json
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/solo/settings.local.json /home/${USER_NAME}/.claude/settings.local.json
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/solo/settings.local.json /workspace/.claude/settings.local.json
+COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/solo/proveo-lib/ /opt/proveo/lib/
+COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/solo/defaults/ /opt/claudecode/defaults/
 
 # Copy shared entrypoint
 COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoint-lib.sh

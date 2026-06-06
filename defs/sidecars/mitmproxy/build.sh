@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE_NAME="${PROVEO_CHARLES_PROXY_IMAGE:-proveo/charles-proxy}"
+IMAGE_NAME="${PROVEO_MITMPROXY_IMAGE:-proveo/mitmproxy}"
 NO_CACHE=""
 
 usage() {
@@ -10,7 +10,7 @@ usage() {
 Usage:
   ./build.sh [--tag <tag>] [--no-cache]
 
-Builds the charles-proxy harness image.
+Builds the mitmproxy inspector harness image.
 EOF
 }
 
@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
         echo "--tag requires a value" >&2
         exit 1
       fi
-      IMAGE_NAME="proveo/charles-proxy:$2"
+      IMAGE_NAME="proveo/mitmproxy:$2"
       shift 2
       ;;
     --no-cache)

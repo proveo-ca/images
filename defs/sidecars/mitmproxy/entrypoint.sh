@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml
+set -euo pipefail
+
+# Headless mitmproxy (mitmdump) inspector.
+#
+# In `inspected-firewall` egress mode this runs as the agent's first hop:
+#   agent -> mitmproxy (decrypts + records) -> squid (enforces) -> internet
+#
+# HTTPS interception is ON by default (the whole point of using mitmproxy over
+# Charles). The agent must trust this proxy's CA; the egress lifecycle mounts
+# the generated CA cert into the agent and points its CA env vars at it.
+
+: "${PROVEO_MITM_PORT:=8888}"
+: "${PROVEO_MITM_CONFDIR:=/mitmproxy-confdir}"
+: "${PROVEO_MITM_FLOWS:=/flows}"
+: "${PROVEO_MITM_UPSTREAM:=}"
+
+echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-mitmproxy}"
+if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
+  exec sleep infinity
+fi
+
+mkdir -p "$PROVEO_MITM_CONFDIR" "$PROVEO_MITM_FLOWS"
+
+args=(
+  --listen-host 0.0.0.0
+  --listen-port "$PROVEO_MITM_PORT"
+  --set "confdir=${PROVEO_MITM_CONFDIR}"
+  --set "stream_large_bodies=1m"
+  -s /addons/ndjson_dump.py
+)
+
+if [[ -n "$PROVEO_MITM_UPSTREAM" ]]; then
+  args=(--mode "upstream:${PROVEO_MITM_UPSTREAM}" "${args[@]}")
+  echo "🚀 mitmdump → upstream ${PROVEO_MITM_UPSTREAM} (HTTPS interception ON) on :${PROVEO_MITM_PORT}"
+else
+  echo "🚀 mitmdump direct proxy (HTTPS interception ON) on :${PROVEO_MITM_PORT}"
+fi
+
+exec mitmdump "${args[@]}" "$@"

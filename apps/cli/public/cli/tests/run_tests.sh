@@ -412,11 +412,8 @@ main() {
     "/app"
   assert_run_target_forwards_args cecli-node "$run_dir" "$docker_log"
 
-  assert_run_target charles-proxy "proveo/charles-proxy" "$run_dir" "$docker_log" \
-    "-p" \
-    "8888:8888" \
-    "$run_dir/sessions:/sessions" \
-    "$run_dir/config:/config"
+  # mitmproxy is an egress sidecar, not a runnable target — `proveo run` must reject it.
+  assert_failure "proveo run rejects sidecar target mitmproxy" "$PROVEO_BIN" run mitmproxy
 
   assert_run_target claudecode "proveo/claudecode" "$run_dir" "$docker_log" \
     "--cap-drop=ALL" \

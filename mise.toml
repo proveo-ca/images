@@ -15,9 +15,8 @@ set -euo pipefail
 tests=(
   "apps/cli/public/cli/tests/run_tests.sh"
   "tests/docker-detached-smoke.sh"
-  "defs/aider-node/test.sh"
   "defs/cecli/test.sh"
-  "defs/charles-proxy/test.sh"
+  "defs/sidecars/mitmproxy/test.sh"
   "defs/claudecode/test.sh"
   "defs/opencode/test.sh"
 )
