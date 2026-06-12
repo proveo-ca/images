@@ -17,5 +17,8 @@ node_modules
 .aider*
 .cecli*
 
+# Token Saver (RTK) dynamically cloned runtime dependency
+/rtk/
+
 # Misc
 .pki

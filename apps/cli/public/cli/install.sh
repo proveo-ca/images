@@ -106,6 +106,41 @@ After Docker is installed, run:
 EOF
 }
 
+print_post_install_message() {
+  local shell_name
+  shell_name="$(basename "${SHELL:-sh}")"
+
+  local path_cmd
+  local reload_cmd
+  local config_file
+  config_file="$(shell_config_file)"
+  local pretty_config="${config_file/#$HOME/\~}"
+
+  if [[ "$shell_name" == "fish" ]]; then
+    path_cmd="set -gx PATH \"$BIN_DIR\" \$PATH"
+    reload_cmd="source $pretty_config"
+  else
+    path_cmd="export PATH=\"$BIN_DIR:\$PATH\""
+    reload_cmd="source $pretty_config"
+  fi
+
+  cat <<EOF
+
+proveo installed to:
+  $BIN_DIR/proveo
+
+Open a new shell or run:
+  $path_cmd
+
+Or reload your current configuration:
+  $reload_cmd
+
+Then try:
+  proveo init
+  proveo help
+EOF
+}
+
 mkdir -p "$BIN_DIR"
 
 download_file "$ASSET_BASE_URL/bin/proveo" "$BIN_DIR/proveo"
@@ -118,15 +153,5 @@ chmod +x "$BIN_DIR/proveo" "$BIN_DIR/help.sh" "$BIN_DIR/init.sh" "$INSTALL_ROOT/
 ensure_path
 check_docker
 
-cat <<EOF
+print_post_install_message
 
-proveo installed to:
-  $BIN_DIR/proveo
-
-Open a new shell or run:
-  export PATH="$BIN_DIR:\$PATH"
-
-Then try:
-  proveo init
-  proveo help
-EOF

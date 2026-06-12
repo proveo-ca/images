@@ -29,7 +29,7 @@ package "Specifications\n_spec/" as Specs {
 package "Applications\napps/" as Apps {
   package "apps/cli" as AppsCli {
     component "public image assets" as CliAssets <<app>>
-    component "proveo\nconsumer CLI" as ConsumerCli <<app>>
+    component "proveo\nconsumer CLI\nwith interactive TUI" as ConsumerCli <<app>>
     component "help.sh" as ConsumerHelp <<script>>
     component "uninstall.sh" as ConsumerUninstall <<script>>
     component "wrangler.toml" as WranglerConfig <<config>>

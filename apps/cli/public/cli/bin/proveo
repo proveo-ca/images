@@ -52,6 +52,75 @@ print_info() {
   echo "ℹ️  $*"
 }
 
+if [[ -t 0 && -t 1 && -z "${NO_COLOR:-}" ]]; then
+  BOLD=$'\033[1m'
+  DIM=$'\033[2m'
+  CYAN=$'\033[36m'
+  BLUE=$'\033[34m'
+  GREEN=$'\033[32m'
+  YELLOW=$'\033[33m'
+  RESET=$'\033[0m'
+else
+  BOLD=""
+  DIM=""
+  CYAN=""
+  BLUE=""
+  GREEN=""
+  YELLOW=""
+  RESET=""
+fi
+
+is_tty() {
+  [[ -t 0 ]]
+}
+
+tui_select() {
+  local -a options=("$@")
+  local count=${#options[@]}
+  local idx=0
+  local key
+  local esc=$'\033'
+  local up down enter
+
+  printf '\033[?25l' >&2
+
+  while true; do
+    for i in "${!options[@]}"; do
+      if [[ $i -eq $idx ]]; then
+        printf '  %s%s>%s %s%s\n' "$GREEN" "$BOLD" "$RESET" "${options[$i]}" "$RESET" >&2
+      else
+        printf '    %s\n' "${options[$i]}" >&2
+      fi
+    done
+
+    IFS= read -rsn1 key
+    if [[ $key == "$esc" ]]; then
+      IFS= read -rsn2 -t 0.1 key || true
+      case "$key" in
+        '[A'|'OA') idx=$(( (idx - 1 + count) % count )) ;;
+        '[B'|'OB') idx=$(( (idx + 1) % count )) ;;
+      esac
+    elif [[ $key == $'\x0a' || $key == $'\x0d' ]]; then
+      break
+    elif [[ $key == 'k' || $key == 'K' ]]; then
+      idx=$(( (idx - 1 + count) % count ))
+    elif [[ $key == 'j' || $key == 'J' ]]; then
+      idx=$(( (idx + 1) % count ))
+    elif [[ $key == 'q' || $key == 'Q' ]]; then
+      printf '\033[?25h' >&2
+      printf '\033[J' >&2
+      return 255
+    fi
+
+    printf '\033[%dA' "$count" >&2
+    printf '\033[J' >&2
+  done
+
+  printf '\033[?25h' >&2
+  printf '\033[J' >&2
+  return "$idx"
+}
+
 is_valid_target() {
   local target="$1"
   local item
@@ -170,8 +239,35 @@ find_repo_root() {
 
 CURRENT_REPO_ROOT="$(find_repo_root)"
 
-is_pnpm_monorepo() {
-  [[ -f "$CURRENT_REPO_ROOT/pnpm-workspace.yaml" ]]
+is_monorepo() {
+  [[ -f "$CURRENT_REPO_ROOT/pnpm-workspace.yaml" ]] || \
+  [[ -f "$CURRENT_REPO_ROOT/turbo.json" ]] || \
+  [[ -f "$CURRENT_REPO_ROOT/nx.json" ]] || \
+  [[ -f "$CURRENT_REPO_ROOT/lerna.json" ]] || \
+  ( [[ -f "$CURRENT_REPO_ROOT/package.json" ]] && grep -Fq '"workspaces"' "$CURRENT_REPO_ROOT/package.json" )
+}
+
+parse_package_json_workspaces() {
+  local package_file="$CURRENT_REPO_ROOT/package.json"
+  [[ -f "$package_file" ]] || return 0
+
+  awk '
+    BEGIN { in_workspaces = 0 }
+    /"workspaces"[[:space:]]*:[[:space:]]*\[/ { in_workspaces = 1; }
+    in_workspaces == 1 {
+      s = $0
+      while (match(s, /"[^"]*"/)) {
+        val = substr(s, RSTART+1, RLENGTH-2)
+        if (val != "workspaces") {
+          print val
+        }
+        s = substr(s, RSTART+RLENGTH)
+      }
+      if ($0 ~ /\]/) {
+        in_workspaces = 0
+      }
+    }
+  ' "$package_file"
 }
 
 trim() {
@@ -208,7 +304,11 @@ discover_workspaces() {
     glob="$(trim "$glob")"
     [[ -n "$glob" ]] || continue
     globs+=("$glob")
-  done < <(parse_pnpm_workspace_globs)
+  done < <( { parse_pnpm_workspace_globs; parse_package_json_workspaces; } | awk '!seen[$0]++' )
+
+  if [[ ${#globs[@]} -eq 0 ]] && is_monorepo; then
+    globs=("apps/*" "packages/*" "libs/*" "projects/*")
+  fi
 
   if [[ ${#globs[@]} -eq 0 ]]; then
     return 0
@@ -221,8 +321,9 @@ discover_workspaces() {
     for glob in "${globs[@]}"; do
       for candidate in $glob; do
         [[ -d "$candidate" ]] || continue
-        [[ -f "$candidate/package.json" ]] || continue
-        printf '%s\n' "$candidate"
+        if [[ -f "$candidate/package.json" || -f "$candidate/project.json" ]]; then
+          printf '%s\n' "$candidate"
+        fi
       done
     done
   ) | awk '!seen[$0]++'
@@ -239,7 +340,7 @@ choose_scope() {
     return 0
   fi
 
-  if ! is_pnpm_monorepo; then
+  if ! is_monorepo; then
     echo "$PWD"
     return 0
   fi
@@ -257,45 +358,44 @@ choose_scope() {
   local default_scope="$PWD"
   local default_label
   if [[ "$PWD" == "$CURRENT_REPO_ROOT" ]]; then
-    default_label="repo root"
+    default_label="current directory (repo root)"
   elif [[ "$PWD" == "$CURRENT_REPO_ROOT/"* ]]; then
-    default_label="${PWD#$CURRENT_REPO_ROOT/}"
+    default_label="current directory (${PWD#$CURRENT_REPO_ROOT/})"
   else
-    default_label="$PWD"
+    default_label="current directory ($PWD)"
   fi
 
-  echo "Detected pnpm monorepo: $CURRENT_REPO_ROOT" >&2
-  echo "Select scope for $target:" >&2
-  echo "  0) current directory ($default_label)" >&2
-  echo "  1) repo root" >&2
+  if ! is_tty; then
+    echo "$default_scope"
+    return 0
+  fi
 
-  for i in "${!workspaces[@]}"; do
-    printf '  %d) %s\n' "$((i + 2))" "${workspaces[$i]}" >&2
+  local -a scope_options=(
+    "current directory ($default_label)"
+    "repo root ($CURRENT_REPO_ROOT)"
+  )
+
+  for workspace in "${workspaces[@]}"; do
+    scope_options+=("workspace: $workspace")
   done
 
-  while true; do
-    read -r -p "Choice [0]: " selection
-    selection="${selection:-0}"
+  printf '\n%s%sSelect scope for %s:%s\n' "$BOLD" "$CYAN" "$target" "$RESET" >&2
+  tui_select "${scope_options[@]}"
+  local choice=$?
 
-    if [[ "$selection" =~ ^[0-9]+$ ]]; then
-      if [[ "$selection" -eq 0 ]]; then
-        echo "$default_scope"
-        return 0
-      fi
+  if [[ $choice -eq 255 ]]; then
+    echo "$default_scope"
+    return 0
+  fi
 
-      if [[ "$selection" -eq 1 ]]; then
-        echo "$CURRENT_REPO_ROOT"
-        return 0
-      fi
-
-      if [[ "$selection" -ge 2 && "$selection" -lt $(( ${#workspaces[@]} + 2 )) ]]; then
-        echo "$CURRENT_REPO_ROOT/${workspaces[$((selection - 2))]}"
-        return 0
-      fi
-    fi
-
-    print_error "Invalid selection."
-  done
+  if [[ $choice -eq 0 ]]; then
+    echo "$default_scope"
+  elif [[ $choice -eq 1 ]]; then
+    echo "$CURRENT_REPO_ROOT"
+  else
+    local selected_workspace="${workspaces[$((choice - 2))]}"
+    echo "$CURRENT_REPO_ROOT/$selected_workspace"
+  fi
 }
 
 container_name_for_scope() {
@@ -585,6 +685,89 @@ run_uninstall() {
   PROVEO_INSTALL_ROOT="$INSTALL_ROOT" "$INSTALL_ROOT/uninstall.sh"
 }
 
+run_interactive_target_menu() {
+  local -a menu_options=()
+  local target
+  local i
+
+  for target in "${TARGETS[@]}"; do
+    menu_options+=("$target — $(target_description "$target")")
+  done
+  menu_options+=("← Return to main menu")
+
+  if ! is_tty; then
+    list_targets
+    return 0
+  fi
+
+  printf '\n%s%sSelect a target to run:%s\n' "$BOLD" "$CYAN" "$RESET"
+  tui_select "${menu_options[@]}"
+  local choice=$?
+
+  if [[ $choice -eq 255 ]]; then
+    return 0
+  fi
+
+  if [[ $choice -ge 0 && $choice -lt ${#TARGETS[@]} ]]; then
+    local selected_target="${TARGETS[$choice]}"
+    run_target "$selected_target"
+  fi
+}
+
+run_interactive_main_menu() {
+  if ! is_tty; then
+    usage
+    return 0
+  fi
+
+  while true; do
+    printf '\n'
+    printf '%s%s        ┌───────●                        ───────┐%s\n' "$BOLD" "$CYAN" "$RESET"
+    printf '%s%s        │                                       │%s\n' "$BOLD" "$CYAN" "$RESET"
+    printf '%s%s        │      pr●veo                           │%s\n' "$BOLD" "$CYAN" "$RESET"
+    printf '%s%s        │                S O L U T I O N S      │%s\n' "$BOLD" "$CYAN" "$RESET"
+    printf '%s%s        │                                       │%s\n' "$BOLD" "$CYAN" "$RESET"
+    printf '%s%s        └───────                         ●──────┘%s\n' "$BOLD" "$CYAN" "$RESET"
+    printf '\n'
+    printf '  %scontainerized AI engineering harnesses%s\n' "$DIM" "$RESET"
+    printf '\n'
+
+    local -a main_menu=(
+      "Run an AI coding harness / target"
+      "Initialize environment (.env) from host keys"
+      "List supported targets"
+      "Show help details"
+      "Uninstall proveo"
+      "Exit"
+    )
+
+    tui_select "${main_menu[@]}"
+    local choice=$?
+
+    case $choice in
+      0)
+        run_interactive_target_menu
+        ;;
+      1)
+        run_init
+        ;;
+      2)
+        list_targets
+        ;;
+      3)
+        show_help_command
+        ;;
+      4)
+        run_uninstall
+        ;;
+      5|255)
+        printf '\n%sGoodbye!%s\n' "$DIM" "$RESET"
+        return 0
+        ;;
+    esac
+  done
+}
+
 parse_args() {
   local command="${1:-}"
   shift || true
@@ -613,6 +796,10 @@ parse_args() {
       ;;
     run)
       local target="${1:-}"
+      if [[ -z "$target" ]]; then
+        run_interactive_target_menu
+        return 0
+      fi
       require_target "$target"
       shift || true
 
@@ -630,7 +817,11 @@ parse_args() {
       run_uninstall
       ;;
     -h|--help|"")
-      usage
+      if [[ -z "$command" ]] && is_tty; then
+        run_interactive_main_menu
+      else
+        usage
+      fi
       ;;
     *)
       print_error "Unknown command: $command"
