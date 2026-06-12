@@ -76,23 +76,55 @@ is_tty() {
 
 tui_select() {
   local -a options=("$@")
-  local count=${#options[@]}
+  if [[ ${#options[@]} -eq 0 ]]; then
+    return 0
+  fi
+
   local idx=0
   local key
   local esc=$'\033'
-  local up down enter
+  local filter_text=""
 
   printf '\033[?25l' >&2
 
   while true; do
+    # Determine which options match the current filter
+    local -a filtered_indices=()
     for i in "${!options[@]}"; do
-      if [[ $i -eq $idx ]]; then
-        printf '  %s%s>%s %s%s\n' "$GREEN" "$BOLD" "$RESET" "${options[$i]}" "$RESET" >&2
-      else
-        printf '    %s\n' "${options[$i]}" >&2
+      local opt="${options[$i]}"
+      local opt_lower="${opt,,}"
+      local filter_lower="${filter_text,,}"
+      if [[ -z "$filter_text" ]] || [[ "$opt_lower" == *"$filter_lower"* ]]; then
+        filtered_indices+=("$i")
       fi
     done
 
+    local count=${#filtered_indices[@]}
+    if [[ $idx -ge $count ]]; then
+      idx=0
+    fi
+    if [[ $idx -lt 0 && $count -gt 0 ]]; then
+      idx=$((count - 1))
+    fi
+
+    # Render options list
+    local printed_lines=0
+    if [[ -n "$filter_text" ]]; then
+      printf '  %sFilter: %s%s\n' "$CYAN" "$filter_text" "$RESET" >&2
+      printed_lines=$((printed_lines + 1))
+    fi
+
+    for i in "${!filtered_indices[@]}"; do
+      local real_idx="${filtered_indices[$i]}"
+      if [[ $i -eq $idx ]]; then
+        printf '  %s%s>%s %s%s\n' "$GREEN" "$BOLD" "$RESET" "${options[$real_idx]}" "$RESET" >&2
+      else
+        printf '    %s\n' "${options[$real_idx]}" >&2
+      fi
+      printed_lines=$((printed_lines + 1))
+    done
+
+    # Read key
     IFS= read -rsn1 key
     if [[ $key == "$esc" ]]; then
       IFS= read -rsn2 -t 0.1 key || true
@@ -100,24 +132,70 @@ tui_select() {
         '[A'|'OA') idx=$(( (idx - 1 + count) % count )) ;;
         '[B'|'OB') idx=$(( (idx + 1) % count )) ;;
       esac
-    elif [[ $key == $'\x0a' || $key == $'\x0d' ]]; then
-      break
+    elif [[ -z "$key" || $key == $'\x0a' || $key == $'\x0d' ]]; then
+      if [[ $count -gt 0 ]]; then
+        idx="${filtered_indices[$idx]}"
+        # Clear rendered TUI lines before breaking
+        if [[ $printed_lines -gt 0 ]]; then
+          printf '\033[%dA' "$printed_lines" >&2
+          printf '\033[J' >&2
+        fi
+        break
+      else
+        printf '\a' >&2
+      fi
     elif [[ $key == 'k' || $key == 'K' ]]; then
-      idx=$(( (idx - 1 + count) % count ))
+      if [[ $count -gt 0 ]]; then
+        idx=$(( (idx - 1 + count) % count ))
+      fi
     elif [[ $key == 'j' || $key == 'J' ]]; then
-      idx=$(( (idx + 1) % count ))
+      if [[ $count -gt 0 ]]; then
+        idx=$(( (idx + 1) % count ))
+      fi
     elif [[ $key == 'q' || $key == 'Q' ]]; then
+      if [[ $printed_lines -gt 0 ]]; then
+        printf '\033[%dA' "$printed_lines" >&2
+        printf '\033[J' >&2
+      fi
       printf '\033[?25h' >&2
-      printf '\033[J' >&2
       return 255
+    elif [[ $key == $'\177' || $key == $'\x08' ]]; then
+      # Backspace
+      if [[ ${#filter_text} -gt 0 ]]; then
+        filter_text="${filter_text%?}"
+        idx=0
+      fi
+    elif [[ "$key" =~ [a-zA-Z0-9[:space:]_./-] ]]; then
+      # Test if appending matches anything
+      local new_filter="${filter_text}${key}"
+      local -a test_indices=()
+      for o in "${options[@]}"; do
+        local o_lower="${o,,}"
+        local nf_lower="${new_filter,,}"
+        if [[ "$o_lower" == *"$nf_lower"* ]]; then
+          test_indices+=(1)
+        fi
+      done
+      if [[ ${#test_indices[@]} -gt 0 ]]; then
+        filter_text="$new_filter"
+        idx=0
+      else
+        # Invalid input / no matching options triggers warning beep (retry loop)
+        printf '\a' >&2
+      fi
+    else
+      # Invalid input triggers warning beep (retry loop)
+      printf '\a' >&2
     fi
 
-    printf '\033[%dA' "$count" >&2
-    printf '\033[J' >&2
+    # Clear rendered TUI lines for redraw
+    if [[ $printed_lines -gt 0 ]]; then
+      printf '\033[%dA' "$printed_lines" >&2
+      printf '\033[J' >&2
+    fi
   done
 
   printf '\033[?25h' >&2
-  printf '\033[J' >&2
   return "$idx"
 }
 
@@ -230,6 +308,18 @@ target_description() {
 }
 
 find_repo_root() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -f "$dir/pnpm-workspace.yaml" ]] || ( [[ -f "$dir/package.json" ]] && grep -Fq '"workspaces"' "$dir/package.json" ); then
+      echo "$dir"
+      return 0
+    fi
+    if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 && [[ "$dir" == "$(git -C "$dir" rev-parse --show-toplevel)" ]]; then
+      break
+    fi
+    dir="$(dirname "$dir")"
+  done
+
   if git rev-parse --show-toplevel >/dev/null 2>&1; then
     git rev-parse --show-toplevel
   else
@@ -321,7 +411,7 @@ discover_workspaces() {
     for glob in "${globs[@]}"; do
       for candidate in $glob; do
         [[ -d "$candidate" ]] || continue
-        if [[ -f "$candidate/package.json" || -f "$candidate/project.json" ]]; then
+        if [[ -f "$candidate/package.json" || -f "$candidate/project.json" || -f "$candidate/go.mod" || -f "$candidate/Cargo.toml" ]]; then
           printf '%s\n' "$candidate"
         fi
       done
@@ -380,8 +470,8 @@ choose_scope() {
   done
 
   printf '\n%s%sSelect scope for %s:%s\n' "$BOLD" "$CYAN" "$target" "$RESET" >&2
-  tui_select "${scope_options[@]}"
-  local choice=$?
+  local choice=0
+  tui_select "${scope_options[@]}" || choice=$?
 
   if [[ $choice -eq 255 ]]; then
     echo "$default_scope"
@@ -701,8 +791,8 @@ run_interactive_target_menu() {
   fi
 
   printf '\n%s%sSelect a target to run:%s\n' "$BOLD" "$CYAN" "$RESET"
-  tui_select "${menu_options[@]}"
-  local choice=$?
+  local choice=0
+  tui_select "${menu_options[@]}" || choice=$?
 
   if [[ $choice -eq 255 ]]; then
     return 0
@@ -741,8 +831,8 @@ run_interactive_main_menu() {
       "Exit"
     )
 
-    tui_select "${main_menu[@]}"
-    local choice=$?
+    local choice=0
+    tui_select "${main_menu[@]}" || choice=$?
 
     case $choice in
       0)

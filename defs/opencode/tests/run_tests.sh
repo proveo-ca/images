@@ -40,5 +40,9 @@ echo "--- Phase 7: Direct LLM API ---"
 source "$SCRIPT_DIR/test_llm.sh"
 echo ""
 
+echo "--- Phase 8: Interactive TUI ---"
+source "$SCRIPT_DIR/test_tui.sh"
+echo ""
+
 print_summary
 exit $?
