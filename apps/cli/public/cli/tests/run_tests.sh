@@ -127,6 +127,20 @@ assert_no_path() {
   fi
 }
 
+assert_no_match_in_file() {
+  local desc="$1"
+  local file="$2"
+  local pattern="$3"
+  TESTS_RUN=$((TESTS_RUN + 1))
+  LAST_OUTPUT=""
+  if [[ -f "$file" ]] && grep -Eq -- "$pattern" "$file"; then
+    LAST_OUTPUT="Found forbidden Bash 4+ pattern '$pattern' in $file"
+    record_fail "$desc"
+  else
+    record_pass "$desc"
+  fi
+}
+
 make_fake_docker() {
   local bin_dir="$1"
   local log_file="$2"
@@ -326,6 +340,13 @@ main() {
   assert_success "init script has valid Bash syntax" bash -n "$INIT_SCRIPT"
   assert_success "install script has valid Bash syntax" bash -n "$INSTALL_SCRIPT"
   assert_success "uninstall script has valid Bash syntax" bash -n "$UNINSTALL_SCRIPT"
+
+  assert_no_match_in_file "proveo script has no Bash 4+ case modification syntax" "$PROVEO_BIN" '\$\{[a-zA-Z0-9_]+[,^]+'
+  assert_no_match_in_file "proveo script has no Bash 4+ associative arrays" "$PROVEO_BIN" 'declare -A'
+  assert_no_match_in_file "help script has no Bash 4+ case modification syntax" "$CLI_ROOT/bin/help.sh" '\$\{[a-zA-Z0-9_]+[,^]+'
+  assert_no_match_in_file "init script has no Bash 4+ case modification syntax" "$INIT_SCRIPT" '\$\{[a-zA-Z0-9_]+[,^]+'
+  assert_no_match_in_file "install script has no Bash 4+ case modification syntax" "$INSTALL_SCRIPT" '\$\{[a-zA-Z0-9_]+[,^]+'
+  assert_no_match_in_file "uninstall script has no Bash 4+ case modification syntax" "$UNINSTALL_SCRIPT" '\$\{[a-zA-Z0-9_]+[,^]+'
 
   assert_output_contains "proveo help prints usage" "proveo run <target>" "$PROVEO_BIN" help
   assert_output_contains "proveo help prints init" "proveo init" "$PROVEO_BIN" help

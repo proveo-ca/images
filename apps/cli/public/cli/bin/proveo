@@ -82,6 +82,14 @@ tui_select() {
     return 0
   fi
 
+  local -a options_lower=()
+  local opt
+  for opt in "${options[@]}"; do
+    local opt_low
+    opt_low=$(echo "$opt" | tr '[:upper:]' '[:lower:]')
+    options_lower+=("$opt_low")
+  done
+
   local idx=0
   local key
   local esc=$'\033'
@@ -92,10 +100,13 @@ tui_select() {
   while true; do
     # Determine which options match the current filter
     local -a filtered_indices=()
+    local filter_lower=""
+    if [[ -n "$filter_text" ]]; then
+      filter_lower=$(echo "$filter_text" | tr '[:upper:]' '[:lower:]')
+    fi
+
     for i in "${!options[@]}"; do
-      local opt="${options[$i]}"
-      local opt_lower="${opt,,}"
-      local filter_lower="${filter_text,,}"
+      local opt_lower="${options_lower[$i]}"
       if [[ -z "$filter_text" ]] || [[ "$opt_lower" == *"$filter_lower"* ]]; then
         filtered_indices+=("$i")
       fi
@@ -170,11 +181,11 @@ tui_select() {
     elif [[ "$key" =~ [a-zA-Z0-9[:space:]_./-] ]]; then
       # Test if appending matches anything
       local new_filter="${filter_text}${key}"
+      local nf_lower
+      nf_lower=$(echo "$new_filter" | tr '[:upper:]' '[:lower:]')
       local -a test_indices=()
-      for o in "${options[@]}"; do
-        local o_lower="${o,,}"
-        local nf_lower="${new_filter,,}"
-        if [[ "$o_lower" == *"$nf_lower"* ]]; then
+      for o in "${options_lower[@]}"; do
+        if [[ "$o" == *"$nf_lower"* ]]; then
           test_indices+=(1)
         fi
       done
@@ -407,7 +418,8 @@ discover_workspaces() {
   fi
 
   (
-    shopt -s nullglob globstar
+    shopt -s nullglob
+    shopt -s globstar 2>/dev/null || true
     cd "$CURRENT_REPO_ROOT"
 
     for glob in "${globs[@]}"; do
