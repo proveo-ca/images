@@ -20,5 +20,6 @@ node_modules
 # Token Saver (RTK) dynamically cloned runtime dependency
 /rtk/
 
+/reports/
 # Misc
 .pki
