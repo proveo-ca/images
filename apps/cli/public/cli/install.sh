@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROVEO_VERSION="0.0.1"
 INSTALL_ROOT="${PROVEO_INSTALL_ROOT:-$HOME/.proveo}"
 BIN_DIR="$INSTALL_ROOT/bin"
 ASSET_BASE_URL="${PROVEO_ASSET_BASE_URL:-https://proveo.ca/cli}"
@@ -126,7 +127,7 @@ print_post_install_message() {
 
   cat <<EOF
 
-proveo installed to:
+proveo v$PROVEO_VERSION installed to:
   $BIN_DIR/proveo
 
 Open a new shell or run:

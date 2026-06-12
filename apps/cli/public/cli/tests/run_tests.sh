@@ -333,11 +333,15 @@ main() {
   assert_output_contains "proveo with no args prints usage" "proveo run <target>" "$PROVEO_BIN"
   assert_output_contains "proveo list includes cecli" "- cecli" "$PROVEO_BIN" list
   assert_output_contains "proveo list includes cecli-node" "- cecli-node" "$PROVEO_BIN" list
+  assert_output_contains "proveo version prints version" "proveo version 0.0.1" "$PROVEO_BIN" version
+  assert_output_contains "proveo -v prints version" "proveo version 0.0.1" "$PROVEO_BIN" -v
+  assert_output_contains "proveo --version prints version" "proveo version 0.0.1" "$PROVEO_BIN" --version
   assert_failure "proveo rejects unknown command" "$PROVEO_BIN" nope
   assert_failure "proveo rejects unknown target" "$PROVEO_BIN" run missing-target
   assert_failure "proveo list rejects extra args" "$PROVEO_BIN" list extra
   assert_failure "proveo help rejects extra args" "$PROVEO_BIN" help extra
   assert_failure "proveo init rejects extra args" "$PROVEO_BIN" init extra
+  assert_failure "proveo version rejects extra args" "$PROVEO_BIN" version extra
 
   local init_dir="$TEMP_ROOT/init-workspace"
   mkdir -p "$init_dir"
@@ -412,8 +416,9 @@ main() {
   mkdir -p "$install_home" "$install_fake_bin"
   make_fake_curl "$install_fake_bin"
 
-  assert_success \
-    "install.sh installs distributable assets from local file URLs" \
+  assert_output_contains \
+    "install.sh installs and prints version" \
+    "proveo v0.0.1 installed to:" \
     env \
       HOME="$install_home" \
       SHELL=/bin/bash \

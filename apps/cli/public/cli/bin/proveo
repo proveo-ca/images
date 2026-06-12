@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROVEO_VERSION="0.0.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -22,6 +23,7 @@ Usage:
   proveo list
   proveo run <target> [-- <args...>]
   proveo uninstall
+  proveo version
 
 Targets:
   aider-node
@@ -905,6 +907,13 @@ parse_args() {
         exit 1
       fi
       run_uninstall
+      ;;
+    version|-v|--version)
+      if [[ $# -ne 0 ]]; then
+        print_error "Command 'version' does not accept arguments."
+        exit 1
+      fi
+      echo "proveo version $PROVEO_VERSION"
       ;;
     -h|--help|"")
       if [[ -z "$command" ]] && is_tty; then

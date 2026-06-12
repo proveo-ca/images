@@ -41,6 +41,7 @@ printf '    %-34s %s\n' "proveo init" "Create a .env from host API keys"
 printf '    %-34s %s\n' "proveo list" "List supported container targets"
 printf '    %-34s %s\n' "proveo run <target> [-- <args...>]" "Run a container target"
 printf '    %-34s %s\n' "proveo uninstall" "Remove proveo from PATH"
+printf '    %-34s %s\n' "proveo version" "Show version details"
 printf '\n'
 
 printf '  %s%sTargets%s\n' "$BOLD" "$YELLOW" "$RESET"
