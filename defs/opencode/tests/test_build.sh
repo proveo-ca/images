@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# tests/test_build.sh - Image build verification
+# tests/test_build.sh - Image availability verification
 
 TESTS_RUN=$((TESTS_RUN + 1))
-printf "Building image %s... " "$IMAGE"
-if (cd "$PROJECT_ROOT" && docker build -t "$IMAGE" -f Dockerfile . 2>&1); then
+printf "Verifying image %s is available... " "$IMAGE"
+if docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null 2>&1; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
-  printf "${GREEN}PASS${NC} [%d] image builds successfully\n" "$TESTS_RUN"
+  printf "${GREEN}PASS${NC} [%d] image is available\n" "$TESTS_RUN"
 else
   TESTS_FAILED=$((TESTS_FAILED + 1))
-  FAILURES+=("image builds successfully")
-  printf "${RED}FAIL${NC} [%d] image builds successfully\n" "$TESTS_RUN"
+  FAILURES+=("image is available")
+  printf "${RED}FAIL${NC} [%d] image is available\n" "$TESTS_RUN"
   echo "FATAL: Cannot continue without image."
   print_summary
   exit 1

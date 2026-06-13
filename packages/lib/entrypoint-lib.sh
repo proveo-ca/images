@@ -109,7 +109,9 @@ ensure_node_deps_common() {
   fi
 
   echo "No node_modules found in $(pwd); installing dependencies..."
-  if [[ -f pnpm-lock.yaml ]] || [[ -f pnpm-workspace.yaml ]] || ( [[ -f package.json ]] && grep -q '"workspace:' package.json 2>/dev/null ); then
+  if [[ -f pnpm-lock.yaml ]] || [[ -f pnpm-workspace.yaml ]] || \
+     ( [[ -f package.json ]] && grep -q '"packageManager": *"[^"]*pnpm' package.json 2>/dev/null ) || \
+     ( find . -name package.json -not -path '*/node_modules/*' -not -path '*/.*/*' -exec grep -q '"workspace:' {} + 2>/dev/null ); then
     pnpm install
   elif [[ -f package-lock.json ]]; then
     npm ci
@@ -134,4 +136,113 @@ command_version_opencode() {
     return 0
   fi
   timeout 5s "$name" "$@" 2>/dev/null || echo "$fallback"
+}
+
+# ── 7. Declarative Env Var Bridges Mapping ──────────────────
+apply_env_bridges() {
+  local eval_cmds
+  eval_cmds=$(python3 - <<'PY'
+import json
+import os
+
+bridges_json = """[
+  { "from": "ARCHITECT_MODEL", "to": "OPENCODE_MODEL", "fallback": "EDITOR_MODEL", "default": "anthropic/claude-sonnet-4-5", "transform": "normalize" },
+  { "from": "EDITOR_MODEL", "to": "OPENCODE_BUILD_MODEL", "default": "$OPENCODE_MODEL", "transform": "normalize" },
+  { "from": "OPENCODE_SMALL_MODEL", "to": "SMALL_MODEL", "default": "anthropic/claude-haiku-4-5", "transform": "normalize" },
+  { "from": "GEMINI_API_KEY", "to": "GOOGLE_GENERATIVE_AI_API_KEY" },
+  { "from": "GOOGLE_API_KEY", "to": "GOOGLE_GENERATIVE_AI_API_KEY" }
+]"""
+
+def normalize_model(model):
+    if not model:
+        return ""
+    if "/" in model:
+        return model
+    model_lower = model.lower()
+    if model_lower.startswith("gpt-") or model_lower.startswith("o1") or model_lower.startswith("o3") or model_lower.startswith("chatgpt-"):
+        return f"openai/{model}"
+    elif model_lower.startswith("claude-"):
+        return f"anthropic/{model}"
+    elif model_lower.startswith("grok-"):
+        return f"xai/{model}"
+    elif model_lower.startswith("gemini-"):
+        return f"google/{model}"
+    elif model_lower.startswith("deepseek-"):
+        return f"deepseek/{model}"
+    return model
+
+bridges = json.loads(bridges_json)
+for bridge in bridges:
+    # Skip if target already explicitly defined in environment
+    if bridge["to"] in os.environ:
+        continue
+        
+    src_val = os.environ.get(bridge["from"], "")
+    
+    # Check fallback if src is empty
+    if not src_val and "fallback" in bridge:
+        src_val = os.environ.get(bridge["fallback"], "")
+        
+    # Check default if still empty
+    if not src_val and "default" in bridge:
+        d = bridge["default"]
+        if d.startswith("$"):
+            ref_var = d[1:]
+            src_val = os.environ.get(ref_var, "")
+        else:
+            src_val = d
+            
+    if src_val:
+        # Apply transformation if specified
+        if bridge.get("transform") == "normalize":
+            src_val = normalize_model(src_val)
+            
+        target_var = bridge["to"]
+        # Output export command
+        print(f"export {target_var}={src_val!r}")
+PY
+)
+  eval "$eval_cmds"
+
+  # Ensure OPENCODE_SMALL_MODEL matches SMALL_MODEL for consistency
+  if [[ -z "${OPENCODE_SMALL_MODEL:-}" && -n "${SMALL_MODEL:-}" ]]; then
+    export OPENCODE_SMALL_MODEL="$SMALL_MODEL"
+  fi
+}
+
+# ── 8. Automatic Project-Level Tools Installer ──────────────
+ensure_project_tools() {
+  if [[ "${PROVEO_AUTO_INSTALL_TOOLS:-true}" == "false" ]]; then
+    return 0
+  fi
+
+  # Add user-local bin to PATH for prefix-based installations
+  mkdir -p "${HOME}/.local/bin"
+  export PATH="${HOME}/.local/bin:${PATH}"
+
+  # 1. NX Detection & Installation
+  if [[ -f nx.json ]]; then
+    if ! command -v nx >/dev/null 2>&1; then
+      echo "📦 Detected nx.json. Dynamically installing nx..."
+      npm install -g --prefix "${HOME}/.local" nx@latest || echo "⚠️ Failed to dynamically install nx"
+    fi
+  fi
+
+  # 2. Turbo Detection & Installation
+  if [[ -f turbo.json ]]; then
+    if ! command -v turbo >/dev/null 2>&1; then
+      echo "📦 Detected turbo.json. Dynamically installing turbo..."
+      npm install -g --prefix "${HOME}/.local" turbo@latest || echo "⚠️ Failed to dynamically install turbo"
+    fi
+  fi
+
+  # 3. Mise Detection & Installation
+  if [[ -f mise.toml || -f mise.local.toml || -f .mise.toml || -f .mise.local.toml || -d mise || -d .mise || -f .tool-versions ]]; then
+    if ! command -v mise >/dev/null 2>&1; then
+      echo "📦 Detected mise config or .tool-versions. Dynamically installing mise..."
+      curl -fsSL https://mise.run | MISE_INSTALL_PATH="${HOME}/.local/bin/mise" sh || {
+        npm install -g --prefix "${HOME}/.local" @jdx/mise@latest
+      } || echo "⚠️ Failed to dynamically install mise"
+    fi
+  fi
 }

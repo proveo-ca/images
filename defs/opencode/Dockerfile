@@ -30,6 +30,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true \
     && rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true
 
+# Install lightweight docker static client (non-setuid)
+RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-26.1.4.tgz -o /tmp/docker.tgz \
+    && tar -xzf /tmp/docker.tgz -C /tmp \
+    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && rm -rf /tmp/docker /tmp/docker.tgz
+
 RUN npm install -g pnpm@10.33.0
 
 RUN npm install -g \

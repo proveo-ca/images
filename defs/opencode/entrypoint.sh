@@ -16,61 +16,8 @@ load_env
 attach_rtk
 
 # ── Bridge common .env model aliases to opencode config vars ─────────
-# opencode has one primary model slot here; prefer architect/planning model over editor model.
-normalize_opencode_model() {
-  local model="$1"
-  [[ -n "$model" ]] || return 0
-
-  if [[ "$model" == */* ]]; then
-    printf '%s' "$model"
-    return 0
-  fi
-
-  case "$model" in
-    gpt-*|o[0-9]*|chatgpt-*) printf 'openai/%s' "$model" ;;
-    claude-*) printf 'anthropic/%s' "$model" ;;
-    grok-*) printf 'xai/%s' "$model" ;;
-    gemini-*) printf 'google/%s' "$model" ;;
-    deepseek-*) printf 'deepseek/%s' "$model" ;;
-    *) printf '%s' "$model" ;;
-  esac
-}
-
-if [[ -z "${OPENCODE_MODEL:-}" ]]; then
-  if [[ -n "${ARCHITECT_MODEL:-}" ]]; then
-    OPENCODE_MODEL="$(normalize_opencode_model "$ARCHITECT_MODEL")"
-  elif [[ -n "${EDITOR_MODEL:-}" ]]; then
-    OPENCODE_MODEL="$(normalize_opencode_model "$EDITOR_MODEL")"
-  else
-    OPENCODE_MODEL="anthropic/claude-sonnet-4-5"
-  fi
-  export OPENCODE_MODEL
-fi
-
-if [[ -z "${OPENCODE_SMALL_MODEL:-}" ]]; then
-  if [[ -n "${EDITOR_MODEL:-}" ]]; then
-    OPENCODE_SMALL_MODEL="$(normalize_opencode_model "$EDITOR_MODEL")"
-  else
-    OPENCODE_SMALL_MODEL="$(normalize_opencode_model "${SMALL_MODEL:-anthropic/claude-haiku-4-5}")"
-  fi
-  export OPENCODE_SMALL_MODEL
-fi
-
-# Bridge OPENCODE_SMALL_MODEL into SMALL_MODEL for other tools
-if [[ -z "${SMALL_MODEL:-}" && -n "${OPENCODE_SMALL_MODEL:-}" ]]; then
-  SMALL_MODEL="$OPENCODE_SMALL_MODEL"
-  export SMALL_MODEL
-fi
-
-# Bridge EDITOR_MODEL to OPENCODE_BUILD_MODEL for the build agent
-if [[ -z "${OPENCODE_BUILD_MODEL:-}" ]]; then
-  if [[ -n "${EDITOR_MODEL:-}" ]]; then
-    OPENCODE_BUILD_MODEL="$(normalize_opencode_model "$EDITOR_MODEL")"
-  else
-    OPENCODE_BUILD_MODEL="$OPENCODE_MODEL"
-  fi
-  export OPENCODE_BUILD_MODEL
-fi
+# Uses shared declarative environment variable bridges
+apply_env_bridges
 # ── Seed global defaults (~/.config/opencode) ──────────────
 # Only seed files that are missing, unless OPENCODE_RESEED=1 forces a full re-seed.
 write_minimal_opencode_config() {
@@ -406,18 +353,10 @@ fi
 
 # ── Ensure node deps if this is a Node project ─────────────
 ensure_node_deps() {
-  [[ -f package.json ]] || return 0
-  [[ -d node_modules ]] && return
-  echo "No node_modules found in $(pwd); installing dependencies..."
-  if [[ -f pnpm-lock.yaml ]]; then
-    pnpm install
-  elif [[ -f package-lock.json ]]; then
-    npm ci
-  else
-    npm install
-  fi
+  ensure_node_deps_common
 }
 ensure_node_deps
+ensure_project_tools
 
 # ── API key detection ──────────────────────────────────────
 has_api_key() {

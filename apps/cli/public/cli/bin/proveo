@@ -79,7 +79,7 @@ else
 fi
 
 is_tty() {
-  [[ -t 0 ]]
+  [[ -n "${PROVEO_FORCE_TTY:-}" ]] || [[ -t 0 ]]
 }
 
 is_valid_target() {

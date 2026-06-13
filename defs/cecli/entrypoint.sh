@@ -199,6 +199,8 @@ ensure_node_deps() {
 
 ensure_node_deps
 
+ensure_project_tools
+
 if [[ $# -eq 0 ]]; then
   set -- cecli
 elif [[ "$1" == -* ]]; then

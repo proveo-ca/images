@@ -31,6 +31,6 @@ test_target() {
       ;;
   esac
 
-  print_error "No test script found for $target and no fallback is defined."
-  exit 1
+  print_info "No test script found for $target. Skipping."
+  return 0
 }

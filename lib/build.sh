@@ -1,19 +1,6 @@
 #!/usr/bin/env bash
 # Maintainer builder for proveo CLI
 
-find_script_in_dir() {
-  local dir="$1"
-  shift
-  local script_name
-  for script_name in "$@"; do
-    if [[ -f "$dir/$script_name" ]]; then
-      echo "$dir/$script_name"
-      return 0
-    fi
-  done
-  return 1
-}
-
 ensure_image_available() {
   local image="$1"
   if ! docker image inspect "$image" >/dev/null 2>&1; then

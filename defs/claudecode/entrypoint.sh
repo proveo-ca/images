@@ -18,6 +18,9 @@ attach_rtk
 # ── Smoke test mode ────────────────────────────────────────
 run_smoke_test "claudecode"
 
+# ── Ensure project-level tools (nx, turbo, mise) ───────────
+ensure_project_tools
+
 # ── Launch Claude Code ─────────────────────────────────────
 echo "🚀 Launching Claude Code..."
 exec claude --dangerously-skip-permissions "$@"

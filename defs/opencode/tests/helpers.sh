@@ -7,7 +7,7 @@ TESTS_FAILED=0
 TESTS_SKIPPED=0
 FAILURES=()
 
-IMAGE="${IMAGE:-proveo/opencode:local}"
+IMAGE="${IMAGE:-proveo/opencode:latest}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

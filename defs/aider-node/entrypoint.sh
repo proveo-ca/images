@@ -95,6 +95,7 @@ ensure_node_deps() {
 
 # Ensure project deps are installed if we're in a Node project
 ensure_node_deps
+ensure_project_tools
 
 # ── Shared Aider flags ─────────────────────────────────────
 common_flags="--no-gitignore"
