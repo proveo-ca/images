@@ -91,6 +91,6 @@ build_target() {
   fi
 
   print_info "Building $target with tag $tag via docker build fallback..."
-  docker build ${no_cache:+$no_cache} -t "$(image_name "$target"):$tag" -f "$dir/Dockerfile" "$dir"
+  docker build ${no_cache:+$no_cache} -t "$(image_name "$target"):$tag" -f "$dir/Dockerfile" "$REPO_ROOT"
   print_success "Built $(image_name "$target"):$tag"
 }

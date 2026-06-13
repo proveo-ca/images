@@ -51,11 +51,11 @@ find_env_file() {
 load_env() {
   local env_path; env_path="$(find_env_file || true)"
   if [[ -n "$env_path" ]]; then
-    echo "✅ Found .env"
+    echo "✅ Found .env at $env_path"
     set -a
     source "$env_path"
     set +a
-    echo "✅ Loaded environment variables from .env ($env_path)"
+    echo "✅ Loaded environment variables from .env"
   else
     echo "🔎 No .env found"
   fi
@@ -79,6 +79,10 @@ load_env() {
 # ── 3. Attach RTK Repository ────────────────────────────────
 attach_rtk() {
   if [[ "${ATTACH_RTK:-0}" =~ ^(1|true|yes|on)$ && ! -d rtk ]]; then
+    if [[ ! -w . ]]; then
+      echo "⚠️  Current directory $(pwd) is not writable; skipping RTK attachment."
+      return 0
+    fi
     echo "🔄 Attaching RTK repository..."
     git clone --depth 1 https://github.com/rtk-ai/rtk.git rtk || true
   fi
