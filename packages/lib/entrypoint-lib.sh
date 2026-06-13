@@ -59,6 +59,21 @@ load_env() {
   else
     echo "🔎 No .env found"
   fi
+
+  # Bridge Google/Gemini API key aliases
+  if [[ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
+    if [[ -n "${GEMINI_API_KEY:-}" ]]; then
+      export GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY"
+    elif [[ -n "${GOOGLE_API_KEY:-}" ]]; then
+      export GOOGLE_GENERATIVE_AI_API_KEY="$GOOGLE_API_KEY"
+    fi
+  fi
+
+  # Reverse bridge for tools expecting GEMINI_API_KEY or GOOGLE_API_KEY
+  if [[ -n "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
+    export GEMINI_API_KEY="${GEMINI_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
+    export GOOGLE_API_KEY="${GOOGLE_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
+  fi
 }
 
 # ── 3. Attach RTK Repository ────────────────────────────────

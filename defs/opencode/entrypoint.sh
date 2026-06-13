@@ -427,6 +427,7 @@ has_api_key() {
   [[ -n "$XAI_API_KEY" ]] || \
   [[ -n "$GEMINI_API_KEY" ]] || \
   [[ -n "$GOOGLE_API_KEY" ]] || \
+  [[ -n "$GOOGLE_GENERATIVE_AI_API_KEY" ]] || \
   [[ -n "$DEEPSEEK_API_KEY" ]] || \
   [[ -n "$GROQ_API_KEY" ]] || \
   [[ -n "$MISTRAL_API_KEY" ]]
