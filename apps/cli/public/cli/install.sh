@@ -142,11 +142,16 @@ Then try:
 EOF
 }
 
-mkdir -p "$BIN_DIR"
+LIB_DIR="$INSTALL_ROOT/lib"
+
+mkdir -p "$BIN_DIR" "$LIB_DIR"
 
 download_file "$ASSET_BASE_URL/bin/proveo" "$BIN_DIR/proveo"
 download_file "$ASSET_BASE_URL/bin/help.sh" "$BIN_DIR/help.sh"
 download_file "$ASSET_BASE_URL/bin/init.sh" "$BIN_DIR/init.sh"
+download_file "$ASSET_BASE_URL/lib/ui.sh" "$LIB_DIR/ui.sh"
+download_file "$ASSET_BASE_URL/lib/workspace.sh" "$LIB_DIR/workspace.sh"
+download_file "$ASSET_BASE_URL/lib/runners.sh" "$LIB_DIR/runners.sh"
 download_file "$CLI_BASE_URL/uninstall.sh" "$INSTALL_ROOT/uninstall.sh"
 
 chmod +x "$BIN_DIR/proveo" "$BIN_DIR/help.sh" "$BIN_DIR/init.sh" "$INSTALL_ROOT/uninstall.sh"

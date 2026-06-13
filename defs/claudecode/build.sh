@@ -47,7 +47,11 @@ build_variant() {
   local variant="$1"
   local image="$2"
   echo "Building $image:$TAG from $variant..."
+  cp -f "$SCRIPT_DIR/../../packages/lib/entrypoint-lib.sh" "$SCRIPT_DIR/$variant/"
+  trap 'rm -f "$SCRIPT_DIR/$variant/entrypoint-lib.sh"' EXIT
   docker build ${NO_CACHE:+$NO_CACHE} -t "$image:$TAG" -f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/$variant"
+  rm -f "$SCRIPT_DIR/$variant/entrypoint-lib.sh"
+  trap - EXIT
 }
 
 case "$VARIANT" in

@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y xclip && rm -rf /var/lib/apt/lists/*
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     PATH="/usr/local/bin:${PATH}"
 
+COPY entrypoint-lib.sh /entrypoint-lib.sh
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

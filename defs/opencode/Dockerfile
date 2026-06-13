@@ -54,6 +54,7 @@ RUN mkdir -p /workspace \
 COPY defaults/ /opt/opencode/defaults/
 COPY sample_opencode.json /opt/opencode/sample_opencode.json
 
+COPY entrypoint-lib.sh /entrypoint-lib.sh
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

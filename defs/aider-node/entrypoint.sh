@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
 set -e
 
-# Always use /app as the working directory if it exists
-if [[ -d /app ]]; then
-  cd /app
+# Source shared entrypoint library if present
+if [[ -f /entrypoint-lib.sh ]]; then
+  source /entrypoint-lib.sh
 fi
 
+# Always use /app as the working directory if it exists
+set_working_directory "/app"
+
 # ── Source .env file if present ────────────────────────────
-if [[ -f .env ]]; then
-  echo "✅ Found .env"
-  set -a
-  source .env
-  set +a
-  echo "✅ Loaded environment variables from .env"
-else
-  echo "🔎 No .env found"
-fi
+load_env
 
 # ── Environment Variable Bridge ────────────────────────────
 # Standardized vars:
@@ -92,31 +87,10 @@ if [[ -f .aiderignore ]]; then echo "✅ Found .aiderignore"; else echo "🔎 No
 if [[ -f CONVENTIONS.md ]]; then echo "✅ Found CONVENTIONS.md"; else echo "🔎 Not found CONVENTIONS.md"; fi
 echo "─────────────────────────────────────────────────────"
 
-if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
-  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-aider-node}"
-  exec sleep infinity
-fi
+run_smoke_test "aider-node"
 
 ensure_node_deps() {
-  # Only attempt installs if we're in a Node project
-  if [[ ! -f package.json ]]; then
-    return
-  fi
-
-  # If node_modules already exists, assume deps are installed
-  if [[ -d node_modules ]]; then
-    return
-  fi
-
-  echo "No node_modules found in $(pwd); installing dependencies..."
-
-  if [[ -f pnpm-lock.yaml ]]; then
-    pnpm install
-  elif [[ -f package-lock.json ]]; then
-    npm ci
-  else
-    npm install
-  fi
+  ensure_node_deps_common
 }
 
 # Ensure project deps are installed if we're in a Node project

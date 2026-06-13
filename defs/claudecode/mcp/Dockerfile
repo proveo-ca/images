@@ -85,6 +85,7 @@ COPY --chown=${USER_NAME}:${USER_NAME} settings.local.json /home/${USER_NAME}/.c
 COPY --chown=${USER_NAME}:${USER_NAME} settings.local.json /workspace/.claude/settings.local.json
 
 # Copy shared entrypoint
+COPY --chown=${USER_NAME}:${USER_NAME} entrypoint-lib.sh /entrypoint-lib.sh
 COPY --chown=${USER_NAME}:${USER_NAME} entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

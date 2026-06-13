@@ -40,4 +40,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Copy shared library before building
+cp -f "$SCRIPT_DIR/../../packages/lib/entrypoint-lib.sh" "$SCRIPT_DIR/"
+trap 'rm -f "$SCRIPT_DIR/entrypoint-lib.sh"' EXIT
+
 docker build ${NO_CACHE:+$NO_CACHE} -t "$IMAGE_NAME" "$SCRIPT_DIR"

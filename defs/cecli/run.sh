@@ -124,7 +124,7 @@ elif [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT/"* ]]; then
   RELATIVE_SCOPE="${INPUT_DIR#$REPO_ROOT/}"
   DOCKER_ARGS+=(--name "$(basename "$REPO_ROOT")-${RELATIVE_SCOPE//\//-}-cecli")
   DOCKER_ARGS+=(-v "$INPUT_DIR:/app/$RELATIVE_SCOPE:$APP_MOUNT_MODE" -v "$REPO_ROOT/.git:/app/.git:ro" -w /app)
-  for root_file in .env AGENTS.md CONVENTIONS.md CLAUDE.md .cecli.config.yml .cecli.config.yaml .cecli.conf.yml .cecli.conf.yaml .cecliignore package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
+  for root_file in AGENTS.md CONVENTIONS.md CLAUDE.md .cecli.config.yml .cecli.config.yaml .cecli.conf.yml .cecli.conf.yaml .cecliignore package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
     if [[ -e "$REPO_ROOT/$root_file" && ! -e "$INPUT_DIR/$root_file" ]]; then
       DOCKER_ARGS+=(-v "$REPO_ROOT/$root_file:/app/$root_file:ro")
     fi
@@ -132,8 +132,10 @@ elif [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT/"* ]]; then
   if [[ -d "$REPO_ROOT/.cecli" && ! -e "$INPUT_DIR/.cecli" ]]; then
     DOCKER_ARGS+=(-v "$REPO_ROOT/.cecli:/app/.cecli:$APP_MOUNT_MODE")
   fi
-  if [[ -f "$INPUT_DIR/.env" && ! -e "$REPO_ROOT/.env" ]]; then
+  if [[ -f "$INPUT_DIR/.env" ]]; then
     DOCKER_ARGS+=(-v "$INPUT_DIR/.env:/app/.env:ro")
+  elif [[ -f "$REPO_ROOT/.env" ]]; then
+    DOCKER_ARGS+=(-v "$REPO_ROOT/.env:/app/.env:ro")
   fi
   for scoped_file in .cecli.config.yml .cecli.config.yaml .cecli.conf.yml .cecli.conf.yaml .cecliignore; do
     if [[ -e "$INPUT_DIR/$scoped_file" && ! -e "$REPO_ROOT/$scoped_file" ]]; then

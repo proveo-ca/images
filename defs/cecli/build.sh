@@ -5,6 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_NAME="${IMAGE_NAME:-proveo/cecli}"
 NODE_IMAGE_NAME="${NODE_IMAGE_NAME:-proveo/cecli-node}"
 
+# Copy shared library before building
+cp -f "$SCRIPT_DIR/../../packages/lib/entrypoint-lib.sh" "$SCRIPT_DIR/"
+trap 'rm -f "$SCRIPT_DIR/entrypoint-lib.sh"' EXIT
+
 echo "Building $IMAGE_NAME:python..."
 docker build -t "$IMAGE_NAME:python" -f "$SCRIPT_DIR/Dockerfile.python" "$SCRIPT_DIR"
 
