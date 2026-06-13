@@ -51,3 +51,6 @@ target/
 .DS_Store
 Thumbs.db
 
+# --- Sample monorepo (self-contained for testing) ---
+samples/
+
