@@ -19,8 +19,9 @@ RUN pip install --upgrade pip setuptools wheel \
 
 WORKDIR /app
 
-COPY entrypoint.sh /usr/local/bin/cecli-entrypoint
-COPY defaults/ /opt/cecli/defaults/
+COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
+COPY defs/cecli/entrypoint.sh /usr/local/bin/cecli-entrypoint
+COPY defs/cecli/defaults/ /opt/cecli/defaults/
 RUN chmod +x /usr/local/bin/cecli-entrypoint
 
 ENTRYPOINT ["dumb-init", "--", "cecli-entrypoint"]

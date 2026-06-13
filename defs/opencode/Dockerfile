@@ -51,10 +51,11 @@ RUN mkdir -p /workspace \
 
 # Pre-baked defaults (config + subagents). Seeded into ~/.config/opencode on first run
 # by entrypoint.sh, or re-seeded when OPENCODE_RESEED=1.
-COPY defaults/ /opt/opencode/defaults/
-COPY sample_opencode.json /opt/opencode/sample_opencode.json
+COPY defs/opencode/defaults/ /opt/opencode/defaults/
+COPY defs/opencode/sample_opencode.json /opt/opencode/sample_opencode.json
 
-COPY entrypoint.sh /entrypoint.sh
+COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
+COPY defs/opencode/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 USER ${USER_NAME}

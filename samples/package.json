@@ -1,0 +1,8 @@
+{
+  "name": "polyglot-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -d /app ]]; then
-  cd /app
+# Source shared entrypoint library if present
+if [[ -f /entrypoint-lib.sh ]]; then
+  source /entrypoint-lib.sh
 fi
+
+set_working_directory "/app"
 
 : "${CECLI_HOME:=/app/.cecli}"
 : "${LOCAL_UID:=1000}"
@@ -72,15 +75,7 @@ has_cecli_agent_config() {
   return 1
 }
 
-if [[ -f .env ]]; then
-  echo "✅ Found .env"
-  set -a
-  source .env
-  set +a
-  echo "✅ Loaded environment variables from .env"
-else
-  echo "🔎 No .env found"
-fi
+load_env
 
 # ── Environment Variable Bridge ────────────────────────────
 # Standardized vars:
@@ -126,8 +121,7 @@ if [[ -z "${CECLI_AGENT_CONFIG:-}" ]] && ! has_cecli_agent_config; then
 fi
 
 command_version() {
-  local fallback="$1"; shift
-  timeout 5s "$@" 2>/dev/null || echo "$fallback"
+  command_version_cecli "$@"
 }
 
 echo "cecli version:      $(command_version installed cecli --version)"
@@ -189,10 +183,7 @@ if [[ -d "$CECLI_HOME/agents" ]]; then
 fi
 echo "─────────────────────────────────────────────────────"
 
-if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
-  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-cecli}"
-  exec sleep infinity
-fi
+run_smoke_test "cecli"
 
 ensure_node_deps() {
   if [[ "${CECLI_INSTALL_NODE_DEPS:-0}" != "1" ]]; then
@@ -203,23 +194,7 @@ ensure_node_deps() {
     return
   fi
 
-  if [[ ! -f package.json ]]; then
-    return
-  fi
-
-  if [[ -d node_modules ]]; then
-    return
-  fi
-
-  echo "No node_modules found in $(pwd); installing dependencies..."
-
-  if command -v pnpm >/dev/null 2>&1 && [[ -f pnpm-lock.yaml ]]; then
-    pnpm install --frozen-lockfile
-  elif [[ -f package-lock.json ]]; then
-    npm ci
-  else
-    npm install
-  fi
+  ensure_node_deps_common
 }
 
 ensure_node_deps

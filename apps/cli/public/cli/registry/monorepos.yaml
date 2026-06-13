@@ -1,0 +1,45 @@
+# Monorepo and Polyglot Project Registry for Proveo CLI
+# Defines markers, configuration parsers, fallback directories, and project markers.
+
+monorepo_identifiers:
+  - name: pnpm
+    title: "pnpm Workspace"
+    files:
+      - "pnpm-workspace.yaml"
+    workspace_config_parser: "pnpm-workspace"
+  - name: turbo
+    title: "Turborepo"
+    files:
+      - "turbo.json"
+    workspace_config_parser: "package-json"
+  - name: nx
+    title: "Nx Workspace"
+    files:
+      - "nx.json"
+    workspace_config_parser: "package-json"
+  - name: lerna
+    title: "Lerna Monorepo"
+    files:
+      - "lerna.json"
+    workspace_config_parser: "package-json"
+  - name: npm-yarn
+    title: "npm/Yarn Workspaces"
+    files: []
+    workspace_config_parser: "package-json"
+
+workspace_config_parsers:
+  pnpm-workspace:
+    file: "pnpm-workspace.yaml"
+  package-json:
+    file: "package.json"
+    key: "workspaces"
+
+fallback_directories:
+  - "apps/*"
+  - "packages/*"
+  - "libs/*"
+  - "projects/*"
+
+project_markers:
+  - "package.json"
+  - "project.json"

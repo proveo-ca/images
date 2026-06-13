@@ -1,26 +1,19 @@
 #!/usr/bin/env bash
 set -e
 
-# ── Working directory ──────────────────────────────────────
-if [[ -d /app ]]; then
-  cd /app
+# Source shared entrypoint library if present
+if [[ -f /entrypoint-lib.sh ]]; then
+  source /entrypoint-lib.sh
 fi
+
+# ── Working directory ──────────────────────────────────────
+set_working_directory "/app"
 
 # ── Source .env file if present ────────────────────────────
-if [[ -f .env ]]; then
-  echo "✅ Found .env"
-  set -a
-  source .env
-  set +a
-  echo "✅ Loaded environment variables from .env"
-else
-  echo "🔎 No .env found"
-fi
+load_env
 
 # ── Optional: attach RTK repo ──────────────────────────────
-if [[ "${ATTACH_RTK:-0}" =~ ^(1|true|yes|on)$ && ! -d rtk ]]; then
-  git clone --depth 1 https://github.com/rtk-ai/rtk.git rtk || true
-fi
+attach_rtk
 
 # ── Bridge common .env model aliases to opencode config vars ─────────
 # opencode has one primary model slot here; prefer architect/planning model over editor model.
@@ -374,13 +367,7 @@ PY
   echo "─────────────────────────────────────────────────────"
 }
 command_version() {
-  local name="$1"; shift
-  local fallback="${1:-n/a}"; shift || true
-  if ! command -v "$name" >/dev/null 2>&1; then
-    echo "$fallback"
-    return 0
-  fi
-  timeout 5s "$name" "$@" 2>/dev/null || echo "$fallback"
+  command_version_opencode "$@"
 }
 
 echo "opencode version:   $(command_version opencode unknown --version)"
@@ -440,6 +427,7 @@ has_api_key() {
   [[ -n "$XAI_API_KEY" ]] || \
   [[ -n "$GEMINI_API_KEY" ]] || \
   [[ -n "$GOOGLE_API_KEY" ]] || \
+  [[ -n "$GOOGLE_GENERATIVE_AI_API_KEY" ]] || \
   [[ -n "$DEEPSEEK_API_KEY" ]] || \
   [[ -n "$GROQ_API_KEY" ]] || \
   [[ -n "$MISTRAL_API_KEY" ]]

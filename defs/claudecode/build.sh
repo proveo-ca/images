@@ -47,7 +47,7 @@ build_variant() {
   local variant="$1"
   local image="$2"
   echo "Building $image:$TAG from $variant..."
-  docker build ${NO_CACHE:+$NO_CACHE} -t "$image:$TAG" -f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/$variant"
+  docker build ${NO_CACHE:+$NO_CACHE} -t "$image:$TAG" -f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/../.."
 }
 
 case "$VARIANT" in

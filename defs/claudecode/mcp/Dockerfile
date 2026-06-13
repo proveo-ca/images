@@ -80,12 +80,13 @@ RUN mkdir -p /workspace/input \
     && chmod 755 /workspace/mcp-servers
 
 # Copy Claude configuration directly into final locations
-COPY --chown=${USER_NAME}:${USER_NAME} claude-config.json /home/${USER_NAME}/.claude.json
-COPY --chown=${USER_NAME}:${USER_NAME} settings.local.json /home/${USER_NAME}/.claude/settings.local.json
-COPY --chown=${USER_NAME}:${USER_NAME} settings.local.json /workspace/.claude/settings.local.json
+COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/claude-config.json /home/${USER_NAME}/.claude.json
+COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /home/${USER_NAME}/.claude/settings.local.json
+COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /workspace/.claude/settings.local.json
 
 # Copy shared entrypoint
-COPY --chown=${USER_NAME}:${USER_NAME} entrypoint.sh /entrypoint.sh
+COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
+COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Switch to non-root user for security

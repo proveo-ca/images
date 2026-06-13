@@ -37,4 +37,4 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-docker build ${NO_CACHE:+$NO_CACHE} -t "$IMAGE_NAME" "$SCRIPT_DIR"
+docker build ${NO_CACHE:+$NO_CACHE} -t "$IMAGE_NAME" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR/../.."

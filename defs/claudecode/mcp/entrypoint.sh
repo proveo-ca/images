@@ -1,32 +1,22 @@
 #!/usr/bin/env bash
 set -e
 
-# ── Working directory ──────────────────────────────────────
-if [[ -d /workspace ]]; then
-  cd /workspace
+# Source shared entrypoint library if present
+if [[ -f /entrypoint-lib.sh ]]; then
+  source /entrypoint-lib.sh
 fi
+
+# ── Working directory ──────────────────────────────────────
+set_working_directory "/workspace"
 
 # ── Source .env file if present ────────────────────────────
-if [[ -f .env ]]; then
-  echo "✅ Found .env"
-  set -a
-  source .env
-  set +a
-  echo "✅ Loaded environment variables from .env"
-else
-  echo "🔎 No .env found"
-fi
+load_env
 
 # ── Optional: attach RTK repo ──────────────────────────────
-if [[ "${ATTACH_RTK:-0}" =~ ^(1|true|yes|on)$ && ! -d rtk ]]; then
-  git clone --depth 1 https://github.com/rtk-ai/rtk.git rtk || true
-fi
+attach_rtk
 
 # ── Smoke test mode ────────────────────────────────────────
-if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
-  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-claudecode}"
-  exec sleep infinity
-fi
+run_smoke_test "claudecode"
 
 # ── Launch Claude Code ─────────────────────────────────────
 echo "🚀 Launching Claude Code..."
