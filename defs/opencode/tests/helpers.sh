@@ -14,6 +14,28 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
+# Portable command timeout. GNU coreutils ships `timeout`; macOS ships it as
+# `gtimeout` (via `brew install coreutils`). If neither is present, run the
+# step without a wall-clock limit so the suite still works on a bare host.
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="gtimeout"
+else
+  TIMEOUT_BIN=""
+  printf "WARN: no 'timeout'/'gtimeout' on host; time-bounded steps run unbounded (install coreutils for limits).\n" >&2
+fi
+
+# run_timeout <duration> <cmd...> — wraps cmd with $TIMEOUT_BIN when available.
+run_timeout() {
+  local dur="$1"; shift
+  if [[ -n "$TIMEOUT_BIN" ]]; then
+    "$TIMEOUT_BIN" "$dur" "$@"
+  else
+    "$@"
+  fi
+}
+
 # docker_exec <image> <command_string>
 # Runs the command inside the image (overrides entrypoint), captures combined output.
 docker_exec() {

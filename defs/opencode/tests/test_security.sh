@@ -7,11 +7,16 @@ assert_output_contains \
   "whoami" \
   "opencode"
 
+# The image renames node:22-slim's built-in uid/gid 1000 account to "opencode"
+# (see defs/opencode/Dockerfile ARG USER_ID) so host-mounted files stay
+# writable. Keep this in sync with that build arg; override via EXPECTED_UID.
+EXPECTED_UID="${EXPECTED_UID:-1000}"
+
 assert_output_contains \
-  "UID is 1001" \
+  "UID is $EXPECTED_UID" \
   "$IMAGE" \
   "id -u" \
-  "1001"
+  "$EXPECTED_UID"
 
 assert_failure \
   "no setuid binaries" \

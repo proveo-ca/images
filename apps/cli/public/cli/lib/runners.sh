@@ -304,7 +304,16 @@ run_target() {
   local use_dind=false
   export DIND_DOCKER_ARGS=()
 
-  if [[ -n "$scope_dir" ]]; then
+  # Only targets whose image ships a docker client can use the sidecar; for
+  # every other target a sidecar would be a wasted privileged container with an
+  # unusable DOCKER_HOST. Keep this in sync with the images that install a
+  # docker client (see defs/opencode/Dockerfile).
+  local dind_capable=false
+  case "$target" in
+    opencode) dind_capable=true ;;
+  esac
+
+  if [[ "$dind_capable" == "true" && -n "$scope_dir" ]]; then
     # Dynamically build prune args from nearest .gitignore (traversing up from scope_dir)
     local -a prune_args=("-name" ".git")
     local gitignore_dir="$scope_dir"
@@ -315,13 +324,16 @@ run_target() {
           if [[ -z "$line" || "$line" == "#"* || "$line" == "!"* ]]; then
             continue
           fi
-          local clean="${line%/}"
-          clean="${clean#\/}"
-          clean="${clean#\*}"
-          clean="${clean#\/}"
-          if [[ -n "$clean" && "$clean" != "." && "$clean" != ".." ]]; then
-            prune_args+=("-o" "-name" "$clean")
-          fi
+          # find's -prune matches a directory basename only, so we can only
+          # use plain directory-name entries. Strip the dir markers, then skip
+          # anything with a path separator or a glob metacharacter rather than
+          # mangling it (e.g. "*.log" -> ".log") into a pattern that misfires.
+          local clean="${line%/}"   # trailing slash = dir marker
+          clean="${clean#/}"        # leading slash = repo-root anchor
+          case "$clean" in
+            ""|"."|".."|*/*|*"*"*|*"?"*|*"["*) continue ;;
+          esac
+          prune_args+=("-o" "-name" "$clean")
         done < "$gitignore_dir/.gitignore"
         break
       fi
@@ -361,8 +373,13 @@ run_target() {
       -v "$scope_dir:/app" \
       docker:dind >/dev/null
 
-    # Register host-side lifecycle trap to cleanly terminate sidecar when script exits
-    trap 'docker rm -f "$dind_name" >/dev/null 2>&1' EXIT INT TERM
+    # Register host-side lifecycle trap to remove the sidecar on signal/exit.
+    # The name is baked into the trap body (note the double quotes + %q) rather
+    # than referenced as $dind_name: that variable is a function local and is
+    # out of scope by the time the EXIT trap fires after run_target returns, so
+    # a single-quoted trap would expand to an empty name and leak the
+    # privileged container.
+    trap "docker rm -f $(printf '%q' "$dind_name") >/dev/null 2>&1 || true" EXIT INT TERM
 
     # Construct the global dind link/network and socket redirection parameters
     export DIND_DOCKER_ARGS=(

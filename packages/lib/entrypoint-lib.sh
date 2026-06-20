@@ -109,12 +109,19 @@ ensure_node_deps_common() {
   fi
 
   echo "No node_modules found in $(pwd); installing dependencies..."
-  if [[ -f pnpm-lock.yaml ]] || [[ -f pnpm-workspace.yaml ]] || \
-     ( [[ -f package.json ]] && grep -q '"packageManager": *"[^"]*pnpm' package.json 2>/dev/null ) || \
-     ( find . -name package.json -not -path '*/node_modules/*' -not -path '*/.*/*' -exec grep -q '"workspace:' {} + 2>/dev/null ); then
+  # An explicit lockfile is authoritative — honor it before falling back to
+  # the pnpm workspace heuristic (which would otherwise hijack yarn/npm
+  # monorepos that happen to use the "workspace:" dependency protocol).
+  if [[ -f pnpm-lock.yaml ]]; then
     pnpm install
   elif [[ -f package-lock.json ]]; then
     npm ci
+  elif [[ -f yarn.lock ]]; then
+    if command -v yarn >/dev/null 2>&1; then yarn install; else npm install; fi
+  elif [[ -f pnpm-workspace.yaml ]] || \
+       ( grep -q '"packageManager": *"[^"]*pnpm' package.json 2>/dev/null ) || \
+       ( find . -maxdepth 4 -name package.json -not -path '*/node_modules/*' -not -path '*/.*/*' -exec grep -q '"workspace:' {} + 2>/dev/null ); then
+    pnpm install
   else
     npm install
   fi
@@ -144,11 +151,18 @@ apply_env_bridges() {
   eval_cmds=$(python3 - <<'PY'
 import json
 import os
+import re
+import shlex
 
+# Order matters: a bridge whose "default" references "$VAR" sees values
+# resolved by earlier bridges (we feed each resolved export back into the
+# environment below), so bridges that depend on OPENCODE_MODEL / the small
+# model must come after the bridges that produce them.
 bridges_json = """[
   { "from": "ARCHITECT_MODEL", "to": "OPENCODE_MODEL", "fallback": "EDITOR_MODEL", "default": "anthropic/claude-sonnet-4-5", "transform": "normalize" },
   { "from": "EDITOR_MODEL", "to": "OPENCODE_BUILD_MODEL", "default": "$OPENCODE_MODEL", "transform": "normalize" },
-  { "from": "OPENCODE_SMALL_MODEL", "to": "SMALL_MODEL", "default": "anthropic/claude-haiku-4-5", "transform": "normalize" },
+  { "from": "EDITOR_MODEL", "to": "OPENCODE_SMALL_MODEL", "fallback": "SMALL_MODEL", "default": "anthropic/claude-haiku-4-5", "transform": "normalize" },
+  { "from": "OPENCODE_SMALL_MODEL", "to": "SMALL_MODEL", "transform": "normalize" },
   { "from": "GEMINI_API_KEY", "to": "GOOGLE_GENERATIVE_AI_API_KEY" },
   { "from": "GOOGLE_API_KEY", "to": "GOOGLE_GENERATIVE_AI_API_KEY" }
 ]"""
@@ -159,7 +173,8 @@ def normalize_model(model):
     if "/" in model:
         return model
     model_lower = model.lower()
-    if model_lower.startswith("gpt-") or model_lower.startswith("o1") or model_lower.startswith("o3") or model_lower.startswith("chatgpt-"):
+    # OpenAI reasoning models are any "o" followed by a digit (o1, o3, o4-mini, ...)
+    if model_lower.startswith("gpt-") or model_lower.startswith("chatgpt-") or re.match(r"o[0-9]", model_lower):
         return f"openai/{model}"
     elif model_lower.startswith("claude-"):
         return f"anthropic/{model}"
@@ -176,13 +191,13 @@ for bridge in bridges:
     # Skip if target already explicitly defined in environment
     if bridge["to"] in os.environ:
         continue
-        
+
     src_val = os.environ.get(bridge["from"], "")
-    
+
     # Check fallback if src is empty
     if not src_val and "fallback" in bridge:
         src_val = os.environ.get(bridge["fallback"], "")
-        
+
     # Check default if still empty
     if not src_val and "default" in bridge:
         d = bridge["default"]
@@ -191,15 +206,18 @@ for bridge in bridges:
             src_val = os.environ.get(ref_var, "")
         else:
             src_val = d
-            
+
     if src_val:
         # Apply transformation if specified
         if bridge.get("transform") == "normalize":
             src_val = normalize_model(src_val)
-            
+
         target_var = bridge["to"]
-        # Output export command
-        print(f"export {target_var}={src_val!r}")
+        # Feed the resolved value back so later "$VAR" defaults can see it.
+        os.environ[target_var] = src_val
+        # Emit a shell-safe assignment (shlex.quote prevents the eval below
+        # from performing expansion or command substitution on the value).
+        print(f"export {target_var}={shlex.quote(src_val)}")
 PY
 )
   eval "$eval_cmds"
@@ -212,9 +230,15 @@ PY
 
 # ── 8. Automatic Project-Level Tools Installer ──────────────
 ensure_project_tools() {
-  if [[ "${PROVEO_AUTO_INSTALL_TOOLS:-true}" == "false" ]]; then
-    return 0
-  fi
+  # Opt-out: accept the common falsy spellings, case-insensitively. In
+  # locked-egress deployments (no outbound network) this should be disabled so
+  # startup never blocks on a registry/CDN fetch.
+  case "$(printf '%s' "${PROVEO_AUTO_INSTALL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in
+    false|0|no|off|disable|disabled) return 0 ;;
+  esac
+
+  # Bounded network so a blackholed egress can't hang the container at startup.
+  local -a npm_net=(--fetch-timeout=60000 --fetch-retries=1)
 
   # Add user-local bin to PATH for prefix-based installations
   mkdir -p "${HOME}/.local/bin"
@@ -224,7 +248,7 @@ ensure_project_tools() {
   if [[ -f nx.json ]]; then
     if ! command -v nx >/dev/null 2>&1; then
       echo "📦 Detected nx.json. Dynamically installing nx..."
-      npm install -g --prefix "${HOME}/.local" nx@latest || echo "⚠️ Failed to dynamically install nx"
+      npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" nx@latest || echo "⚠️ Failed to dynamically install nx"
     fi
   fi
 
@@ -232,7 +256,7 @@ ensure_project_tools() {
   if [[ -f turbo.json ]]; then
     if ! command -v turbo >/dev/null 2>&1; then
       echo "📦 Detected turbo.json. Dynamically installing turbo..."
-      npm install -g --prefix "${HOME}/.local" turbo@latest || echo "⚠️ Failed to dynamically install turbo"
+      npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" turbo@latest || echo "⚠️ Failed to dynamically install turbo"
     fi
   fi
 
@@ -240,9 +264,16 @@ ensure_project_tools() {
   if [[ -f mise.toml || -f mise.local.toml || -f .mise.toml || -f .mise.local.toml || -d mise || -d .mise || -f .tool-versions ]]; then
     if ! command -v mise >/dev/null 2>&1; then
       echo "📦 Detected mise config or .tool-versions. Dynamically installing mise..."
-      curl -fsSL https://mise.run | MISE_INSTALL_PATH="${HOME}/.local/bin/mise" sh || {
-        npm install -g --prefix "${HOME}/.local" @jdx/mise@latest
-      } || echo "⚠️ Failed to dynamically install mise"
+      # Download first so a blocked/timed-out fetch is detected via curl's own
+      # exit status (piping straight to sh masks it: an empty body exits 0).
+      local mise_installer
+      mise_installer="$(mktemp)"
+      if curl -fsSL --connect-timeout 5 --max-time 120 https://mise.run -o "$mise_installer"; then
+        MISE_INSTALL_PATH="${HOME}/.local/bin/mise" sh "$mise_installer" || echo "⚠️ mise install script failed"
+      else
+        npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" @jdx/mise@latest || echo "⚠️ Failed to dynamically install mise"
+      fi
+      rm -f "$mise_installer"
     fi
   fi
 }
