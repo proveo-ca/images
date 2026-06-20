@@ -105,44 +105,32 @@ run_aider_node() {
 
   repo_name="$(container_name_for_scope "$scope_dir")"
 
+  local -a docker_args=(run -it --rm --name "$repo_name")
+
   if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
     print_info "Running aider-node at repo root"
-    docker run -it --rm \
-      --name "$repo_name" \
-      -v "$CURRENT_REPO_ROOT:/app" \
-      -w /app \
-      "$image" \
-      ${extra_args[@]+"${extra_args[@]}"}
-    return 0
-  fi
-
-  if [[ "$scope_dir" != "$CURRENT_REPO_ROOT/"* ]]; then
+    docker_args+=(-v "$CURRENT_REPO_ROOT:/app" -w /app)
+  elif [[ "$scope_dir" != "$CURRENT_REPO_ROOT/"* ]]; then
     print_info "Running aider-node in current directory"
-    docker run -it --rm \
-      --name "$repo_name" \
-      -v "$scope_dir:/app" \
-      -w /app \
-      "$image" \
-      ${extra_args[@]+"${extra_args[@]}"}
-    return 0
+    docker_args+=(-v "$scope_dir:/app" -w /app)
+  else
+    local relative_scope
+    relative_scope="${scope_dir#$CURRENT_REPO_ROOT/}"
+    print_info "Running aider-node with monorepo workspace: $relative_scope"
+
+    docker_args+=(
+      -v "$scope_dir:/app/$relative_scope"
+      -v "$CURRENT_REPO_ROOT/.git:/app/.git"
+      -w /app
+    )
+
+    if [[ -f "$scope_dir/.aiderignore" ]]; then
+      docker_args+=(-v "$scope_dir/.aiderignore:/app/.aiderignore")
+    fi
   fi
 
-  local relative_scope
-  relative_scope="${scope_dir#$CURRENT_REPO_ROOT/}"
-
-  print_info "Running aider-node with monorepo workspace: $relative_scope"
-
-  local -a docker_args=(
-    run -it --rm
-    --name "$repo_name"
-    -v "$scope_dir:/app/$relative_scope"
-    -v "$CURRENT_REPO_ROOT/.git:/app/.git"
-    -w /app
-  )
-
-  if [[ -f "$scope_dir/.aiderignore" ]]; then
-    docker_args+=(-v "$scope_dir/.aiderignore:/app/.aiderignore")
-  fi
+  # Append dind arguments if sidecar is active
+  docker_args+=(${DIND_DOCKER_ARGS[@]+"${DIND_DOCKER_ARGS[@]}"})
 
   docker_args+=("$image")
   docker_args+=(${extra_args[@]+"${extra_args[@]}"})
@@ -190,6 +178,9 @@ run_claude_container() {
   fi
   echo ""
 
+  # Append dind arguments if sidecar is active
+  docker_args+=(${DIND_DOCKER_ARGS[@]+"${DIND_DOCKER_ARGS[@]}"})
+
   docker_args+=("$image")
   docker_args+=(${extra_args[@]+"${extra_args[@]}"})
 
@@ -235,6 +226,9 @@ run_opencode() {
     docker_args+=(-v "$scope_dir:/app" -w /app)
   fi
 
+  # Append dind arguments if sidecar is active
+  docker_args+=(${DIND_DOCKER_ARGS[@]+"${DIND_DOCKER_ARGS[@]}"})
+
   docker_args+=("$image")
   docker_args+=(${extra_args[@]+"${extra_args[@]}"})
 
@@ -254,17 +248,25 @@ run_cecli() {
   mkdir -p "$output_dir"
   ensure_image_available "$image"
 
-  docker run -it --rm \
-    --name "$(basename "$scope_dir")-$target" \
-    -e "LOCAL_UID=$(id -u)" \
-    -e "LOCAL_GID=$(id -g)" \
-    -e "CECLI_HOME=/app/.cecli" \
-    -e "CECLI_INSTALL_NODE_DEPS=${CECLI_INSTALL_NODE_DEPS:-0}" \
-    -v "$scope_dir:/app" \
-    -v "$output_dir:/app/output:rw" \
-    -w /app \
-    "$image" \
-    ${extra_args[@]+"${extra_args[@]}"}
+  local -a docker_args=(
+    run -it --rm
+    --name "$(basename "$scope_dir")-$target"
+    -e "LOCAL_UID=$(id -u)"
+    -e "LOCAL_GID=$(id -g)"
+    -e "CECLI_HOME=/app/.cecli"
+    -e "CECLI_INSTALL_NODE_DEPS=${CECLI_INSTALL_NODE_DEPS:-0}"
+    -v "$scope_dir:/app"
+    -v "$output_dir:/app/output:rw"
+    -w /app
+  )
+
+  # Append dind arguments if sidecar is active
+  docker_args+=(${DIND_DOCKER_ARGS[@]+"${DIND_DOCKER_ARGS[@]}"})
+
+  docker_args+=("$image")
+  docker_args+=(${extra_args[@]+"${extra_args[@]}"})
+
+  docker "${docker_args[@]}"
 }
 
 run_charles_proxy() {
@@ -289,25 +291,115 @@ run_target() {
   local target="$1"
   shift
   local -a extra_args=("$@")
-  local scope_dir
+  local scope_dir=""
 
   ensure_docker_available
 
+  if [[ "$target" != "charles-proxy" ]]; then
+    scope_dir="$(choose_scope "$target")"
+  fi
+
+  # Sibling DinD sidecar dynamic provisioning
+  local dind_name=""
+  local use_dind=false
+  export DIND_DOCKER_ARGS=()
+
+  # Only targets whose image ships a docker client can use the sidecar; for
+  # every other target a sidecar would be a wasted privileged container with an
+  # unusable DOCKER_HOST. Keep this in sync with the images that install a
+  # docker client (see defs/opencode/Dockerfile).
+  local dind_capable=false
+  case "$target" in
+    opencode) dind_capable=true ;;
+  esac
+
+  if [[ "$dind_capable" == "true" && -n "$scope_dir" ]]; then
+    # Dynamically build prune args from nearest .gitignore (traversing up from scope_dir)
+    local -a prune_args=("-name" ".git")
+    local gitignore_dir="$scope_dir"
+    while [[ -n "$gitignore_dir" && "$gitignore_dir" != "/" ]]; do
+      if [[ -f "$gitignore_dir/.gitignore" ]]; then
+        while IFS= read -r line || [[ -n "$line" ]]; do
+          line="$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          if [[ -z "$line" || "$line" == "#"* || "$line" == "!"* ]]; then
+            continue
+          fi
+          # find's -prune matches a directory basename only, so we can only
+          # use plain directory-name entries. Strip the dir markers, then skip
+          # anything with a path separator or a glob metacharacter rather than
+          # mangling it (e.g. "*.log" -> ".log") into a pattern that misfires.
+          local clean="${line%/}"   # trailing slash = dir marker
+          clean="${clean#/}"        # leading slash = repo-root anchor
+          case "$clean" in
+            ""|"."|".."|*/*|*"*"*|*"?"*|*"["*) continue ;;
+          esac
+          prune_args+=("-o" "-name" "$clean")
+        done < "$gitignore_dir/.gitignore"
+        break
+      fi
+      gitignore_dir="$(dirname "$gitignore_dir")"
+    done
+
+    # Check for Dockerfiles or Compose configurations in scope_dir up to maxdepth 5, pruning ignored dirs
+    if find "$scope_dir" -maxdepth 5 \( "${prune_args[@]}" \) -prune \
+        -o \( -name "Dockerfile" -o -name "docker-compose.yml" -o -name "docker-compose.yaml" -o -name "compose.yml" -o -name "compose.yaml" \) -print -quit 2>/dev/null | grep -q .; then
+      if [[ "${PROVEO_DIND:-}" == "1" || "${OPENCODE_INSTALL_DIND:-}" == "1" ]]; then
+        use_dind=true
+      elif is_tty; then
+        printf "\n🐳 %sDockerfiles or Compose configurations detected in the project scope.%s\n" "$BOLD$CYAN" "$RESET" >&2
+        printf "Do you want to launch a sibling Docker-in-Docker (dind) container for local testing? [y/N] " >&2
+        local response=""
+        read -r -t 10 response </dev/tty || response="n"
+        if [[ "$response" =~ ^[yY](es)?$ ]]; then
+          use_dind=true
+        fi
+      fi
+    fi
+  fi
+
+  if [[ "$use_dind" == "true" ]]; then
+    dind_name="proveo-dind-${target}"
+    print_info "Starting sibling Docker-in-Docker (dind) container: $dind_name"
+    printf "🔒 %sSecurity:%s This dind sidecar is a pristine, secure, and isolated container.\n" "$BOLD" "$RESET" >&2
+    printf "            It has NO access to your host system outside of the shared path: %s\n\n" "$scope_dir" >&2
+
+    # Clean existing sidecar with same name if any
+    docker rm -f "$dind_name" >/dev/null 2>&1 || true
+
+    # Launch pristine dind sidecar container, mounting the scope directory
+    docker run --privileged -d \
+      --name "$dind_name" \
+      -e DOCKER_TLS_CERTDIR="" \
+      -v "$scope_dir:/app" \
+      docker:dind >/dev/null
+
+    # Register host-side lifecycle trap to remove the sidecar on signal/exit.
+    # The name is baked into the trap body (note the double quotes + %q) rather
+    # than referenced as $dind_name: that variable is a function local and is
+    # out of scope by the time the EXIT trap fires after run_target returns, so
+    # a single-quoted trap would expand to an empty name and leak the
+    # privileged container.
+    trap "docker rm -f $(printf '%q' "$dind_name") >/dev/null 2>&1 || true" EXIT INT TERM
+
+    # Construct the global dind link/network and socket redirection parameters
+    export DIND_DOCKER_ARGS=(
+      --link "$dind_name":docker
+      -e DOCKER_HOST=tcp://docker:2375
+      -e DOCKER_TLS_VERIFY=""
+    )
+  fi
+
   case "$target" in
     aider-node)
-      scope_dir="$(choose_scope "$target")"
       run_aider_node "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
       ;;
     cecli|cecli-node)
-      scope_dir="$(choose_scope "$target")"
       run_cecli "$target" "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
       ;;
     claudecode|claudecode-solo)
-      scope_dir="$(choose_scope "$target")"
       run_claude_container "$(image_name "$target")" "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
       ;;
     opencode)
-      scope_dir="$(choose_scope "$target")"
       run_opencode "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
       ;;
     charles-proxy)

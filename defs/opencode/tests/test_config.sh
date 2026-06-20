@@ -25,7 +25,7 @@ EOF
 # sending an unsupported flag that exits quickly. `opencode --version` exits 0
 # after printing.
 TESTS_RUN=$((TESTS_RUN + 1))
-RESULT=$(timeout 30s docker run --rm \
+RESULT=$(run_timeout 30s docker run --rm \
   -v "$FIXTURE_DIR:/app" \
   --entrypoint /entrypoint.sh \
   "$IMAGE" --version 2>&1 || true)
@@ -66,7 +66,7 @@ OPENCODE_SMALL_MODEL=xai/grok-4.3
 EOF
 
 TESTS_RUN=$((TESTS_RUN + 1))
-RESULT=$(timeout 30s docker run --rm \
+RESULT=$(run_timeout 30s docker run --rm \
   -v "$FIXTURE_DIR:/app" \
   --entrypoint bash \
   "$IMAGE" -c 'PATH="/app/fake-bin:$PATH" /entrypoint.sh --version' 2>&1 || true)
@@ -88,7 +88,7 @@ EDITOR_MODEL=xai/grok-4.3
 OPENCODE_SMALL_MODEL=xai/grok-4.3
 EOF
 TESTS_RUN=$((TESTS_RUN + 1))
-RESULT=$(timeout 30s docker run --rm \
+RESULT=$(run_timeout 30s docker run --rm \
   -v "$FIXTURE_DIR:/app" \
   --entrypoint bash \
   "$IMAGE" -c 'PATH="/app/fake-bin:$PATH" /entrypoint.sh --version' 2>&1 || true)
@@ -119,7 +119,7 @@ fi
 
 # Entrypoint forwards args to opencode
 TESTS_RUN=$((TESTS_RUN + 1))
-RESULT=$(timeout 30s docker run --rm "$IMAGE" --version 2>&1 || true)
+RESULT=$(run_timeout 30s docker run --rm "$IMAGE" --version 2>&1 || true)
 if echo "$RESULT" | grep -qE "[0-9]+\.[0-9]+"; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
   printf "${GREEN}PASS${NC} [%d] entrypoint forwards args to opencode (--version)\n" "$TESTS_RUN"

@@ -41,7 +41,7 @@ description = "Run the apps/cli Cloudflare distribution assets locally with Wran
 run = "pnpm exec wrangler dev --cwd apps/cli"
 
 [tasks.build]
-description = "Build a container harness target"
+description = "Build a container harness def"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -91,7 +91,7 @@ done
 # If no target specified, show interactive TUI selector
 if [[ -z "$target" ]]; then
   build_options=(
-    "all targets (Build everything)"
+    "all defs (Build everything)"
   )
   for t in "${TARGETS[@]}"; do
     build_options+=("$t")
@@ -116,7 +116,7 @@ fi
 require_tag "$tag" "build"
 
 if [[ "$target" == "all" ]]; then
-  echo "Building all targets..." >&2
+  echo "Building all defs..." >&2
   for t in "${TARGETS[@]}"; do
     echo "--- Building $t ---" >&2
     build_target "$t" "$tag" "$no_cache"
@@ -127,8 +127,8 @@ else
 fi
 """
 
-[tasks.test-target]
-description = "Test a specific container harness target"
+[tasks.test-defs]
+description = "Test a specific container harness def"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -163,7 +163,7 @@ done
 # If no target specified, show interactive TUI selector
 if [[ -z "$target" ]]; then
   test_options=(
-    "all targets (Run entire test suite)"
+    "all defs (Run entire test suite)"
   )
   for t in "${TARGETS[@]}"; do
     test_options+=("$t")
@@ -198,7 +198,7 @@ fi
 """
 
 [tasks.deploy]
-description = "Deploy a container image target"
+description = "Deploy a container image def"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -243,7 +243,7 @@ done
 # If no target specified, show interactive TUI selector
 if [[ -z "$target" ]]; then
   deploy_options=(
-    "all targets (Deploy everything)"
+    "all defs (Deploy everything)"
   )
   for t in "${TARGETS[@]}"; do
     deploy_options+=("$t")
@@ -268,7 +268,7 @@ fi
 require_tag "$tag" "deploy"
 
 if [[ "$target" == "all" ]]; then
-  echo "Deploying all targets..." >&2
+  echo "Deploying all defs..." >&2
   for t in "${TARGETS[@]}"; do
     echo "--- Deploying $t ---" >&2
     deploy_target "$t" "$tag"
@@ -280,7 +280,7 @@ fi
 """
 
 [tasks.debug]
-description = "Debug a container harness target"
+description = "Debug a container harness def"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail

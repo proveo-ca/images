@@ -30,6 +30,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true \
     && rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true
 
+# Install lightweight docker static client (non-setuid).
+# Resolve the tarball arch from the build platform so arm64 images get an
+# arm64 (aarch64) binary instead of a non-runnable x86_64 one.
+RUN DOCKER_VERSION=26.1.4 \
+    && case "$(uname -m)" in \
+         x86_64|amd64) DOCKER_ARCH=x86_64 ;; \
+         aarch64|arm64) DOCKER_ARCH=aarch64 ;; \
+         *) echo "unsupported architecture for docker static client: $(uname -m)" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz \
+    && tar -xzf /tmp/docker.tgz -C /tmp \
+    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && rm -rf /tmp/docker /tmp/docker.tgz
+
 RUN npm install -g pnpm@10.33.0
 
 RUN npm install -g \

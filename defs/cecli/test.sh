@@ -3,7 +3,7 @@ set -euo pipefail
 
 IMAGE_NAME="${PROVEO_CECLI_IMAGE:-proveo/cecli:latest}"
 
-docker run --rm "$IMAGE_NAME" bash -lc 'python --version && cecli --version && timeout 10s pnpm -v && test -f /opt/cecli/defaults/agents/adversarial-reviewer.md && test -f /opt/cecli/defaults/agents/security-reviewer.md && python - <<"PY"
+docker run --rm "$IMAGE_NAME" bash -c 'python3 --version && cecli --version && timeout 10s pnpm -v && test -f /opt/cecli/defaults/agents/adversarial-reviewer.md && test -f /opt/cecli/defaults/agents/security-reviewer.md && python3 - <<"PY"
 from cecli.helpers.agents.service import AgentService
 AgentService._global_registry = {}
 AgentService.build_registry(["/opt/cecli/defaults/agents"])
