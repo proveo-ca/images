@@ -7,8 +7,6 @@ FROM node:22-slim
 ARG USER_ID=1000
 ARG USER_NAME=opencode
 
-# node images already include uid/gid 1000 as node:node. Reuse that uid by
-# renaming the existing account so host-owned files remain writable by opencode.
 RUN if getent passwd "${USER_ID}" >/dev/null; then \
       existing_user="$(getent passwd "${USER_ID}" | cut -d: -f1)"; \
       existing_group="$(getent group "${USER_ID}" | cut -d: -f1)"; \
@@ -73,6 +71,9 @@ COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY defs/opencode/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# Default to the non-root build user. The harness wrapper overrides the runtime
+# uid at launch with `--user $(id -u):$(id -g)`; see ensure_runtime_user in the
+# entrypoint for the matching passwd/HOME handling for arbitrary uids.
 USER ${USER_NAME}
 WORKDIR /workspace
 

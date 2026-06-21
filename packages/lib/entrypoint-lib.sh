@@ -1,6 +1,36 @@
 #!/usr/bin/env bash
 # Shared entrypoint functions for Proveo coding harnesses
 
+# ── 0. Make an Arbitrary Run-As UID Usable (root-free) ──────
+# The harness wrappers launch the container with `docker run --user
+# $(id -u):$(id -g)` so files written to bind mounts are owned by the host
+# developer for ANY uid — never root, no privilege drop. The catch: an arbitrary
+# uid may have no /etc/passwd entry and may not own its baked HOME, which trips
+# tools that call getpwuid() or expect a writable $HOME. Smooth both over without
+# root — synthesize a passwd entry when /etc/passwd is writable, and point HOME
+# at somewhere writable. Generic to every harness: call once, no arguments, as
+# the first action in the entrypoint.
+#
+# Scope note: baked trees stay owned by the build user; making them
+# group-writable for arbitrary uids is a separate, deferred chmod/chgrp step.
+ensure_runtime_user() {
+  local uid gid
+  uid="$(id -u)"; gid="$(id -g)"
+
+  # Give the uid a name/home so getpwuid()-based tooling (git, npm, shells)
+  # doesn't choke on "I have no name!". Only possible without root when
+  # /etc/passwd is group-writable; otherwise we degrade gracefully.
+  if ! getent passwd "$uid" >/dev/null 2>&1 && [[ -w /etc/passwd ]]; then
+    printf 'agent:x:%s:%s:agent:%s:/bin/bash\n' "$uid" "$gid" "${HOME:-/tmp}" >> /etc/passwd
+  fi
+
+  # Guarantee a writable HOME. The baked home (owned by the build user) is not
+  # writable by a different uid until the deferred chmod lands, so fall back.
+  if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
+    export HOME=/tmp
+  fi
+}
+
 # ── 1. Set Working Directory ────────────────────────────────
 set_working_directory() {
   local default_dir="${1:-/app}"

@@ -172,6 +172,10 @@ mkdir -p "$OUTPUT_DIR"
 
 DOCKER_ARGS=(
   "run" "-it" "--rm"
+  # Run as the caller's host UID/GID (never root) so files written to the mounted
+  # volumes come back owned by the developer, for any uid — not just the image's
+  # baked default. No privilege drop, so the full cap-drop hardening stays intact.
+  "--user" "$(id -u):$(id -g)"
   "--cap-drop=ALL"
   "--security-opt=no-new-privileges:true"
   "--tmpfs" "/tmp:noexec,nosuid,size=100m"

@@ -7,6 +7,12 @@ if [[ -f /entrypoint-lib.sh ]]; then
   source /entrypoint-lib.sh
 fi
 
+# ── Make the run-as UID usable (root-free) ─────────────────
+# The wrapper runs us as the caller's host uid via `docker run --user`; ensure
+# that uid has a passwd entry and a writable HOME even when it isn't the baked
+# default. Generic across harnesses — see ensure_runtime_user in entrypoint-lib.
+ensure_runtime_user
+
 # ── Working directory ──────────────────────────────────────
 set_working_directory "/app"
 

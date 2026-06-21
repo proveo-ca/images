@@ -1,8 +1,5 @@
 FROM node:20-bookworm-slim
 
-# Security: Use uid 1000 by default so mounted host files owned by a typical
-# developer user are writable inside the container. The node base image already
-# includes uid/gid 1000 as node:node, so rename/reuse that account.
 ARG USER_ID=1000
 ARG USER_NAME=claude
 
@@ -91,7 +88,9 @@ COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoin
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/solo/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Switch to non-root user for security
+# Default to the non-root build user. The harness wrapper overrides the runtime
+# uid at launch with `--user $(id -u):$(id -g)`; see ensure_runtime_user in the
+# entrypoint for the matching passwd/HOME handling for arbitrary uids.
 USER ${USER_NAME}
 WORKDIR /workspace
 ENV PATH="/home/${USER_NAME}/.foundry/bin:$PATH"

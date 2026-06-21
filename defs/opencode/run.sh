@@ -56,6 +56,9 @@ if [[ -z "$REPO_ROOT" ]] && git -C "$INPUT_DIR" rev-parse --show-toplevel >/dev/
 fi
 
 DOCKER_ARGS=("run" "-it" "--rm")
+# Run as the caller's host UID/GID (never root) so files written to the mounted
+# workspace come back owned by the developer, for any uid — not just 1000.
+DOCKER_ARGS+=("--user" "$(id -u):$(id -g)")
 if [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT" ]]; then
   CONTAINER_NAME="$(basename "$REPO_ROOT")-opencode"
   DOCKER_ARGS+=(--name "$CONTAINER_NAME")

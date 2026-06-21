@@ -96,6 +96,7 @@ run_claude_container() {
 
   local -a docker_args=(
     run -it --rm
+    --user "$(id -u):$(id -g)"
     --cap-drop=ALL
     --security-opt=no-new-privileges:true
     --tmpfs /tmp:noexec,nosuid,size=100m
@@ -139,7 +140,9 @@ run_opencode() {
   image="$(image_name "opencode")"
   ensure_image_available "$image"
 
-  local -a docker_args=(run -it --rm)
+  # Run as the caller's host UID/GID (never root) so files written to mounts
+  # come back owned by the developer, for any uid — not just 1000.
+  local -a docker_args=(run -it --rm --user "$(id -u):$(id -g)")
 
   local container_name
   if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
