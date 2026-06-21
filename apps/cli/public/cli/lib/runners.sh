@@ -4,9 +4,6 @@
 image_name() {
   local target="$1"
   case "$target" in
-    aider-node)
-      echo "proveo/aider-node"
-      ;;
     cecli)
       echo "proveo/cecli"
       ;;
@@ -32,9 +29,6 @@ image_name() {
 target_description() {
   local target="$1"
   case "$target" in
-    aider-node)
-      echo "Aider with Node.js, pnpm, and Playwright"
-      ;;
     cecli)
       echo "Cecli with baked-in Proveo defaults"
       ;;
@@ -85,51 +79,6 @@ default_claude_data_dir() {
 default_claude_output_dir() {
   local scope_dir="$1"
   echo "$scope_dir/reports"
-}
-
-run_aider_node() {
-  local scope_dir="$1"
-  shift
-  local -a extra_args=("$@")
-
-  local image
-  local repo_name
-  image="$(image_name "aider-node")"
-  ensure_image_available "$image"
-
-  repo_name="$(container_name_for_scope "$scope_dir")"
-
-  local -a docker_args=(run -it --rm --name "$repo_name")
-
-  if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
-    print_info "Running aider-node at repo root"
-    docker_args+=(-v "$CURRENT_REPO_ROOT:/app" -w /app)
-  elif [[ "$scope_dir" != "$CURRENT_REPO_ROOT/"* ]]; then
-    print_info "Running aider-node in current directory"
-    docker_args+=(-v "$scope_dir:/app" -w /app)
-  else
-    local relative_scope
-    relative_scope="${scope_dir#$CURRENT_REPO_ROOT/}"
-    print_info "Running aider-node with monorepo workspace: $relative_scope"
-
-    docker_args+=(
-      -v "$scope_dir:/app/$relative_scope"
-      -v "$CURRENT_REPO_ROOT/.git:/app/.git"
-      -w /app
-    )
-
-    if [[ -f "$scope_dir/.aiderignore" ]]; then
-      docker_args+=(-v "$scope_dir/.aiderignore:/app/.aiderignore")
-    fi
-  fi
-
-  # Append dind arguments if sidecar is active
-  docker_args+=(${DIND_DOCKER_ARGS[@]+"${DIND_DOCKER_ARGS[@]}"})
-
-  docker_args+=("$image")
-  docker_args+=(${extra_args[@]+"${extra_args[@]}"})
-
-  docker "${docker_args[@]}"
 }
 
 run_claude_container() {
@@ -192,14 +141,17 @@ run_opencode() {
 
   local -a docker_args=(run -it --rm)
 
+  local container_name
   if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
-    docker_args+=(--name "$(basename "$CURRENT_REPO_ROOT")-opencode")
+    container_name="$(basename "$CURRENT_REPO_ROOT")-opencode"
+    docker_args+=(--name "$container_name")
     docker_args+=(-v "$CURRENT_REPO_ROOT:/app" -w /app)
   elif [[ "$scope_dir" == "$CURRENT_REPO_ROOT/"* ]]; then
     local relative_scope
     relative_scope="${scope_dir#$CURRENT_REPO_ROOT/}"
 
-    docker_args+=(--name "$(basename "$CURRENT_REPO_ROOT")-${relative_scope//\//-}-opencode")
+    container_name="$(basename "$CURRENT_REPO_ROOT")-${relative_scope//\//-}-opencode"
+    docker_args+=(--name "$container_name")
     docker_args+=(-v "$scope_dir:/app/$relative_scope" -v "$CURRENT_REPO_ROOT/.git:/app/.git" -w /app)
 
     for root_file in .env AGENTS.md CONVENTIONS.md CLAUDE.md opencode.json opencode.jsonc package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
@@ -216,9 +168,12 @@ run_opencode() {
       docker_args+=(-v "$scope_dir/.env:/app/.env:ro")
     fi
   else
-    docker_args+=(--name "$(basename "$scope_dir")-opencode")
+    container_name="$(basename "$scope_dir")-opencode"
+    docker_args+=(--name "$container_name")
     docker_args+=(-v "$scope_dir:/app" -w /app)
   fi
+
+  docker rm -f "$container_name" >/dev/null 2>&1 || true
 
   # Append dind arguments if sidecar is active
   docker_args+=(${DIND_DOCKER_ARGS[@]+"${DIND_DOCKER_ARGS[@]}"})
@@ -242,9 +197,14 @@ run_cecli() {
   mkdir -p "$output_dir"
   ensure_image_available "$image"
 
+  local container_name
+  container_name="$(basename "$scope_dir")-$target"
+
+  docker rm -f "$container_name" >/dev/null 2>&1 || true
+
   local -a docker_args=(
     run -it --rm
-    --name "$(basename "$scope_dir")-$target"
+    --name "$container_name"
     -e "LOCAL_UID=$(id -u)"
     -e "LOCAL_GID=$(id -g)"
     -e "CECLI_HOME=/app/.cecli"
@@ -364,9 +324,6 @@ run_target() {
   fi
 
   case "$target" in
-    aider-node)
-      run_aider_node "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
-      ;;
     cecli|cecli-node)
       run_cecli "$target" "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
       ;;

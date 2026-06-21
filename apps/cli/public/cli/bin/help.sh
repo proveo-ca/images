@@ -69,8 +69,7 @@ printf '  %s%sExamples%s\n' "$BOLD" "$YELLOW" "$RESET"
 printf '    %s\n' "proveo init"
 printf '    %s\n' "proveo run cecli-node"
 printf '    %s\n' "proveo run opencode"
-printf '    %s\n' "proveo run aider-node"
-printf '    %s\n' "proveo run claudecode -- --debug --mcp-debug"
+    printf '    %s\n' "proveo run claudecode -- --debug --mcp-debug"
 printf '    %s\n' "proveo run claudecode --egress-mode inspected-firewall --local-model gemma4"
 printf '\n'
 

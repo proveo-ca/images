@@ -8,7 +8,6 @@ INSTALL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROVEO_LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
 
 TARGETS=(
-  "aider-node"
   "cecli"
   "cecli-node"
   "opencode"
@@ -22,41 +21,7 @@ source "$PROVEO_LIB_DIR/workspace.sh"
 source "$PROVEO_LIB_DIR/runners.sh"
 
 usage() {
-  cat <<'EOF'
-Usage:
-  proveo help
-  proveo init
-  proveo list
-  proveo run <target> [-- <args...>]
-  proveo uninstall
-  proveo version
-
-Network Security & options (claudecode):
-  --egress-mode open                Direct internet on the default bridge (default)
-  --egress-mode proxy               Squid enforcement proxy; HTTP/HTTPS only, non-web blocked
-  --egress-mode inspected-firewall  mitmproxy HTTPS inspection upstream of Squid enforcement
-  --local-model NAME                Assign an Ollama local model (e.g. gemma4) via a sidecar
-  Egress modes and --local-model are orchestrated by the harness runner
-  (proveo repo: defs/claudecode/run.sh); standalone runs use open.
-
-Targets:
-  aider-node
-  cecli
-  cecli-node
-  claudecode
-  claudecode-solo
-  opencode
-
-Examples:
-  proveo help
-  proveo init
-  proveo list
-  proveo run aider-node
-  proveo run cecli-node
-  proveo run claudecode -- --debug --mcp-debug
-  proveo run opencode
-  proveo uninstall
-EOF
+  "$SCRIPT_DIR/help.sh"
 }
 
 print_error() {
@@ -127,7 +92,7 @@ list_targets() {
 is_ai_harness() {
   local target="$1"
   case "$target" in
-    aider-node|cecli|cecli-node|claudecode|claudecode-solo|opencode)
+    cecli|cecli-node|claudecode|claudecode-solo|opencode)
       return 0
       ;;
     *)

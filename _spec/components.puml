@@ -50,7 +50,6 @@ package "Maintainer Tools\nmise + lib/" as Bin {
 
 package "Definitions\ndefs/" as Defs {
   package "Coding Harness Definitions" as CodingDefs {
-    component "aider-node\nexperimental" as DefAider <<definition>>
     component "cecli\ncandidate" as DefCecli <<definition>>
     component "claudecode\ncandidate; variants: mcp, solo" as DefClaude <<definition>>
     component "opencode\ncandidate" as DefOpen <<definition>>
@@ -83,7 +82,6 @@ package "Contracts and Docs" as Contracts {
 }
 
 package "Artifacts" as Artifacts {
-  component "proveo/aider-node" as ImgAider <<image>>
   component "proveo/cecli" as ImgCecli <<image>>
   component "proveo/mitmproxy" as ImgMitm <<image>>
   component "proveo/claudecode" as ImgClaudeMcp <<image>>
@@ -132,7 +130,6 @@ DefEgressLib ..> DefDashboard : feeds normalized logs + report
 DefEgressLib ..> ClaudeEgressTopo : SPEC
 DefEgressLib ..> RuntimeStorage : reports/egress/<session>/
 
-DefAider --> ImgAider
 DefCecli --> ImgCecli
 DefMitm --> ImgMitm
 DefClaude --> ImgClaudeMcp

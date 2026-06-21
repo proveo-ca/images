@@ -57,11 +57,13 @@ fi
 
 DOCKER_ARGS=("run" "-it" "--rm")
 if [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT" ]]; then
-  DOCKER_ARGS+=(--name "$(basename "$REPO_ROOT")-opencode")
+  CONTAINER_NAME="$(basename "$REPO_ROOT")-opencode"
+  DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$REPO_ROOT:/app" -w /app)
 elif [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT/"* ]]; then
   RELATIVE_SCOPE="${INPUT_DIR#$REPO_ROOT/}"
-  DOCKER_ARGS+=(--name "$(basename "$REPO_ROOT")-${RELATIVE_SCOPE//\//-}-opencode")
+  CONTAINER_NAME="$(basename "$REPO_ROOT")-${RELATIVE_SCOPE//\//-}-opencode"
+  DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$INPUT_DIR:/app/$RELATIVE_SCOPE" -v "$REPO_ROOT/.git:/app/.git" -w /app)
   for root_file in AGENTS.md CONVENTIONS.md CLAUDE.md opencode.json opencode.jsonc package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
     if [[ -e "$REPO_ROOT/$root_file" && ! -e "$INPUT_DIR/$root_file" ]]; then
@@ -77,8 +79,11 @@ elif [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT/"* ]]; then
     DOCKER_ARGS+=(-v "$REPO_ROOT/.env:/app/.env:ro")
   fi
 else
-  DOCKER_ARGS+=(--name "$(basename "$INPUT_DIR")-opencode")
+  CONTAINER_NAME="$(basename "$INPUT_DIR")-opencode"
+  DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$INPUT_DIR:/app" -w /app)
 fi
+
+docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
 docker "${DOCKER_ARGS[@]}" "$IMAGE_NAME" "${OPENCODE_ARGS[@]}"

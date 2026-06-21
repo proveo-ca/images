@@ -118,11 +118,13 @@ DOCKER_ARGS=(
 )
 
 if [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT" ]]; then
-  DOCKER_ARGS+=(--name "$(basename "$REPO_ROOT")-cecli")
+  CONTAINER_NAME="$(basename "$REPO_ROOT")-cecli"
+  DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$REPO_ROOT:/app:$APP_MOUNT_MODE" -w /app)
 elif [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT/"* ]]; then
   RELATIVE_SCOPE="${INPUT_DIR#$REPO_ROOT/}"
-  DOCKER_ARGS+=(--name "$(basename "$REPO_ROOT")-${RELATIVE_SCOPE//\//-}-cecli")
+  CONTAINER_NAME="$(basename "$REPO_ROOT")-${RELATIVE_SCOPE//\//-}-cecli"
+  DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$INPUT_DIR:/app/$RELATIVE_SCOPE:$APP_MOUNT_MODE" -v "$REPO_ROOT/.git:/app/.git:ro" -w /app)
   for root_file in AGENTS.md CONVENTIONS.md CLAUDE.md .cecli.config.yml .cecli.config.yaml .cecli.conf.yml .cecli.conf.yaml .cecliignore package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
     if [[ -e "$REPO_ROOT/$root_file" && ! -e "$INPUT_DIR/$root_file" ]]; then
@@ -143,9 +145,12 @@ elif [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT/"* ]]; then
     fi
   done
 else
-  DOCKER_ARGS+=(--name "$(basename "$INPUT_DIR")-cecli")
+  CONTAINER_NAME="$(basename "$INPUT_DIR")-cecli"
+  DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$INPUT_DIR:/app:$APP_MOUNT_MODE" -w /app)
 fi
+
+docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
 DOCKER_ARGS+=(-v "$OUTPUT_DIR:/app/output:rw")
 

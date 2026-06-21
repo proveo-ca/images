@@ -1,6 +1,6 @@
 # Coding Harness Containers
 
-This document defines the expected contract for containerized coding harnesses in this repository. A coding harness is a Dockerized CLI agent or coding assistant definition such as `aider-node`, `cecli`, `claudecode`, or `opencode`.
+This document defines the expected contract for containerized coding harnesses in this repository. A coding harness is a Dockerized CLI agent or coding assistant definition such as `cecli`, `claudecode`, or `opencode`.
 
 ## Goals
 
@@ -23,7 +23,7 @@ Each harness definition should expose, where applicable:
 - `test.sh` and/or `tests/` — smoke and contract checks.
 - `README.md` — usage, image names, mounts, config behavior, and harness-specific notes.
 - `debug.sh` — optional troubleshooting shell when the harness needs it.
-- Sample config files such as `sample_opencode.json`, `sample.aider.conf.yml`, or `.env.sample`.
+- Sample config files such as `sample_opencode.json` or `.env.sample`.
 
 The README should explicitly mark whether the definition is experimental, candidate, or stable.
 
@@ -62,7 +62,7 @@ Entrypoints should bridge common project aliases into tool-specific env vars. Ex
   - `ARCHITECT_MODEL` — preferred planning/primary model when the harness has only one main model slot.
   - `EDITOR_MODEL` — preferred edit/small/secondary model when the harness exposes such a slot.
   - `SMALL_MODEL` — fallback lightweight model.
-  - Tool-specific overrides such as `OPENCODE_MODEL`, `OPENCODE_SMALL_MODEL`, `AIDER_MODEL`, `AIDER_EDITOR_MODEL`, and `CECLI_MODEL` should not be overwritten if already set.
+  - Tool-specific overrides such as `OPENCODE_MODEL`, `OPENCODE_SMALL_MODEL`, and `CECLI_MODEL` should not be overwritten if already set.
 - UI aliases:
   - `DARK_MODE`, `CODE_THEME`, and harness-specific equivalents.
 
@@ -78,9 +78,7 @@ Harnesses should detect and/or seed tool-specific config files. Examples include
   - `AGENTS.md`
   - global `~/.config/opencode/opencode.json`
   - global `~/.config/opencode/agents/*.md`
-- aider:
-  - `.aider.conf.yml`
-  - `.aiderignore`
+
   - `.env`
   - conventions files used by the harness prompt
 - cecli:
@@ -115,11 +113,11 @@ Expected behavior:
   - shared config: `tsconfig*.json`, `.npmrc`, `.yarnrc.yml`, `.tool-versions`;
   - agent instructions: `AGENTS.md`, `CONVENTIONS.md`, `CLAUDE.md`;
   - runtime env files: root `.env` for provider keys, model aliases, and harness flags;
-  - tool config: `.aider.conf.yml`, `.aiderignore`, `.cecli.config.yml`, `.cecliignore`, `opencode.json`.
-- Use ignore files to limit agent visibility/edit scope where supported. For example, aider can run from a monorepo subfolder with an `.aiderignore` that ignores everything except the target package.
+  - tool config: `.cecli.config.yml`, `.cecliignore`, `opencode.json`.
+
 - Make the chosen scope visible in the container name or startup preamble so parallel harness sessions are distinguishable.
 
-The `defs/aider-node/README.md` monorepo example is the reference pattern: mount the target directory at its repo-relative path, mount root `.git`, set `-w /app`, and use an ignore file to keep the agent focused while preserving repo layout for repo-map generation.
+
 
 ## Dependency Bootstrapping
 

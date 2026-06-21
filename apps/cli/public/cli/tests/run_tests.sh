@@ -384,12 +384,6 @@ main() {
   mkdir -p "$empty_init_dir"
   assert_failure "proveo init fails without provider keys" run_init_without_provider_keys "$empty_init_dir"
 
-  assert_run_target aider-node "proveo/aider-node" "$run_dir" "$docker_log" \
-    "$run_dir:/app" \
-    "-w" \
-    "/app"
-  assert_run_target_forwards_args aider-node "$run_dir" "$docker_log"
-
   assert_run_target cecli "proveo/cecli:latest" "$run_dir" "$docker_log" \
     "LOCAL_UID=$(id -u)" \
     "LOCAL_GID=$(id -g)" \

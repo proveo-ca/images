@@ -14,9 +14,7 @@ TARGETS=(
   "opencode|proveo/opencode:latest"
 )
 
-if [[ "${PROVEO_DOCKER_SMOKE_INCLUDE_AIDER_NODE:-0}" == "1" ]]; then
-  TARGETS=("aider-node|proveo/aider-node:latest" "${TARGETS[@]}")
-fi
+
 
 containers=()
 
@@ -43,10 +41,7 @@ write_smoke_env() {
 # Non-secret values for detached image smoke tests only.
 ARCHITECT_MODEL=openai/gpt-4o-mini
 EDITOR_MODEL=openai/gpt-4o-mini
-SMALL_MODEL=openai/gpt-4o-mini
-AIDER_MODEL=openai/gpt-4o-mini
-AIDER_EDITOR_MODEL=openai/gpt-4o-mini
-AIDER_WEAK_MODEL=openai/gpt-4o-mini
+  SMALL_MODEL=openai/gpt-4o-mini
 CECLI_MODEL=openai/gpt-4o-mini
 CECLI_EDITOR_MODEL=openai/gpt-4o-mini
 CECLI_WEAK_MODEL=openai/gpt-4o-mini
@@ -130,7 +125,7 @@ run_target_smoke() {
   docker rm -f "$container" >/dev/null 2>&1 || true
 
   case "$target" in
-    aider-node|cecli|cecli-node|opencode)
+    cecli|cecli-node|opencode)
       docker_args+=(-v "$workspace:/app" -w /app)
       ;;
     claudecode|claudecode-solo)

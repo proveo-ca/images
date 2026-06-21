@@ -22,7 +22,6 @@ apps/
   cli/                          # Cloudflare-hosted consumer CLI installer/assets
 
 defs/
-  aider-node/                   # Aider runner with Node/pnpm/playwright support
   cecli/                        # Cecli runner, with Python and Node image variants
   mitmproxy/                    # Headless mitmproxy egress inspector definition
   claudecode/                  # Claude Code solo and MCP-enabled harnesses
@@ -41,7 +40,6 @@ Current definitions:
 
 | Definition | Purpose |
 | --- | --- |
-| `defs/aider-node` | Aider container with Node 22, pnpm, Playwright, `.env` loading, and model env bridging. |
 | `defs/cecli` | Cecli container variants for Python-only and Node-backed workflows. |
 | `defs/opencode` | opencode container with non-root runtime, default agents, HITL-oriented permissions, and tests. |
 | `defs/claudecode` | Claude Code containers for solo and MCP-enabled execution with explicit workspace mounts. |
@@ -71,8 +69,6 @@ Examples:
 
 ```bash
 # Definition-local commands are preferred
-./defs/aider-node/build.sh --tag latest
-./defs/aider-node/run.sh
 ./defs/cecli/run.sh
 ./defs/opencode/test.sh
 ./defs/claudecode/run.sh --variant solo
@@ -82,22 +78,12 @@ Examples:
 mise run test
 
 # Maintainer build / test / debug / deploy via mise tasks (sourcing lib/*.sh)
-mise run build aider-node --tag latest
 mise run test-defs claudecode
 mise run debug claudecode-solo
 mise run deploy claudecode --tag latest
 
 # Egress/sidecar images (mitmproxy) build from their def, not the target list
 defs/sidecars/mitmproxy/build.sh --tag latest
-```
-
-The detached Docker smoke suite skips `aider-node` by default because older
-published/local images fall through to Aider's interactive provider prompt before
-emitting the smoke-ready signal. After rebuilding `proveo/aider-node:latest` with
-the current entrypoint, include it with:
-
-```bash
-PROVEO_DOCKER_SMOKE_INCLUDE_AIDER_NODE=1 tests/docker-detached-smoke.sh
 ```
 
 The smoke suite generates and mounts a temporary `.env` with dummy non-secret
@@ -179,7 +165,6 @@ See [`CONVENTIONS.md`](CONVENTIONS.md) for the current agent collaboration conve
 
 Definition-specific conventions and examples live with each harness, for example:
 
-- [`defs/aider-node/README.md`](defs/aider-node/README.md)
 - [`defs/cecli/sample.cecli.conf.yml`](defs/cecli/sample.cecli.conf.yml)
 - [`defs/opencode/README.md`](defs/opencode/README.md)
 - [`defs/claudecode/README.md`](defs/claudecode/README.md)

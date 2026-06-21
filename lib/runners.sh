@@ -4,9 +4,6 @@
 target_dir() {
   local target="$1"
   case "$target" in
-    aider-node)
-      echo "$REPO_ROOT/defs/aider-node"
-      ;;
     cecli|cecli-node)
       echo "$REPO_ROOT/defs/cecli"
       ;;
@@ -53,10 +50,6 @@ run_target() {
       scope_dir="$(choose_scope "$target")"
       "$(target_dir opencode)/run.sh" --image "$(image_name opencode):$tag" --input-dir "$scope_dir" -- ${extra_args[@]+"${extra_args[@]}"}
       ;;
-    aider-node)
-      scope_dir="$(choose_scope "$target")"
-      "$(target_dir aider-node)/run.sh" --image "$(image_name aider-node):$tag" --input-dir "$scope_dir" --repo-root "$REPO_ROOT" -- ${extra_args[@]+"${extra_args[@]}"}
-      ;;
     *)
       print_error "Unsupported run target: $target"
       exit 1
@@ -72,10 +65,6 @@ debug_target() {
   local scope_dir
 
   case "$target" in
-    aider-node)
-      scope_dir="$(choose_scope "$target")"
-      "$(target_dir aider-node)/debug.sh" --image "$(image_name aider-node):$tag" --input-dir "$scope_dir" --repo-root "$REPO_ROOT" -- ${extra_args[@]+"${extra_args[@]}"}
-      ;;
     claudecode)
       scope_dir="$(choose_scope "$target")"
       # Egress consolidated per-variant debug.sh into `run.sh --shell`.
