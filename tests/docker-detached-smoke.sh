@@ -3,11 +3,12 @@ set -euo pipefail
 
 TIMEOUT_SECONDS="${PROVEO_DOCKER_SMOKE_TIMEOUT:-30}"
 TEMP_ROOT=""
+SMOKE_FAILED=0
 
 TARGETS=(
   "cecli|proveo/cecli:latest"
   "cecli-node|proveo/cecli-node:latest"
-  "charles-proxy|proveo/charles-proxy:latest"
+  "mitmproxy|proveo/mitmproxy:latest"
   "claudecode|proveo/claudecode:latest"
   "claudecode-solo|proveo/claudecode-solo:latest"
   "opencode|proveo/opencode:latest"
@@ -20,6 +21,11 @@ fi
 containers=()
 
 cleanup() {
+  if [[ "$SMOKE_FAILED" == "1" && "${PROVEO_DOCKER_SMOKE_KEEP_FAILED:-0}" =~ ^(1|true|yes|on)$ ]]; then
+    echo "Keeping failed smoke containers for inspection: ${containers[*]}" >&2
+    return 0
+  fi
+
   local container
   for container in "${containers[@]}"; do
     docker rm -f "$container" >/dev/null 2>&1 || true
@@ -90,6 +96,7 @@ wait_for_log() {
     if [[ "$running" != "true" ]]; then
       echo "Container exited before smoke signal: $container" >&2
       echo "$logs" >&2
+      SMOKE_FAILED=1
       return 1
     fi
 
@@ -98,6 +105,7 @@ wait_for_log() {
 
   echo "Timed out waiting for smoke signal: $expected" >&2
   echo "$logs" >&2
+  SMOKE_FAILED=1
   return 1
 }
 
@@ -130,23 +138,13 @@ run_target_smoke() {
       ;;
   esac
 
-  case "$target" in
-    opencode)
-      # Older opencode images do not understand PROVEO_SMOKE_TEST and can exit
-      # after startup checks. Override the entrypoint to keep this detached
-      # smoke test focused on image runnability and log visibility.
-      docker_args+=(--entrypoint bash)
-      ;;
-  esac
-
   docker_args+=("$image")
 
   case "$target" in
-    cecli|cecli-node|opencode)
+    cecli|cecli-node)
       # Older Cecli images do not understand PROVEO_SMOKE_TEST and will launch
       # the TUI. Cecli's entrypoint permits bash, so it still exercises
-      # entrypoint initialization. opencode uses --entrypoint above to avoid
-      # older image startup falling through into an immediate CLI exit.
+      # entrypoint initialization.
       docker_args+=(bash -lc 'printf "%s\n" "$PROVEO_SMOKE_EXPECTED"; exec sleep infinity')
       ;;
   esac

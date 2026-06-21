@@ -24,7 +24,7 @@ apps/
 defs/
   aider-node/                   # Aider runner with Node/pnpm/playwright support
   cecli/                        # Cecli runner, with Python and Node image variants
-  charles-proxy/                # Charles Proxy headless container definition
+  mitmproxy/                    # Headless mitmproxy egress inspector definition
   claudecode/                  # Claude Code solo and MCP-enabled harnesses
   opencode/                    # opencode runner with baked-in agents/defaults
 
@@ -45,7 +45,7 @@ Current definitions:
 | `defs/cecli` | Cecli container variants for Python-only and Node-backed workflows. |
 | `defs/opencode` | opencode container with non-root runtime, default agents, HITL-oriented permissions, and tests. |
 | `defs/claudecode` | Claude Code containers for solo and MCP-enabled execution with explicit workspace mounts. |
-| `defs/charles-proxy` | Headless Charles Proxy container definition. |
+| `defs/sidecars/mitmproxy` | Headless mitmproxy egress inspector (HTTPS interception, Squid upstream). |
 
 Each mature definition should eventually expose a consistent contract:
 
@@ -76,16 +76,19 @@ Examples:
 ./defs/cecli/run.sh
 ./defs/opencode/test.sh
 ./defs/claudecode/run.sh --variant solo
-./defs/charles-proxy/run.sh
+./defs/sidecars/mitmproxy/run.sh
 
 # Run every committed test suite, including detached Docker image smoke tests
 mise run test
 
-# Transitional maintainer compatibility wrapper
-bin/proveo list
-bin/proveo build aider-node --tag latest
-bin/proveo test claudecode
-bin/proveo run charles-proxy --tag latest
+# Maintainer build / test / debug / deploy via mise tasks (sourcing lib/*.sh)
+mise run build aider-node --tag latest
+mise run test-defs claudecode
+mise run debug claudecode-solo
+mise run deploy claudecode --tag latest
+
+# Egress/sidecar images (mitmproxy) build from their def, not the target list
+defs/sidecars/mitmproxy/build.sh --tag latest
 ```
 
 The detached Docker smoke suite skips `aider-node` by default because older
@@ -101,9 +104,9 @@ The smoke suite generates and mounts a temporary `.env` with dummy non-secret
 model/API values to keep CLIs from falling into authentication prompts before the
 smoke-ready log is emitted.
 
-The distributed `proveo` command under `apps/cli/public/cli/bin/proveo` is the consumer base CLI. Root `bin/proveo` is the internal maintainer extension with extra powers such as build, test, debug, and deploy. Maintainer behavior may extend or override the consumer surface, but consumer install/uninstall should only manage the distributed `~/.proveo` install.
+The distributed `proveo` command under `apps/cli/public/cli/bin/proveo` is the consumer base CLI. Maintainer workflows with extra powers (build, test, debug, deploy) run via `mise` tasks that source the reusable `lib/*.sh` helpers. Maintainer behavior may extend or override the consumer surface, but consumer install/uninstall should only manage the distributed `~/.proveo` install.
 
-New deterministic harness behavior should live under `defs/<name>/` first, with `bin/proveo` delegating where useful.
+New deterministic harness behavior should live under `defs/<name>/` first, with the `mise` tasks and `lib/*.sh` helpers delegating where useful.
 
 The public consumer install URL is:
 
@@ -164,7 +167,7 @@ Near-term documentation and structure goals:
 - keep `defs/` as the source of harness definitions unless/until a package migration is justified
 - standardize the per-definition contract for build/run/debug/test files
 - consolidate duplicated Bash behavior into shared utilities
-- clarify the relationship between repo-local `bin/proveo` and the consumer `proveo` CLI
+- keep the maintainer surface (`mise` tasks + `lib/*.sh` helpers) and the consumer `proveo` CLI cleanly separated
 - add `skills/` as portable, reusable agent instructions consumed by multiple harnesses
 - use `packages/` for shared CLI/library code when duplication becomes costly
 

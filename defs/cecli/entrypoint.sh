@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/defs/cecli/cecli-topology.puml, _spec/defs/cecli/cecli.paradigm.md
 set -euo pipefail
 
 # Source shared entrypoint library if present
@@ -116,8 +117,14 @@ fi
 seed_cecli_subagents
 
 if [[ -z "${CECLI_AGENT_CONFIG:-}" ]] && ! has_cecli_agent_config; then
-  CECLI_AGENT_CONFIG="{\"large_file_token_threshold\":8192,\"skip_cli_confirmations\":false,\"subagent_paths\":[\"$CECLI_HOME/agents\",\"/app/.cecli/agents\"]}"
+  CECLI_AGENT_CONFIG="{\"large_file_token_threshold\":8192,\"skip_cli_confirmations\":false,\"max_sub_agents\":3,\"subagent_paths\":[\"$CECLI_HOME/agents\",\"/app/.cecli/agents\"]}"
   export CECLI_AGENT_CONFIG
+fi
+
+# ── Seed project-level CONVENTIONS.md if missing ──────────
+if [[ -f /opt/cecli/defaults/CONVENTIONS.md && ! -f CONVENTIONS.md ]]; then
+  cp /opt/cecli/defaults/CONVENTIONS.md CONVENTIONS.md
+  echo "🌱 Seeded CONVENTIONS.md into workspace"
 fi
 
 command_version() {
@@ -125,6 +132,7 @@ command_version() {
 }
 
 echo "cecli version:      $(command_version installed cecli --version)"
+echo "Paradigm: Pair-programming specialist (precise, low-token, human-guided)"
 
 if command -v curl >/dev/null 2>&1; then
   echo "curl version:       $(command_version unknown curl --version | head -n1)"
@@ -184,6 +192,18 @@ fi
 echo "─────────────────────────────────────────────────────"
 
 run_smoke_test "cecli"
+
+# ── Verification command discovery ────────────────────────
+if [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
+  # shellcheck source=/dev/null
+  source /opt/proveo/lib/detect-verify.sh
+  echo "── Verification Commands ────────────────────────────"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    cat <<< "  $line"
+  done < <(detect_verify_commands "$(pwd)")
+  echo "─────────────────────────────────────────────────────"
+fi
 
 ensure_node_deps() {
   if [[ "${CECLI_INSTALL_NODE_DEPS:-0}" != "1" ]]; then

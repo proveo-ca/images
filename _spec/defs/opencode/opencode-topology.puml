@@ -1,0 +1,72 @@
+@startuml OpenCodeTopology
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+left to right direction
+
+title OpenCode Topology — GStack Subagent Crew
+
+actor "Human (HITL)" as Human
+actor "Primary Agent\n(Team Lead)" as Lead
+
+package "Harness Layer" as Harness {
+  component "entrypoint.sh" as Entrypoint <<script>>
+  component ".env + model normalization" as Env <<logic>>
+  component "LSP auto-detect" as Lsp <<logic>>
+  component "seed defaults + subagents" as Seed <<logic>>
+  component "AGENTS.md\n(team rules)" as AgentsMd <<prompt>>
+}
+
+package "Primary Agents" as Primaries {
+  component "plan\n(read-only, temp=0.1)" as Plan <<agent>>
+  component "build\n(edit+ask bash, temp=0.2)" as Build <<agent>>
+}
+
+package "Subagent Crew" as Crew {
+  component "@architect\n(design before code)" as Architect <<subagent>>
+  component "@backend / @frontend\n(domain implementers)" as Domain <<subagent>>
+  component "@devops / @sre" as Ops <<subagent>>
+  component "@adversarial-reviewer\n(find bugs, no fixes)" as Reviewer <<subagent>>
+  component "@security-reviewer" as Security <<subagent>>
+  component "@spec-keeper\n(_spec/ changes)" as SpecKeeper <<subagent>>
+  component "@systems-design\n@monorepo-coordinator" as Systems <<subagent>>
+}
+
+package "Verification Layer" as Verify {
+  component "detect test/lint/build cmds" as Detect <<logic>>
+  component "context rot/drift mitigation" as Context <<logic>>
+  component "review gates\nBLOCKER/HIGH stop completion" as Gates <<logic>>
+}
+
+Human --> Entrypoint : launch
+Entrypoint --> Env
+Entrypoint --> Lsp
+Entrypoint --> Seed
+Entrypoint --> AgentsMd
+Lead --> Plan : delegate planning
+Lead --> Build : delegate implementation
+Build --> Architect : request design
+Build --> Domain : request code
+Domain --> Reviewer : request review
+Reviewer --> Security : security review if needed
+Lead --> Verify : run detected commands
+Verify --> Gates : enforce before done
+Human --> Lead : approve risky bash, merge
+
+note right of Crew
+Subagents are markdown-defined.
+Lead orchestrates delegation
+and enforces review loops.
+Domain routing decides which
+specialist reviews the work.
+end note
+
+note bottom of Primaries
+plan = read-only spec producer
+build = edit-capable implementer
+end note
+
+@enduml

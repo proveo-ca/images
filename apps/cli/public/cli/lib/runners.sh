@@ -13,9 +13,6 @@ image_name() {
     cecli-node)
       echo "proveo/cecli-node"
       ;;
-    charles-proxy)
-      echo "proveo/charles-proxy"
-      ;;
     opencode)
       echo "proveo/opencode"
       ;;
@@ -43,9 +40,6 @@ target_description() {
       ;;
     cecli-node)
       echo "Cecli with Node.js, pnpm, and Playwright"
-      ;;
-    charles-proxy)
-      echo "Headless Charles Proxy utility container"
       ;;
     claudecode)
       echo "Claude Code with MCP integrations"
@@ -269,24 +263,6 @@ run_cecli() {
   docker "${docker_args[@]}"
 }
 
-run_charles_proxy() {
-  local image
-  image="$(image_name "charles-proxy")"
-  ensure_image_available "$image"
-
-  local sessions_dir="$PWD/sessions"
-  local config_dir="$PWD/config"
-
-  mkdir -p "$sessions_dir" "$config_dir"
-
-  print_info "Running charles-proxy on port 8888"
-  docker run -it --rm \
-    -p 8888:8888 \
-    -v "$sessions_dir:/sessions" \
-    -v "$config_dir:/config" \
-    "$image"
-}
-
 run_target() {
   local target="$1"
   shift
@@ -295,9 +271,7 @@ run_target() {
 
   ensure_docker_available
 
-  if [[ "$target" != "charles-proxy" ]]; then
-    scope_dir="$(choose_scope "$target")"
-  fi
+  scope_dir="$(choose_scope "$target")"
 
   # Sibling DinD sidecar dynamic provisioning
   local dind_name=""
@@ -401,9 +375,6 @@ run_target() {
       ;;
     opencode)
       run_opencode "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
-      ;;
-    charles-proxy)
-      run_charles_proxy
       ;;
     *)
       print_error "Unsupported run target: $target"

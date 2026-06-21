@@ -32,9 +32,9 @@ No definition is considered mature yet; this project is still standardizing the 
 
 - Candidate coding harnesses: `cecli`, `opencode`, `claudecode`
 - Experimental coding harness: `aider-node`
-- Non-harness image definition: `charles-proxy`
+- Non-harness sidecar image definitions live under `defs/sidecars/` (e.g. `mitmproxy`, `squid-proxy`)
 
-Non-harness image definitions may live under `defs/`, but they are not required to satisfy the coding harness contract.
+Non-harness sidecar image definitions live under `defs/sidecars/` and are not required to satisfy the coding harness contract.
 
 ## Package Boundary
 

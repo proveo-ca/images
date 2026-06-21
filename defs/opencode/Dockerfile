@@ -67,6 +67,7 @@ RUN mkdir -p /workspace \
 # by entrypoint.sh, or re-seeded when OPENCODE_RESEED=1.
 COPY defs/opencode/defaults/ /opt/opencode/defaults/
 COPY defs/opencode/sample_opencode.json /opt/opencode/sample_opencode.json
+COPY defs/lib/ /opt/proveo/lib/
 
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY defs/opencode/entrypoint.sh /entrypoint.sh

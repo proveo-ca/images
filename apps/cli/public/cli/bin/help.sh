@@ -50,15 +50,33 @@ for target in "${TARGETS[@]}"; do
 done
 printf '\n'
 
+printf '  %s%sNetwork Security — egress modes (claudecode)%s\n' "$BOLD" "$YELLOW" "$RESET"
+printf '    %-34s %s\n' "--egress-mode open" "Direct internet on the default bridge (default)"
+printf '    %-34s %s\n' "--egress-mode proxy" "Squid enforcement; HTTP/HTTPS only, non-web blocked"
+printf '    %-34s %s\n' "--egress-mode inspected-firewall" "mitmproxy HTTPS inspection upstream of Squid"
+printf '\n'
+
+printf '  %s%sRun options (claudecode)%s\n' "$BOLD" "$YELLOW" "$RESET"
+printf '    %-34s %s\n' "--local-model NAME" "Assign an Ollama local model (e.g. gemma4) via a sidecar;"
+printf '    %-34s %s\n' "" "calls bypass the egress proxy, all else stays policed"
+printf '    %-34s %s\n' "--input-dir PATH" "Directory to mount as input (default: current dir)"
+printf '    %-34s %s\n' "--output-dir PATH" "Directory to mount as output (default: ./reports)"
+printf '    %-34s %s\n' "--data-dir PATH" "Optional reference data, mounted read-only"
+printf '    %-34s %s\n' "--shell" "Open a shell in the container instead of the harness"
+printf '\n'
+
 printf '  %s%sExamples%s\n' "$BOLD" "$YELLOW" "$RESET"
 printf '    %s\n' "proveo init"
 printf '    %s\n' "proveo run cecli-node"
 printf '    %s\n' "proveo run opencode"
 printf '    %s\n' "proveo run aider-node"
 printf '    %s\n' "proveo run claudecode -- --debug --mcp-debug"
+printf '    %s\n' "proveo run claudecode --egress-mode inspected-firewall --local-model gemma4"
 printf '\n'
 
 printf '  %s%sNotes%s\n' "$BOLD" "$YELLOW" "$RESET"
 printf '    %s\n' "Docker must be installed on the host machine."
 printf '    %s\n' "AI coding harnesses support pnpm monorepo scope selection inside git repos."
+printf '    %s\n' "Egress modes and --local-model are orchestrated by the harness runner"
+printf '    %s\n' "(proveo repo: defs/claudecode/run.sh); standalone runs use open."
 printf '\n'

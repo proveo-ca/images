@@ -6,9 +6,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# --- Cloudflare Wrangler ---
-.wrangler/
-
 # --- Mise-en-place (mise) ---
 .mise.xml
 .mise.local.toml
@@ -19,12 +16,33 @@ mise.local.toml
 /rtk/
 target/
 
-# --- Build Outputs & Cache ---
+# --- Environment Secrets & Local Configurations ---
+*.pem
+*.key
+.dev.vars
+certs/
+
+# --- Cloudflare & Wrangler ---
+.wrangler/
+.miniflare/
+
+# --- Build Outputs, Caches & Archives ---
+dist/
+build/
+out/
+.cache/
 *.tar
 *.img
-.cache/
 /reports/
 
+# --- System Files & OS-specific ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 # --- Environment Variables & Secrets ---
 .env
 .env.local
@@ -34,23 +52,27 @@ target/
 .env.*.local
 .pki/
 
-# --- IDEs / Editors ---
+# --- IDEs & Code Editors ---
 .idea/
 .vscode/
 *.suo
-*.user
+*.ntvs*
+*.njsproj
 *.sln
+*.swp
 
 # --- AI Assistants & Coding Harnesses ---
 .aider*
 .cecli*
+.copilot*
 .opencode/
 .claude/
-
-# --- Operating Systems ---
-.DS_Store
-Thumbs.db
 
 # --- Sample monorepo (self-contained for testing) ---
 samples/
 
+
+# --- Logs ---
+logs/
+*.log
+reports/

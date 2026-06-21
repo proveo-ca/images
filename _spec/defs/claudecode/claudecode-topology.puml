@@ -1,0 +1,68 @@
+@startuml ClaudeCodeTopology
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+left to right direction
+
+title Claude Code Topology — ML Blackbox Algorithm
+
+actor "Human" as Human
+actor "Claude Code" as Claude
+
+package "Harness Layer" as Harness {
+  component "entrypoint.sh\n(docker)" as Entrypoint <<script>>
+  component ".env loader\nmodel bridge" as EnvLoader <<logic>>
+  component "smoke-test mode" as Smoke <<mode>>
+  component "CLAUDE.md\n(loop spec)" as ClaudeMd <<prompt>>
+}
+
+package "Execution Loop" as Loop {
+  component "Spec / Goal" as Spec <<step>>
+  component "Plan + Acceptance Criteria" as Plan <<step>>
+  component "Implement (edit)" as Implement <<step>>
+  component "Verify (run tests/lint)" as Verify <<step>>
+  component "Inspect Failure → Adjust" as Inspect <<step>>
+}
+
+package "Container Sandbox" as Sandbox {
+  component "--dangerously-skip-permissions" as Perms <<flag>>
+  component "tmpfs mounts\n/workspace/{input,output,temp}" as Mounts <<storage>>
+  component "network egress layer\nopen | proxy | inspected-firewall" as Net <<security>>
+  component "non-root user" as User <<security>>
+}
+
+Human --> Entrypoint : starts container
+Entrypoint --> EnvLoader
+Entrypoint --> Smoke
+Entrypoint --> Claude : exec claude
+Claude --> ClaudeMd : reads loop rules
+Claude --> Loop : executes loop
+Loop --> Verify : runs detected commands
+Verify --> Inspect : on failure
+Inspect --> Plan : next iteration
+Claude --> Perms : full tool access
+Perms --> Sandbox : within container boundary
+
+note right of Loop
+Loop pattern:
+1. State goal + acceptance criteria
+2. Identify verification commands
+3. Implement smallest change
+4. Run verification
+5. Inspect result, repeat or stop
+end note
+
+note bottom of Sandbox
+Safety boundary is the container + its network,
+not tool permissions. The network egress layer
+(open | proxy | inspected-firewall) is what makes
+the dangerous in-container posture acceptable —
+see ""claudecode-egress-topology.puml"".
+end note
+
+Net ..> Perms : network containment offsets full tool consent
+
+@enduml

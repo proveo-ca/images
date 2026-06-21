@@ -1,157 +1,141 @@
-# Proveo Project Cleanup & Improvement Plan
+# Proveo Coding Harnesses — Execution Plan
 
-**Goal**: Make the repository understandable as a collection of deterministic AI-coding harness definitions, while keeping the current personal-use workflow intact.
+Status: Build mode. Items 1–7 completed.
 
-**Core Philosophy**: Document first, standardize second, refactor only when duplication becomes costly. The project should stay practical for one maintainer while moving toward team-usable tooling.
+## Completed (Priority 1–3)
+1. Shared verification discovery design
+   - Created `defs/lib/detect-verify.sh`
+   - Integrated into all three entrypoints (opencode, claudecode, cecli)
+   - Prints detected test/lint/build/typecheck commands at startup
 
-## How to Use This Plan
+2. Seed meaningful steering files
+   - `defs/claudecode/defaults/CLAUDE.md` — ML loop rules
+   - `defs/opencode/defaults/AGENTS.md` — team workflow rules
+   - `defs/cecli/defaults/CONVENTIONS.md` — pair-programming rules
+   - Entrypoints now seed these into the workspace when missing
 
-Use `ROADMAP.md` for strategy and sequencing. Use this file as the working execution checklist for the next cleanup passes.
+3. Tune entrypoints to report paradigm + commands
+   - Each entrypoint prints its paradigm banner on launch
+   - Verification commands are discovered and displayed
 
-Each phase should end with:
+## Completed (Priority 4–6)
+4. Claude Code full-consent + egress boundary
+   - Kept `--dangerously-skip-permissions` as the intended paradigm.
+   - Removed the contradictory `CLAUDE_DANGEROUS=0` branch.
+   - Added egress modes: `open`, `proxy`, `inspected-firewall`.
+   - Added Squid policy proxy definition and mitmproxy inspection topology.
+   - Defined HTTP/HTTPS-only network allowlist for proxy modes, with generic docs/search access.
 
-- updated docs for any behavior that changed
-- a small `git diff` review
-- a smoke check where scripts were touched
-- a clear note of anything intentionally deferred
+5. OpenCode subagent orchestration
+   - Expanded `AGENTS.md` with routing matrix, review gates, HITL rules, and verification rules.
+   - Added OpenCode team workflow startup banner.
+   - Added `OPENCODE_RESEED=1` behavior for project `AGENTS.md`.
+   - Updated OpenCode paradigm and topology specs.
 
-## Phase 1: Lock the Documentation Baseline
+6. Cecli pair-programming containment
+   - Strengthened `CONVENTIONS.md` for low-token, file/function-directed work.
+   - Preserved `auto-commits: true` with `/undo` as recovery.
+   - Added runtime `max_sub_agents: 3` default.
+   - Updated Cecli paradigm and topology specs.
 
-Status: mostly complete; keep it current as implementation changes.
+7. Tests for seeding, reseeding, smoke mode, env bridging, and command detection
+   - Extend existing test suites in `defs/opencode/tests/`, `defs/claudecode/tests/`, `defs/cecli/`
+   - Cover:
+     - Seeding of steering files when absent
+     - Reseed behavior with `*_RESEED=1`
+     - Smoke test mode (`PROVEO_SMOKE_TEST=1`)
+     - Model/env variable bridging
+     - Verification command detection output
+   - Tests must run without Docker where possible (unit-style) or mark Docker-dependent tests clearly
+   - Added `defs/tests/run_contract_tests.sh` for no-Docker harness contract tests.
+   - Added focused egress mode contracts in `defs/claudecode/tests/test_egress.sh`.
+   - Docker integration tests remain explicitly gated/skipped where Docker is unavailable.
 
-Steps:
+## Notes
+- The three paradigms are now documented in `_spec/` with topology diagrams.
+- Cecli auto-commit is intentionally allowed.
+- No changes should weaken the `--dangerously-skip-permissions` behavior for Claude Code.
+- Shared verification logic lives in `defs/lib/` and is sourced by entrypoints at runtime (copied into images at build time).
 
-1. Keep the root `README.md` focused on repository purpose, layout, command surfaces, and safety model.
-2. Keep `ROADMAP.md` focused on long-running direction and maturity criteria.
-3. Keep this `PLAN.md` focused on next actions only.
-4. Keep `_spec/components.puml` aligned with actual ownership boundaries:
-   - consumer surface: `apps/cli/public/cli/install.sh`, with install assets under `apps/cli/public/cli/`
-   - maintainer wrapper: `bin/proveo`
-   - image definitions: `defs/`
-   - future shared code: `packages/`
+## Verification
+- `defs/tests/run_contract_tests.sh` passes without Docker.
+- Full image test suites remain Docker-dependent.
 
-Acceptance checks:
+## Egress Follow-Ups Implemented
+- Implemented reusable Docker egress lifecycle in `defs/lib/egress.sh`.
+  - `open`: current direct bridge egress remains allowed.
+  - `proxy`: `claudecode -> squid -> internet`; Claude must not attach to default bridge or any internet-capable network.
+  - `inspected-firewall`: mitmproxy-first chain, `claudecode -> mitmproxy -> squid -> internet`; mitmproxy uses Squid as upstream and has no direct internet egress.
+- Wired lifecycle into parent `defs/claudecode/run.sh`.
+  - Generate a session ID.
+  - Create internal networks for agent-to-mitmproxy and mitmproxy-to-Squid.
+  - Create an internet-capable egress network only for Squid.
+  - Start sidecars with mounted logs under `reports/egress/<session-id>/`.
+  - Clean up sidecars/networks unless `PROVEO_KEEP_EGRESS=1`.
+- Added egress observability scaffold.
+  - Persist mitmproxy flow exports as NDJSON under `reports/egress/<session-id>/mitmproxy/flows/`.
+  - Persist Squid `access.log` allow/deny decisions.
+  - Initialize egress guard `reject.log` for raw non-web protocol bypass attempts that the inspector cannot see.
+  - Added simple Vite + Node dashboard scaffold to normalize mitmproxy flows, Squid logs, and guard rejects into a timeline.
+- Revisited FireHOL/IP-blocking posture.
+  - Keep deterministic reserved/private/bogon destination blocks enabled by default at the Squid layer.
+  - Treat live FireHOL blocklist-ipsets (for example `firehol_level1`) as optional generated ACLs because FireHOL documentation warns about false positives in third-party lists.
+  - Use `defs/sidecars/squid-proxy/update-firehol-ipsets.sh` to generate `firehol-ipset.conf` when a deployment wants FireHOL threat-intel feeds.
 
-- a new reader can tell where to build, run, and test a definition
-- `PLAN.md` does not duplicate `ROADMAP.md` section-by-section
-- component map labels match current terminology
+## Egress Inspector: Charles → mitmproxy (Implemented)
+Charles was migrated to mitmproxy as the `inspected-firewall` first-hop inspector.
+The only reason Charles had been chosen was an available license; mitmproxy is
+free (Apache-2.0), headless-native, and actually decrypts HTTPS — which the
+Charles wiring never did (it only saw `CONNECT host:443`).
+- Added `defs/sidecars/mitmproxy/` (image, `mitmdump` entrypoint, NDJSON flow addon, scripts).
+  - Chain: `agent -> mitmproxy -> squid -> internet` via `--mode upstream:http://squid:3128`.
+  - HTTPS interception is on; mitmproxy generates a per-session CA.
+  - `addons/ndjson_dump.py` writes `flows.ndjson` with the dashboard's event shape.
+- Reworked `defs/lib/egress.sh`.
+  - `proveo_egress_start_mitm` replaces `proveo_egress_start_charles`.
+  - Deleted the Charles GUI-config bootstrap (`PROVEO_CHARLES_CONFIG_DIR`,
+    `com.xk72.Charles.config`, `UPSTREAM-SQUID.md`); upstream is a flag, so the
+    chain is fail-closed by construction.
+  - Agent trusts the generated CA via `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` /
+    `NODE_EXTRA_CA_CERTS` / `CURL_CA_BUNDLE` / `GIT_SSL_CAINFO`. Since all agent
+    egress is forced through mitmproxy, pointing every CA var at the cert is both
+    sufficient and correct — no host trust-store changes.
+- Squid stays the enforcement + egress boundary (FireHOL reserved/bogon denies,
+  protocol allowlist, provider exceptions). Inspection and enforcement remain
+  separate and separately testable.
+- Optional local model: `--local-model NAME` (or `PROVEO_LOCAL_MODEL`, e.g.
+  `gemma4`) attaches an Ollama sidecar to the agent network serving the host's
+  pulled models read-only and offline. `NO_PROXY=ollama,localhost,127.0.0.1`
+  keeps model calls off the egress proxy, so local inference works under any
+  mode while internet egress stays policed.
+- Post-run report: when the agent container exits, `proveo_egress_report`
+  (called from cleanup) summarizes the Squid access log into `report.txt` /
+  `report.json` under `reports/egress/<session-id>/` — the top 5 allowed
+  external network operations and the top 5 denied. Host-local destinations
+  (the ollama sidecar, localhost) are excluded so "allowed" means real egress.
+- Dashboard now parses `flows.ndjson` (`parseMitmNdjson`) instead of Charles XML.
+- Non-web protocols remain blocked by Docker `--internal` network topology plus
+  Squid's port allowlist, independent of the inspector.
 
-## Phase 2: Apply the Definition Contract Under `defs/`
+## Remaining HITL/Docker Validation
+- Validate egress invariants with Docker integration tests (`PROVEO_EGRESS_INTEGRATION=1`).
+  - `open`: direct HTTP(S) and arbitrary mock protocol egress succeed.
+  - `proxy`: HTTP(S) through Squid succeeds; direct bypass and non-web protocols fail.
+  - `inspected-firewall`: HTTP(S) through mitmproxy then Squid succeeds with the CA
+    trusted; mitmproxy records a decrypted flow; Squid records enforcement; raw
+    bypass attempts are rejected/logged.
+  - blocked actions (proxy mode): private RFC1918 destinations, cloud-metadata
+    SSRF (169.254.169.254), non-web ports, and visible HTTP write methods are all
+    denied; only read-oriented HTTP(S) to public hosts succeeds.
+  - local model: the assigned Ollama model is reachable on the agent network
+    (`ollama:11434`) while the above blocked destinations stay denied.
+- Pin `defs/sidecars/mitmproxy/Dockerfile`'s `MITMPROXY_VERSION` to the latest published
+  `mitmproxy/mitmproxy` tag and confirm the image builds.
+- Add active readiness checks for Squid and mitmproxy sidecars after image/runtime
+  behavior is confirmed by HITL (the CA-wait is the current readiness signal).
+- Optional follow-up: make the inspector attachable to any agent via
+  `PROVEO_EGRESS_INSPECTOR=mitmproxy|none`, reusing the same sidecar/log/dashboard
+  pipeline for OpenCode and Cecli.
 
-Status: in progress.
-
-Steps:
-
-1. Maintain `defs/README.md` as the canonical contract summary.
-2. For each coding harness definition, keep its README explicit about:
-   - contract status: candidate, experimental, or non-harness
-   - image names and tags
-   - mounts
-   - environment variables
-   - build/run/test/debug commands
-3. Keep current classifications accurate:
-   - candidate coding harnesses: `defs/cecli`, `defs/opencode`, `defs/claudecode`
-   - experimental coding harness: `defs/aider-node`
-   - non-harness image definition: `defs/charles-proxy`
-4. Do not call any definition mature until its docs, scripts, tests, and expected runtime behavior have been validated together.
-
-Acceptance checks:
-
-- each candidate or experimental coding harness has a README contract section
-- documented commands call definition-local scripts instead of raw Docker invocations where practical
-- non-harness definitions are allowed without forcing the coding harness contract onto them
-
-## Phase 3: Make Definition-Local Scripts the Source of Truth
-
-Status: next implementation pass.
-
-Steps:
-
-1. Audit `bin/proveo` for harness-specific Docker behavior.
-2. For each behavior found, decide whether it belongs in:
-   - `defs/<name>/build.sh`
-   - `defs/<name>/run.sh`
-   - `defs/<name>/test.sh`
-   - `defs/<name>/debug.sh`
-3. Move behavior into the definition-local script first.
-4. Change `bin/proveo` to delegate instead of duplicating the Docker invocation.
-5. Keep compatibility output and flags stable where possible.
-
-Acceptance checks:
-
-- `./defs/<name>/build.sh`, `run.sh`, and `test.sh` work without `bin/proveo`
-- `bin/proveo` is a thin maintainer wrapper
-- command examples in definition READMEs match the scripts
-
-## Phase 4: Clarify Maintainer vs Consumer CLI
-
-Status: pending after Phase 3.
-
-Steps:
-
-1. Document the intended user for each surface:
-    - `proveo`: consumer/distribution lifecycle
-    - `bin/proveo`: maintainer/development compatibility wrapper
-2. Keep the distributable `proveo` surface intentionally small:
-   - `help`
-   - `list`
-   - `run`
-   - `uninstall.sh`
-3. Decide whether repo-local `bin/proveo` remains separate, becomes an internal consumer `proveo` mode, or is removed after delegation is complete.
-4. Avoid adding new harness-specific behavior to `proveo` until the split is settled.
-
-Acceptance checks:
-
-- consumer docs use `https://proveo.ca/cli/install.sh` and do not require knowing `bin/proveo`
-- maintainer docs can use definition-local scripts directly
-- uninstall behavior is represented in docs/spec before distribution work expands
-
-## Phase 5: Extract Shared Utilities Only After Repetition Hurts
-
-Status: deferred until script behavior stabilizes.
-
-Steps:
-
-1. Track duplication across entrypoints and run scripts.
-2. Extract only when at least two definitions need the same behavior changed.
-3. Prefer small Bash utilities first for:
-   - logging
-   - `.env` loading
-   - Docker argument assembly
-   - workspace/mount validation
-   - model environment variable bridging
-   - Node dependency installation helpers
-4. Move code to `packages/` only when there is a real package boundary.
-
-Acceptance checks:
-
-- extracted utilities remove duplicated maintenance work
-- definition-specific behavior remains visible in each definition
-- `packages/` does not become a dumping ground
-
-## Phase 6: Prepare for Maturity Validation
-
-Status: future readiness work.
-
-Steps:
-
-1. Define smoke-test expectations for each candidate coding harness.
-2. Add or normalize CI coverage for image builds and basic command checks.
-3. Pin mutable dependency versions where reproducibility matters.
-4. Define image tag and release rules.
-5. Document compatibility expectations per mature harness before calling any definition mature.
-6. Consider provenance, SBOMs, and signing only after release flow is stable.
-
-Acceptance checks:
-
-- candidate harnesses have repeatable build/test checks
-- release tags are intentional and documented
-- maturity is based on validation, not repository age or usefulness
-
-## Current Next Actions
-
-1. Review the current `defs/` README changes for accuracy against scripts.
-2. Move any remaining raw Docker examples in definition READMEs behind definition-local scripts where practical.
-3. Audit `bin/proveo` for behavior that should delegate to `defs/<name>/*.sh`.
-4. Update `_spec/components.puml` only when ownership boundaries change.
-5. Keep `ROADMAP.md` strategic; keep this plan executable.
+## Next Action
+Run full image builds and `PROVEO_EGRESS_INTEGRATION=1` tests on a Docker-capable host.

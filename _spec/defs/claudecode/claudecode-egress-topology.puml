@@ -1,0 +1,162 @@
+@startuml ClaudeCodeEgressTopology
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+left to right direction
+
+title Claude Code Egress Topology — mitmproxy-First Inspected Firewall
+
+actor "Human" as Human
+actor "Claude Code" as Claude
+
+package "Mode: open" as OpenMode {
+  component "claudecode\n--dangerously-skip-permissions" as OpenClaude <<container>>
+  component "default bridge\ndirect internet" as OpenBridge <<network>>
+}
+
+package "Mode: proxy" as ProxyMode {
+  component "claudecode\ninternal only" as ProxyClaude <<container>>
+  component "squid:3128\nHTTP(S) enforcement" as ProxySquid <<container>>
+  component "egress network" as ProxyEgress <<network>>
+}
+
+package "Mode: inspected-firewall" as InspectedMode {
+  component "claudecode\ninternal only" as InspectedClaude <<container>>
+  component "agent-inspect-net\ninternal" as AgentInspectNet <<network>>
+  component "mitmproxy:8888\nTLS intercept + record" as Mitm <<container>>
+  component "inspect-enforce-net\ninternal" as InspectEnforceNet <<network>>
+  component "squid:3128\nupstream policy proxy" as Squid <<container>>
+  component "egress-net\ninternet capable" as EgressNet <<network>>
+  component "ollama:11434\nlocal model (optional)" as Ollama <<container>>
+}
+
+package "Observability" as Observability {
+  component "mitmproxy flows\nNDJSON (decrypted)" as MitmFlows <<storage>>
+  component "Squid access.log\nallow / deny" as SquidLogs <<storage>>
+  component "Egress guard reject.log\nraw protocol bypass attempts" as GuardLogs <<storage>>
+  component "Vite + Node dashboard\nnormalized event timeline" as Dashboard <<app>>
+  component "post-run report\ntop 5 allowed / top 5 denied" as Report <<storage>>
+}
+
+package "Internet" as Internet {
+  component "LLM providers\nAnthropic, etc." as Providers <<external>>
+  component "Docs / search / package metadata\nany HTTP(S) read target" as ReadWeb <<external>>
+  component "Blocked writes / uploads / pushes" as BlockedWrites <<external>>
+  component "Blocked non-web protocols\nFTP, SSH, DB, mail, raw TCP/UDP" as BlockedProtocols <<external>>
+}
+
+Claude --> OpenClaude : open mode
+OpenClaude --> OpenBridge : unrestricted egress
+OpenBridge --> Internet : direct
+
+Claude --> ProxyClaude : proxy mode
+ProxyClaude --> ProxySquid : HTTP_PROXY / HTTPS_PROXY
+ProxySquid --> ProxyEgress
+ProxyEgress --> Providers : allowed exceptions
+ProxyEgress --> ReadWeb : allowed HTTP(S) reads
+ProxySquid -[#red]-> BlockedWrites : deny where observable
+
+Claude --> InspectedClaude : inspected-firewall mode
+InspectedClaude ..> Ollama : NO_PROXY direct (local model, no egress)
+InspectedClaude --> AgentInspectNet : HTTP_PROXY / HTTPS_PROXY + trusts mitm CA
+AgentInspectNet --> Mitm : first hop decrypts HTTP(S)
+Mitm --> MitmFlows : record / export NDJSON
+Mitm --> InspectEnforceNet : upstream proxy only
+InspectEnforceNet --> Squid : enforce policy
+Squid --> SquidLogs : allow / deny log
+Squid --> EgressNet : only real internet egress
+EgressNet --> Providers : allowed exceptions
+EgressNet --> ReadWeb : allowed HTTP(S) reads
+Squid -[#red]-> BlockedWrites : deny where observable
+InspectedClaude -[#red]-> GuardLogs : direct non-web bypass attempts
+GuardLogs -[#red]-> BlockedProtocols : deny + log
+
+MitmFlows --> Dashboard
+SquidLogs --> Dashboard
+GuardLogs --> Dashboard
+SquidLogs ..> Report : summarized on container exit
+Human --> Dashboard : inspect agent egress timeline
+Human ..> Report : top allowed / denied egress
+
+note right of Mitm
+mitmproxy is the first-hop inspector.
+HTTPS interception is on: it decrypts and
+records each request (method / path / host)
+and exports flows as NDJSON.
+The agent trusts mitmproxy's generated CA via
+standard CA env vars, so all its TLS terminates
+here. mitmproxy uses Squid as upstream proxy
+and has no direct internet egress.
+end note
+
+note right of Squid
+Squid is the enforcement proxy:
+- allow HTTP :80
+- allow HTTPS CONNECT :443
+- allow GET/HEAD/OPTIONS by default
+- allow provider API exceptions
+- deny reserved/private/bogon destinations
+  with FireHOL-informed built-in defaults
+- optionally include generated FireHOL
+  blocklist-ipsets such as firehol_level1
+- deny FTP, SSH, DB, mail, Redis,
+  Docker daemon, and raw TCP/UDP by topology
+Squid sees only CONNECT host:port for HTTPS;
+mitmproxy provides the decrypted method/path view.
+end note
+
+note bottom of InspectedMode
+Docker network invariant:
+claudecode only reaches mitmproxy.
+mitmproxy only reaches Squid.
+Only Squid has internet-capable egress.
+Proxy env vars are not the boundary;
+network attachment is the boundary.
+end note
+
+note bottom of Observability
+Dashboard normalizes mitmproxy flow exports,
+Squid access logs, and guard reject logs into
+one human-readable timeline of allowed,
+blocked, and bypass-attempted egress.
+When the agent container exits, the lifecycle
+also writes a ""report.txt""/""report.json"" with the
+top 5 allowed external operations and top 5 denied,
+summarized from the Squid access log.
+end note
+
+note bottom of Ollama
+Optional ""--local-model"" (e.g. gemma4): an Ollama
+sidecar on the agent network serving the host's
+already-pulled models, read-only and offline.
+Reached directly via ""NO_PROXY"", so its traffic
+never touches mitmproxy or Squid — the local model
+works while all internet egress stays policed.
+end note
+
+note right of Providers
+**Provider egress allowlist** (proxy + inspected).
+Auto-detected from the present API key: inference
+WRITES (POST/...) are pinned to the chosen provider
+endpoint only; web READS (docs/search/scraping)
+stay open; writes to any other host are denied.
+Endpoint map: Bedrock/Azure/Vertex (tight regex),
+Together/Fireworks/GMI/OpenRouter, and native
+Anthropic/OpenAI/xAI/Perplexity/Google/Groq/Mistral/Cohere.
+""update-provider-allow.sh"" reconciles the map vs LiteLLM.
+end note
+
+note bottom of Internet
+Two egress-layer purposes:
+1. No irreversible action without HITL — only the
+   provider may receive writes; pushes/publishes/writes
+   elsewhere are denied and logged.
+2. No leaks to providers — inference is pinned to the
+   chosen endpoint, so data can't be POSTed to an
+   arbitrary host. Reads stay open so agents can research.
+end note
+
+@enduml
