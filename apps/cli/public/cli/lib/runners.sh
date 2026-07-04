@@ -1,6 +1,29 @@
 #!/usr/bin/env bash
 # Docker target runners helper module for proveo CLI
 
+# Forward the developer's git identity (GIT_* env wins, else host git config) as
+# `-e` pairs in PROVEO_GIT_IDENTITY_ARGS; standalone mirror of defs/lib/git-identity.sh.
+proveo_git_identity_env_args() {
+  PROVEO_GIT_IDENTITY_ARGS=()
+
+  local name email
+  name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-}}"
+  email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-}}"
+
+  if command -v git >/dev/null 2>&1; then
+    [[ -n "$name" ]] || name="$(git config --get user.name 2>/dev/null || true)"
+    [[ -n "$email" ]] || email="$(git config --get user.email 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$name" ]]; then
+    PROVEO_GIT_IDENTITY_ARGS+=(-e "GIT_AUTHOR_NAME=$name" -e "GIT_COMMITTER_NAME=$name")
+  fi
+
+  if [[ -n "$email" ]]; then
+    PROVEO_GIT_IDENTITY_ARGS+=(-e "GIT_AUTHOR_EMAIL=$email" -e "GIT_COMMITTER_EMAIL=$email")
+  fi
+}
+
 image_name() {
   local target="$1"
   case "$target" in
@@ -96,6 +119,7 @@ run_claude_container() {
 
   local -a docker_args=(
     run -it --rm
+    --user "$(id -u):$(id -g)"
     --cap-drop=ALL
     --security-opt=no-new-privileges:true
     --tmpfs /tmp:noexec,nosuid,size=100m
@@ -107,6 +131,10 @@ run_claude_container() {
     -v "$output_dir:/workspace/output:rw"
     -e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}"
   )
+
+  # Forward the developer's git identity for commit attribution
+  proveo_git_identity_env_args
+  docker_args+=(${PROVEO_GIT_IDENTITY_ARGS[@]+"${PROVEO_GIT_IDENTITY_ARGS[@]}"})
 
   if [[ -n "$data_dir" ]]; then
     docker_args+=(-v "$data_dir:/workspace/data:ro")
@@ -139,7 +167,13 @@ run_opencode() {
   image="$(image_name "opencode")"
   ensure_image_available "$image"
 
-  local -a docker_args=(run -it --rm)
+  # Run as the caller's host UID/GID (never root) so files written to mounts
+  # come back owned by the developer, for any uid — not just 1000.
+  local -a docker_args=(run -it --rm --user "$(id -u):$(id -g)")
+
+  # Forward the developer's git identity for commit attribution
+  proveo_git_identity_env_args
+  docker_args+=(${PROVEO_GIT_IDENTITY_ARGS[@]+"${PROVEO_GIT_IDENTITY_ARGS[@]}"})
 
   local container_name
   if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
@@ -205,9 +239,17 @@ run_cecli() {
   local -a docker_args=(
     run -it --rm
     --name "$container_name"
-    -e "LOCAL_UID=$(id -u)"
-    -e "LOCAL_GID=$(id -g)"
+    # Run as the caller's host UID/GID (never root) so files written to the
+    # mounted workspace come back owned by the developer, for any uid.
+    --user "$(id -u):$(id -g)"
     -e "CECLI_HOME=/app/.cecli"
+  )
+
+  # Forward the developer's git identity for commit attribution
+  proveo_git_identity_env_args
+  docker_args+=(${PROVEO_GIT_IDENTITY_ARGS[@]+"${PROVEO_GIT_IDENTITY_ARGS[@]}"})
+
+  docker_args+=(
     -e "CECLI_INSTALL_NODE_DEPS=${CECLI_INSTALL_NODE_DEPS:-0}"
     -v "$scope_dir:/app"
     -v "$output_dir:/app/output:rw"

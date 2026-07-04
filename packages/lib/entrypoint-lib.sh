@@ -1,6 +1,26 @@
 #!/usr/bin/env bash
 # Shared entrypoint functions for Proveo coding harnesses
 
+# ── 0. Make an Arbitrary Run-As UID Usable (root-free) ──────
+# Wrappers launch containers with `--user $(id -u):$(id -g)`; give that uid a
+# passwd entry and a writable HOME without root. Call first in every entrypoint.
+ensure_runtime_user() {
+  local uid gid
+  uid="$(id -u)"; gid="$(id -g)"
+
+  # Synthesize a passwd entry so getpwuid()-based tooling doesn't choke on
+  # "I have no name!"; only possible when /etc/passwd is writable.
+  if ! getent passwd "$uid" >/dev/null 2>&1 && [[ -w /etc/passwd ]]; then
+    printf 'agent:x:%s:%s:agent:%s:/bin/bash\n' "$uid" "$gid" "${HOME:-/tmp}" >> /etc/passwd
+  fi
+
+  # Guarantee a writable HOME. The baked home (owned by the build user) is not
+  # writable by a different uid until the deferred chmod lands, so fall back.
+  if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
+    export HOME=/tmp
+  fi
+}
+
 # ── 1. Set Working Directory ────────────────────────────────
 set_working_directory() {
   local default_dir="${1:-/app}"
@@ -73,6 +93,73 @@ load_env() {
   if [[ -n "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
     export GEMINI_API_KEY="${GEMINI_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
     export GOOGLE_API_KEY="${GOOGLE_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
+  fi
+}
+
+# ── 2b. Git Identity from Environment ───────────────────────
+# Bridge GIT_AUTHOR_*/GIT_COMMITTER_* env into git's config-env (GIT_CONFIG_*) so
+# config reads resolve file-free; existing identity wins. Optional arg: repo dir.
+bridge_git_identity() {
+  command -v git >/dev/null 2>&1 || return 0
+
+  local dir="${1:-$(pwd)}"
+  local name email idx
+  name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-}}"
+  email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-}}"
+  idx="${GIT_CONFIG_COUNT:-0}"
+
+  if [[ -n "$name" ]] && ! git -C "$dir" config --get user.name >/dev/null 2>&1; then
+    export "GIT_CONFIG_KEY_${idx}=user.name" "GIT_CONFIG_VALUE_${idx}=$name"
+    idx=$((idx + 1))
+  fi
+
+  if [[ -n "$email" ]] && ! git -C "$dir" config --get user.email >/dev/null 2>&1; then
+    export "GIT_CONFIG_KEY_${idx}=user.email" "GIT_CONFIG_VALUE_${idx}=$email"
+    idx=$((idx + 1))
+  fi
+
+  if (( idx > ${GIT_CONFIG_COUNT:-0} )); then
+    export GIT_CONFIG_COUNT="$idx"
+  fi
+}
+
+# ── 2c. Git Context Report ──────────────────────────────────
+# Read-only startup report: repo/remote status, commit identity, gh session.
+# Call after load_env/bridge_git_identity. Optional arg: directory to inspect.
+report_git_context() {
+  command -v git >/dev/null 2>&1 || return 0
+
+  local dir="${1:-$(pwd)}"
+
+  if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "✅ Git repository at $(git -C "$dir" rev-parse --show-toplevel)"
+    local origin
+    if origin="$(git -C "$dir" remote get-url origin 2>/dev/null)" && [[ -n "$origin" ]]; then
+      echo "✅ Remote origin: $origin"
+    else
+      echo "🔎 Not tracking a remote repo"
+    fi
+  else
+    echo "🔎 Not a git repository: $dir"
+  fi
+
+  local id_name id_email
+  id_name="$(git -C "$dir" config --get user.name 2>/dev/null || true)"
+  id_email="$(git -C "$dir" config --get user.email 2>/dev/null || true)"
+  if [[ -n "$id_name" || -n "$id_email" ]]; then
+    echo "✅ Git identity: ${id_name:-unset} <${id_email:-unset}>"
+  else
+    echo "🔎 No git identity (provide GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL)"
+  fi
+
+  if command -v gh >/dev/null 2>&1; then
+    # `gh auth status` validates GH_TOKEN/config sessions over the network;
+    # cap it so locked-down egress modes can't stall startup.
+    if timeout 5s gh auth status >/dev/null 2>&1; then
+      echo "✅ gh session authenticated"
+    else
+      echo "🔎 gh session not authenticated (set GH_TOKEN or GITHUB_TOKEN)"
+    fi
   fi
 }
 

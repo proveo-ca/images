@@ -82,13 +82,61 @@ else
 fi
 rm -f "$DETECT_TMP/go.mod"
 
+# Runtime user contracts (containers always run as the invoking host user, root-free)
+assert_file_contains "entrypoint lib defines the generic runtime-user helper" "$ROOT/packages/lib/entrypoint-lib.sh" "ensure_runtime_user()"
+assert_file_contains "runtime-user helper never requires root (degrades gracefully)" "$ROOT/packages/lib/entrypoint-lib.sh" "export HOME=/tmp"
+for harness_entrypoint in \
+  "$ROOT/defs/claudecode/mcp/entrypoint.sh" \
+  "$ROOT/defs/claudecode/solo/entrypoint.sh" \
+  "$ROOT/defs/opencode/entrypoint.sh" \
+  "$ROOT/defs/cecli/entrypoint.sh"; do
+  assert_file_contains "${harness_entrypoint#$ROOT/defs/} makes the run-as uid usable" "$harness_entrypoint" "ensure_runtime_user"
+  assert_file_not_contains "${harness_entrypoint#$ROOT/defs/} never escalates via gosu" "$harness_entrypoint" "gosu"
+done
+assert_file_contains "claudecode wrapper runs container as invoking host user" "$ROOT/defs/claudecode/run.sh" '"--user" "$(id -u):$(id -g)"'
+assert_file_contains "opencode wrapper runs container as invoking host user" "$ROOT/defs/opencode/run.sh" '"--user" "$(id -u):$(id -g)"'
+assert_file_contains "cecli wrapper runs container as invoking host user" "$ROOT/defs/cecli/run.sh" '"--user" "$(id -u):$(id -g)"'
+assert_file_contains "distributable CLI runs containers as invoking host user" "$ROOT/apps/cli/public/cli/lib/runners.sh" '--user "$(id -u):$(id -g)"'
+assert_file_not_contains "cecli wrapper no longer passes LOCAL_UID" "$ROOT/defs/cecli/run.sh" "LOCAL_UID"
+assert_file_not_contains "distributable CLI no longer passes LOCAL_UID" "$ROOT/apps/cli/public/cli/lib/runners.sh" "LOCAL_UID"
+assert_file_not_contains "cecli node image ships no gosu" "$ROOT/defs/cecli/Dockerfile.node" "gosu"
+assert_file_not_contains "cecli python image ships no gosu" "$ROOT/defs/cecli/Dockerfile.python" "gosu"
+assert_file_contains "cecli node image defaults to a non-root user" "$ROOT/defs/cecli/Dockerfile.node" 'USER ${USER_NAME}'
+assert_file_contains "cecli python image defaults to a non-root user" "$ROOT/defs/cecli/Dockerfile.python" 'USER ${USER_NAME}'
+
+# Git + GitHub CLI contracts (coding agents lean on git and gh in every harness)
+assert_file_contains "claudecode mcp image installs git and gh" "$ROOT/defs/claudecode/mcp/Dockerfile" "git gh"
+assert_file_contains "claudecode solo image installs git and gh" "$ROOT/defs/claudecode/solo/Dockerfile" "git gh"
+assert_file_contains "opencode image installs git and gh" "$ROOT/defs/opencode/Dockerfile" "git gh"
+assert_file_contains "cecli node image installs gh" "$ROOT/defs/cecli/Dockerfile.node" '    gh \'
+assert_file_contains "cecli python image installs gh" "$ROOT/defs/cecli/Dockerfile.python" '    gh \'
+assert_file_contains "shared wrapper lib forwards host git identity as env" "$ROOT/defs/lib/git-identity.sh" "proveo_git_identity_env_args()"
+assert_file_contains "claudecode wrapper forwards host git identity" "$ROOT/defs/claudecode/run.sh" "proveo_git_identity_env_args"
+assert_file_contains "opencode wrapper forwards host git identity" "$ROOT/defs/opencode/run.sh" "proveo_git_identity_env_args"
+assert_file_contains "cecli wrapper forwards host git identity" "$ROOT/defs/cecli/run.sh" "proveo_git_identity_env_args"
+assert_file_contains "distributable CLI forwards host git identity" "$ROOT/apps/cli/public/cli/lib/runners.sh" "proveo_git_identity_env_args()"
+assert_file_contains "entrypoint lib bridges env git identity into config-env" "$ROOT/packages/lib/entrypoint-lib.sh" "bridge_git_identity()"
+assert_file_contains "git identity bridge uses git config-env, not files" "$ROOT/packages/lib/entrypoint-lib.sh" "GIT_CONFIG_COUNT"
+assert_file_contains "cecli entrypoint attaches env-provided git identity" "$ROOT/defs/cecli/entrypoint.sh" "bridge_git_identity"
+assert_file_contains "opencode entrypoint attaches env-provided git identity" "$ROOT/defs/opencode/entrypoint.sh" "bridge_git_identity"
+assert_file_contains "claudecode mcp entrypoint attaches env-provided git identity" "$ROOT/defs/claudecode/mcp/entrypoint.sh" "bridge_git_identity /workspace/input"
+assert_file_contains "claudecode solo entrypoint attaches env-provided git identity" "$ROOT/defs/claudecode/solo/entrypoint.sh" "bridge_git_identity /workspace/input"
+assert_file_contains "entrypoint lib reports git context at startup" "$ROOT/packages/lib/entrypoint-lib.sh" "report_git_context()"
+assert_file_contains "git context report flags missing remote" "$ROOT/packages/lib/entrypoint-lib.sh" "Not tracking a remote repo"
+assert_file_contains "git context report surfaces gh session state" "$ROOT/packages/lib/entrypoint-lib.sh" "gh auth status"
+assert_file_contains "cecli entrypoint reports git context" "$ROOT/defs/cecli/entrypoint.sh" "report_git_context"
+assert_file_contains "opencode entrypoint reports git context" "$ROOT/defs/opencode/entrypoint.sh" "report_git_context"
+assert_file_contains "claudecode mcp entrypoint reports git context on the input mount" "$ROOT/defs/claudecode/mcp/entrypoint.sh" "report_git_context /workspace/input"
+assert_file_contains "claudecode solo entrypoint reports git context on the input mount" "$ROOT/defs/claudecode/solo/entrypoint.sh" "report_git_context /workspace/input"
+
 # Claude Code contracts
 for variant_entrypoint in "$ROOT/defs/claudecode/mcp/entrypoint.sh" "$ROOT/defs/claudecode/solo/entrypoint.sh"; do
   assert_file_contains "claudecode variant entrypoint keeps dangerous full-consent launch" "$variant_entrypoint" "--dangerously-skip-permissions"
   assert_file_not_contains "claudecode variant entrypoint has no CLAUDE_DANGEROUS opt-out" "$variant_entrypoint" "CLAUDE_DANGEROUS"
   assert_file_contains "claudecode variant entrypoint seeds CLAUDE.md when missing" "$variant_entrypoint" "Seeded CLAUDE.md"
-  assert_file_contains "claudecode variant entrypoint supports smoke mode" "$variant_entrypoint" "PROVEO_SMOKE_READY"
+  assert_file_contains "claudecode variant entrypoint supports smoke mode" "$variant_entrypoint" "run_smoke_test"
 done
+assert_file_contains "shared entrypoint lib implements smoke mode" "$ROOT/packages/lib/entrypoint-lib.sh" "PROVEO_SMOKE_READY"
 assert_file_contains "claudecode default prompt encodes verification loop" "$ROOT/defs/claudecode/defaults/CLAUDE.md" "Verification Commands"
 assert_file_contains "claudecode run supports open egress mode" "$ROOT/defs/claudecode/run.sh" "open|proxy|inspected-firewall"
 assert_file_contains "claudecode parent runner sources shared egress lifecycle" "$ROOT/defs/claudecode/run.sh" 'source "$DEFS_DIR/lib/egress.sh"'
@@ -100,39 +148,40 @@ assert_file_contains "claudecode parent runner selects solo variant image" "$ROO
 assert_file_contains "opencode entrypoint seeds project AGENTS.md" "$ROOT/defs/opencode/entrypoint.sh" "Seeded AGENTS.md"
 assert_file_contains "opencode reseeds project AGENTS.md with OPENCODE_RESEED" "$ROOT/defs/opencode/entrypoint.sh" "Re-seeded AGENTS.md"
 assert_file_contains "opencode entrypoint reports team workflow" "$ROOT/defs/opencode/entrypoint.sh" "Lead flow: classify"
-assert_file_contains "opencode entrypoint bridges ARCHITECT_MODEL" "$ROOT/defs/opencode/entrypoint.sh" "ARCHITECT_MODEL"
-assert_file_contains "opencode entrypoint bridges EDITOR_MODEL" "$ROOT/defs/opencode/entrypoint.sh" "EDITOR_MODEL"
+assert_file_contains "opencode entrypoint applies shared model bridges" "$ROOT/defs/opencode/entrypoint.sh" "apply_env_bridges"
+assert_file_contains "shared bridges map ARCHITECT_MODEL to opencode" "$ROOT/packages/lib/entrypoint-lib.sh" '"from": "ARCHITECT_MODEL", "to": "OPENCODE_MODEL"'
+assert_file_contains "shared bridges map EDITOR_MODEL to opencode" "$ROOT/packages/lib/entrypoint-lib.sh" '"from": "EDITOR_MODEL", "to": "OPENCODE_BUILD_MODEL"'
 assert_file_contains "opencode supports smoke mode" "$ROOT/defs/opencode/entrypoint.sh" "PROVEO_SMOKE_READY"
 assert_file_contains "opencode team prompt defines review gates" "$ROOT/defs/opencode/defaults/AGENTS.md" "Review Gates"
 assert_file_contains "opencode team prompt defines routing matrix" "$ROOT/defs/opencode/defaults/AGENTS.md" "Routing Matrix"
 assert_file_contains "opencode config keeps plan read-only" "$ROOT/defs/opencode/defaults/opencode.json" '"edit": "deny"'
 assert_file_contains "opencode config keeps build bash ask" "$ROOT/defs/opencode/defaults/opencode.json" '"bash": "ask"'
-assert_file_contains "opencode image bakes shared verification lib" "$ROOT/defs/opencode/Dockerfile" "COPY lib/ /opt/proveo/lib/"
-assert_file_contains "opencode build uses defs parent context" "$ROOT/defs/opencode/build.sh" '"$SCRIPT_DIR/.."'
+assert_file_contains "opencode image bakes shared verification lib" "$ROOT/defs/opencode/Dockerfile" "COPY defs/lib/ /opt/proveo/lib/"
+assert_file_contains "opencode build uses repo-root context" "$ROOT/defs/opencode/build.sh" '"$SCRIPT_DIR/../.."'
 
 # Cecli contracts
 assert_file_contains "cecli entrypoint seeds CONVENTIONS.md" "$ROOT/defs/cecli/entrypoint.sh" "Seeded CONVENTIONS.md"
 assert_file_contains "cecli entrypoint bridges ARCHITECT_MODEL" "$ROOT/defs/cecli/entrypoint.sh" "ARCHITECT_MODEL"
 assert_file_contains "cecli entrypoint bridges EDITOR_MODEL" "$ROOT/defs/cecli/entrypoint.sh" "EDITOR_MODEL"
 assert_file_contains "cecli entrypoint bridges SMALL_MODEL" "$ROOT/defs/cecli/entrypoint.sh" "SMALL_MODEL"
-assert_file_contains "cecli supports smoke mode" "$ROOT/defs/cecli/entrypoint.sh" "PROVEO_SMOKE_READY"
+assert_file_contains "cecli supports smoke mode" "$ROOT/defs/cecli/entrypoint.sh" "run_smoke_test"
 assert_file_contains "cecli runtime caps subagents" "$ROOT/defs/cecli/entrypoint.sh" "max_sub_agents"
 assert_file_contains "cecli sample keeps auto-commits enabled" "$ROOT/defs/cecli/sample.cecli.conf.yml" "auto-commits: true"
 assert_file_contains "cecli sample keeps auto-load disabled" "$ROOT/defs/cecli/sample.cecli.conf.yml" "auto-load: false"
 assert_file_contains "cecli sample keeps compaction enabled" "$ROOT/defs/cecli/sample.cecli.conf.yml" "enable-context-compaction: true"
 assert_file_contains "cecli conventions keep pair-programming containment" "$ROOT/defs/cecli/defaults/CONVENTIONS.md" "Do not autonomously explore the entire repository"
 assert_file_not_contains "cecli conventions do not forbid auto-commit" "$ROOT/defs/cecli/defaults/CONVENTIONS.md" "Never auto-commit"
-assert_file_contains "cecli node image bakes local verification lib" "$ROOT/defs/cecli/Dockerfile.node" "COPY proveo-lib/ /opt/proveo/lib/"
-assert_file_contains "cecli python image bakes local verification lib" "$ROOT/defs/cecli/Dockerfile.python" "COPY proveo-lib/ /opt/proveo/lib/"
+assert_file_contains "cecli node image bakes local verification lib" "$ROOT/defs/cecli/Dockerfile.node" "COPY defs/cecli/proveo-lib/ /opt/proveo/lib/"
+assert_file_contains "cecli python image bakes local verification lib" "$ROOT/defs/cecli/Dockerfile.python" "COPY defs/cecli/proveo-lib/ /opt/proveo/lib/"
 assert_file_contains "cecli local verification lib contains detector" "$ROOT/defs/cecli/proveo-lib/detect-verify.sh" "detect_verify_commands()"
-assert_file_contains "cecli build uses local definition context" "$ROOT/defs/cecli/build.sh" '"$SCRIPT_DIR"'
+assert_file_contains "cecli build uses repo-root context" "$ROOT/defs/cecli/build.sh" '"$SCRIPT_DIR/../.."'
 
 # Build context contracts for Claude variants
-assert_file_contains "claudecode mcp image bakes local verification lib" "$ROOT/defs/claudecode/mcp/Dockerfile" "COPY --chown=\${USER_NAME}:\${USER_NAME} proveo-lib/ /opt/proveo/lib/"
-assert_file_contains "claudecode solo image bakes local verification lib" "$ROOT/defs/claudecode/solo/Dockerfile" "COPY --chown=\${USER_NAME}:\${USER_NAME} proveo-lib/ /opt/proveo/lib/"
+assert_file_contains "claudecode mcp image bakes local verification lib" "$ROOT/defs/claudecode/mcp/Dockerfile" "COPY --chown=\${USER_NAME}:\${USER_NAME} defs/claudecode/mcp/proveo-lib/ /opt/proveo/lib/"
+assert_file_contains "claudecode solo image bakes local verification lib" "$ROOT/defs/claudecode/solo/Dockerfile" "COPY --chown=\${USER_NAME}:\${USER_NAME} defs/claudecode/solo/proveo-lib/ /opt/proveo/lib/"
 assert_file_contains "claudecode mcp local verification lib contains detector" "$ROOT/defs/claudecode/mcp/proveo-lib/detect-verify.sh" "detect_verify_commands()"
 assert_file_contains "claudecode solo local verification lib contains detector" "$ROOT/defs/claudecode/solo/proveo-lib/detect-verify.sh" "detect_verify_commands()"
-assert_file_contains "claudecode build uses variant-local context" "$ROOT/defs/claudecode/build.sh" '"$SCRIPT_DIR/$variant"'
+assert_file_contains "claudecode build uses variant-local Dockerfile with repo-root context" "$ROOT/defs/claudecode/build.sh" '-f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/../.."'
 
 # Squid/egress contracts for Claude Code proxy modes
 assert_file_contains "shared egress lifecycle is attachable by any agent" "$ROOT/defs/lib/egress.sh" "proveo_egress_prepare()"

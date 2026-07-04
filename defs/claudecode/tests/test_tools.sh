@@ -6,6 +6,7 @@ TOOLS=(
   "node:node --version"
   "npm:npm --version"
   "git:git --version"
+  "gh:gh --version"
   "python3:python3 --version"
   "pip3:pip3 --version"
   "curl:curl --version"

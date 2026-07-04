@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/git-identity.sh
+source "$SCRIPT_DIR/../lib/git-identity.sh"
+
 IMAGE_NAME="${PROVEO_OPENCODE_IMAGE:-proveo/opencode:latest}"
 INPUT_DIR="$PWD"
 REPO_ROOT=""
@@ -56,6 +60,13 @@ if [[ -z "$REPO_ROOT" ]] && git -C "$INPUT_DIR" rev-parse --show-toplevel >/dev/
 fi
 
 DOCKER_ARGS=("run" "-it" "--rm")
+# Run as the caller's host UID/GID (never root) so files written to the mounted
+# workspace come back owned by the developer, for any uid — not just 1000.
+DOCKER_ARGS+=("--user" "$(id -u):$(id -g)")
+# Forward the developer's git identity (host git config or GIT_* env) so the
+# agent's commits are attributed to them; see defs/lib/git-identity.sh.
+proveo_git_identity_env_args
+DOCKER_ARGS+=(${PROVEO_GIT_IDENTITY_ARGS[@]+"${PROVEO_GIT_IDENTITY_ARGS[@]}"})
 if [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT" ]]; then
   CONTAINER_NAME="$(basename "$REPO_ROOT")-opencode"
   DOCKER_ARGS+=(--name "$CONTAINER_NAME")
@@ -86,4 +97,6 @@ fi
 
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
-docker "${DOCKER_ARGS[@]}" "$IMAGE_NAME" "${OPENCODE_ARGS[@]}"
+# Empty-array guard: bash 3.2 (macOS /bin/bash) treats "${arr[@]}" of an empty
+# array as unbound under set -u.
+docker "${DOCKER_ARGS[@]}" "$IMAGE_NAME" ${OPENCODE_ARGS[@]+"${OPENCODE_ARGS[@]}"}

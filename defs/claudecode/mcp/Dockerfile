@@ -1,8 +1,5 @@
 FROM node:20-bookworm-slim
 
-# Security: Use uid 1000 by default so mounted host files owned by a typical
-# developer user are writable inside the container. The node base image already
-# includes uid/gid 1000 as node:node, so rename/reuse that account.
 ARG USER_ID=1000
 ARG USER_NAME=claude
 
@@ -24,7 +21,7 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
 
 # Install system dependencies with security hardening
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl wget ca-certificates python3 python3-pip build-essential \
+    git gh curl wget ca-certificates python3 python3-pip build-essential \
     dumb-init \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /tmp/* \
@@ -91,7 +88,8 @@ COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoin
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Switch to non-root user for security
+# Default to the non-root build user; the wrapper overrides the runtime uid with
+# `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).
 USER ${USER_NAME}
 WORKDIR /workspace
 ENV PATH="/home/${USER_NAME}/.foundry/bin:$PATH"

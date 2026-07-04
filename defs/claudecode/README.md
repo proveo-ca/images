@@ -115,7 +115,7 @@ Run `claude setup-token`, login, save the resulting `sk-*` token.
 ## Security Features
 
 ### Container Security
-- **Non-root execution**: Runs as user `claude` (UID 1001)
+- **Root-free execution**: baked non-root user `claude` (uid 1000); `run.sh` launches as the invoking host uid via `--user $(id -u):$(id -g)`
 - **Capability dropping**: Minimal Linux capabilities
 - **Process limits**: Resource constraints for safety (max 100 PIDs)
 - **Tmpfs mounts**: Isolated temporary storage for /tmp and /workspace/temp

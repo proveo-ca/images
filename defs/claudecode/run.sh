@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=../lib/egress.sh
 source "$DEFS_DIR/lib/egress.sh"
+# shellcheck source=../lib/git-identity.sh
+source "$DEFS_DIR/lib/git-identity.sh"
 trap proveo_egress_cleanup EXIT
 
 VARIANT="mcp"
@@ -172,6 +174,9 @@ mkdir -p "$OUTPUT_DIR"
 
 DOCKER_ARGS=(
   "run" "-it" "--rm"
+  # Run as the caller's host UID/GID (never root) so files written to mounts
+  # come back owned by the developer; the cap-drop hardening stays intact.
+  "--user" "$(id -u):$(id -g)"
   "--cap-drop=ALL"
   "--security-opt=no-new-privileges:true"
   "--tmpfs" "/tmp:noexec,nosuid,size=100m"
@@ -181,6 +186,11 @@ DOCKER_ARGS=(
   "-v" "${OUTPUT_DIR}:/workspace/output:rw"
   "-e" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}"
 )
+
+# Forward the developer's git identity (host git config or GIT_* env) so the
+# agent's commits are attributed to them; see defs/lib/git-identity.sh.
+proveo_git_identity_env_args
+DOCKER_ARGS+=(${PROVEO_GIT_IDENTITY_ARGS[@]+"${PROVEO_GIT_IDENTITY_ARGS[@]}"})
 
 if [[ "$SHELL_MODE" == "1" ]]; then
   DOCKER_ARGS+=("--entrypoint" "bash")

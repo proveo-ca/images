@@ -7,11 +7,24 @@ if [[ -f /entrypoint-lib.sh ]]; then
   source /entrypoint-lib.sh
 fi
 
+# ── Make the run-as UID usable (root-free) ─────────────────
+# The wrapper runs us as the caller's host uid via `docker run --user`; give
+# that uid a passwd entry and a writable HOME (shared across harnesses).
+ensure_runtime_user
+
 # ── Working directory ──────────────────────────────────────
 set_working_directory "/app"
 
 # ── Source .env file if present ────────────────────────────
 load_env
+
+# ── Git identity from environment ──────────────────────────
+# Bridge wrapper-forwarded GIT_* env into git's config-env so `git config --get`
+# resolves file-free; repo-local identity stays authoritative.
+bridge_git_identity
+
+# ── Git context (repo / remote / identity / gh session) ────
+report_git_context
 
 # ── Optional: attach RTK repo ──────────────────────────────
 attach_rtk

@@ -48,3 +48,24 @@ assert_output_contains \
   "$IMAGE" \
   'echo $OPENCODE_AUTO_UPDATE' \
   "false"
+
+# Run-as-host-uid contract: any `--user` uid (not just the baked 1000) must
+# get a usable identity and writable HOME via ensure_runtime_user.
+TESTS_RUN=$((TESTS_RUN + 1))
+LAST_OUTPUT=$(docker run --rm --user 4242:4242 --entrypoint bash "$IMAGE" -c \
+  'source /entrypoint-lib.sh && ensure_runtime_user && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"' 2>&1)
+if echo "$LAST_OUTPUT" | grep -qF "uid=4242 home_writable=yes"; then
+  TESTS_PASSED=$((TESTS_PASSED + 1))
+  printf "${GREEN}PASS${NC} [%d] arbitrary --user uid gets usable identity and writable HOME\n" "$TESTS_RUN"
+else
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+  FAILURES+=("arbitrary --user uid gets usable identity and writable HOME")
+  printf "${RED}FAIL${NC} [%d] arbitrary --user uid gets usable identity and writable HOME\n" "$TESTS_RUN"
+  printf "     Output: %.200s\n" "$LAST_OUTPUT"
+fi
+
+# Never root at runtime, even without wrapper flags.
+assert_failure \
+  "does not run as root by default" \
+  "$IMAGE" \
+  '[ "$(id -u)" = "0" ]'

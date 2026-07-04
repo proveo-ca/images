@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/git-identity.sh
+source "$SCRIPT_DIR/../lib/git-identity.sh"
+
 IMAGE_NAME="${CECLI_IMAGE:-proveo/cecli-node:latest}"
 INPUT_DIR="${CECLI_INPUT_DIR:-$(pwd)}"
 OUTPUT_DIR="${CECLI_OUTPUT_DIR:-$(pwd)/reports}"
@@ -111,11 +115,17 @@ fi
 
 DOCKER_ARGS=(
   "run" "-it" "--rm"
-  "-e" "LOCAL_UID=$(id -u)"
-  "-e" "LOCAL_GID=$(id -g)"
+  # Run as the caller's host UID/GID (never root) so files written to the mounted
+  # workspace come back owned by the developer, for any uid — not just 1000.
+  "--user" "$(id -u):$(id -g)"
   "-e" "CECLI_HOME=$CECLI_HOME_VALUE"
   "-e" "CECLI_INSTALL_NODE_DEPS=$INSTALL_NODE_DEPS"
 )
+
+# Forward the developer's git identity (host git config or GIT_* env) so
+# cecli's auto-commits are attributed to them; see defs/lib/git-identity.sh.
+proveo_git_identity_env_args
+DOCKER_ARGS+=(${PROVEO_GIT_IDENTITY_ARGS[@]+"${PROVEO_GIT_IDENTITY_ARGS[@]}"})
 
 if [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT" ]]; then
   CONTAINER_NAME="$(basename "$REPO_ROOT")-cecli"
@@ -164,4 +174,6 @@ fi
 echo "App mount mode:     $APP_MOUNT_MODE"
 echo "CECLI_HOME:         $CECLI_HOME_VALUE"
 
-docker "${DOCKER_ARGS[@]}" "$IMAGE_NAME" "${CECLI_ARGS[@]}"
+# Empty-array guard: bash 3.2 (macOS /bin/bash) treats "${arr[@]}" of an empty
+# array as unbound under set -u.
+docker "${DOCKER_ARGS[@]}" "$IMAGE_NAME" ${CECLI_ARGS[@]+"${CECLI_ARGS[@]}"}

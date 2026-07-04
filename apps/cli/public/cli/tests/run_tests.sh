@@ -231,6 +231,15 @@ unset_provider_keys() {
   unset HF_TOKEN
 }
 
+run_cli_with_git_identity() {
+  local temp_dir="$1"
+  shift
+  (
+    cd "$temp_dir"
+    GIT_AUTHOR_NAME="CLITest" GIT_AUTHOR_EMAIL="cli@test.dev" "$PROVEO_BIN" "$@"
+  )
+}
+
 run_init_with_openai_key() {
   local temp_dir="$1"
   (
@@ -385,8 +394,7 @@ main() {
   assert_failure "proveo init fails without provider keys" run_init_without_provider_keys "$empty_init_dir"
 
   assert_run_target cecli "proveo/cecli:latest" "$run_dir" "$docker_log" \
-    "LOCAL_UID=$(id -u)" \
-    "LOCAL_GID=$(id -g)" \
+    "--user $(id -u):$(id -g)" \
     "CECLI_HOME=/app/.cecli" \
     "CECLI_INSTALL_NODE_DEPS=0" \
     "$run_dir:/app" \
@@ -396,8 +404,7 @@ main() {
   assert_run_target_forwards_args cecli "$run_dir" "$docker_log"
 
   assert_run_target cecli-node "proveo/cecli-node:latest" "$run_dir" "$docker_log" \
-    "LOCAL_UID=$(id -u)" \
-    "LOCAL_GID=$(id -g)" \
+    "--user $(id -u):$(id -g)" \
     "CECLI_HOME=/app/.cecli" \
     "CECLI_INSTALL_NODE_DEPS=0" \
     "$run_dir:/app" \
@@ -406,10 +413,25 @@ main() {
     "/app"
   assert_run_target_forwards_args cecli-node "$run_dir" "$docker_log"
 
+  # Wrappers forward the developer's git identity (env wins over host config)
+  # so agent commits inside containers are attributed to them.
+  : > "$docker_log"
+  assert_success "proveo run cecli forwards git identity with stubbed Docker" run_cli_with_git_identity "$run_dir" run cecli
+  assert_file_contains "proveo run cecli forwards GIT_AUTHOR_NAME" "$docker_log" "GIT_AUTHOR_NAME=CLITest"
+  assert_file_contains "proveo run cecli forwards GIT_COMMITTER_NAME" "$docker_log" "GIT_COMMITTER_NAME=CLITest"
+  assert_file_contains "proveo run cecli forwards GIT_AUTHOR_EMAIL" "$docker_log" "GIT_AUTHOR_EMAIL=cli@test.dev"
+  : > "$docker_log"
+  assert_success "proveo run opencode forwards git identity with stubbed Docker" run_cli_with_git_identity "$run_dir" run opencode
+  assert_file_contains "proveo run opencode forwards GIT_AUTHOR_NAME" "$docker_log" "GIT_AUTHOR_NAME=CLITest"
+  : > "$docker_log"
+  assert_success "proveo run claudecode-solo forwards git identity with stubbed Docker" run_cli_with_git_identity "$run_dir" run claudecode-solo
+  assert_file_contains "proveo run claudecode-solo forwards GIT_AUTHOR_NAME" "$docker_log" "GIT_AUTHOR_NAME=CLITest"
+
   # mitmproxy is an egress sidecar, not a runnable target — `proveo run` must reject it.
   assert_failure "proveo run rejects sidecar target mitmproxy" "$PROVEO_BIN" run mitmproxy
 
   assert_run_target claudecode "proveo/claudecode" "$run_dir" "$docker_log" \
+    "--user $(id -u):$(id -g)" \
     "--cap-drop=ALL" \
     "--security-opt=no-new-privileges:true" \
     "--pids-limit=100" \
@@ -418,6 +440,7 @@ main() {
   assert_run_target_forwards_args claudecode "$run_dir" "$docker_log"
 
   assert_run_target claudecode-solo "proveo/claudecode-solo" "$run_dir" "$docker_log" \
+    "--user $(id -u):$(id -g)" \
     "--cap-drop=ALL" \
     "--security-opt=no-new-privileges:true" \
     "--pids-limit=100" \
@@ -426,6 +449,7 @@ main() {
   assert_run_target_forwards_args claudecode-solo "$run_dir" "$docker_log"
 
   assert_run_target opencode "proveo/opencode" "$run_dir" "$docker_log" \
+    "--user $(id -u):$(id -g)" \
     "$run_dir:/app" \
     "-w" \
     "/app"
