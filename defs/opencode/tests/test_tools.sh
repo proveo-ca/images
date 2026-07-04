@@ -7,6 +7,7 @@ TOOLS=(
   "npm:npm --version"
   "pnpm:timeout 10s pnpm --version"
   "git:git --version"
+  "gh:gh --version"
   "curl:curl --version"
   "dumb-init:dumb-init --version"
 )

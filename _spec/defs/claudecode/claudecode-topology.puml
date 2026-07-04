@@ -31,7 +31,7 @@ package "Container Sandbox" as Sandbox {
   component "--dangerously-skip-permissions" as Perms <<flag>>
   component "tmpfs mounts\n/workspace/{input,output,temp}" as Mounts <<storage>>
   component "network egress layer\nopen | proxy | inspected-firewall" as Net <<security>>
-  component "non-root user" as User <<security>>
+  component "runs as host uid\n(non-root)" as User <<security>>
 }
 
 Human --> Entrypoint : starts container

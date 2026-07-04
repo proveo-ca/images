@@ -7,36 +7,16 @@ if [[ -f /entrypoint-lib.sh ]]; then
   source /entrypoint-lib.sh
 fi
 
+# ── Make the run-as UID usable (root-free) ─────────────────
+# The wrapper runs us as the caller's host uid via `docker run --user`; give
+# that uid a passwd entry and a writable HOME (shared across harnesses).
+ensure_runtime_user
+
 set_working_directory "/app"
 
 : "${CECLI_HOME:=/app/.cecli}"
-: "${LOCAL_UID:=1000}"
-: "${LOCAL_GID:=1000}"
 
 export CECLI_HOME
-
-if [[ "$(id -u)" = "0" ]]; then
-  mkdir -p "$CECLI_HOME"
-
-  if ! getent group "$LOCAL_GID" >/dev/null 2>&1; then
-    groupadd -g "$LOCAL_GID" cecli
-  fi
-
-  if ! getent passwd "$LOCAL_UID" >/dev/null 2>&1; then
-    useradd -m -u "$LOCAL_UID" -g "$LOCAL_GID" -s /bin/bash cecli
-  fi
-
-  runtime_home="$(getent passwd "$LOCAL_UID" | cut -d: -f6 || true)"
-  if [[ -n "$runtime_home" ]]; then
-    mkdir -p "$runtime_home"
-    chown "$LOCAL_UID:$LOCAL_GID" "$runtime_home" 2>/dev/null || true
-    export HOME="$runtime_home"
-  fi
-
-  chown -R "$LOCAL_UID:$LOCAL_GID" "$CECLI_HOME" 2>/dev/null || true
-
-  exec gosu "$LOCAL_UID:$LOCAL_GID" "$0" "$@"
-fi
 
 mkdir -p "$CECLI_HOME" 2>/dev/null || true
 
@@ -77,6 +57,14 @@ has_cecli_agent_config() {
 }
 
 load_env
+
+# ── Git identity from environment ──────────────────────────
+# Bridge env-provided identity into git's config-env so cecli's `git config
+# --get` reads resolve file-free instead of seeding placeholders into .git/config.
+bridge_git_identity
+
+# ── Git context (repo / remote / identity / gh session) ────
+report_git_context
 
 # ── Environment Variable Bridge ────────────────────────────
 # Standardized vars:
@@ -136,6 +124,14 @@ echo "Paradigm: Pair-programming specialist (precise, low-token, human-guided)"
 
 if command -v curl >/dev/null 2>&1; then
   echo "curl version:       $(command_version unknown curl --version | head -n1)"
+fi
+
+if command -v git >/dev/null 2>&1; then
+  echo "git version:        $(command_version unknown git --version)"
+fi
+
+if command -v gh >/dev/null 2>&1; then
+  echo "gh version:         $(command_version unknown gh --version | head -n1)"
 fi
 
 if command -v npm >/dev/null 2>&1; then

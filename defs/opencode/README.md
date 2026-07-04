@@ -3,7 +3,7 @@
 Custom Docker image for [`opencode-ai`](https://github.com/anomalyco/opencode) with:
 
 - `node:22-slim` base (has `node`, `npm`, `corepack` + `pnpm`)
-- Non-root user `opencode` (UID 1001) and a hardened runtime
+- Root-free runtime: baked non-root user `opencode` (uid 1000); the run wrapper launches as the invoking host uid via `--user $(id -u):$(id -g)`
 - Monorepo-friendly entrypoint (`pnpm install` on first run if needed)
 - `.env` autoloading and auto-detection of common provider API keys
 

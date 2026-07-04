@@ -22,7 +22,7 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl ca-certificates dumb-init unzip xclip python3 plantuml \
+    git gh curl ca-certificates dumb-init unzip xclip python3 plantuml \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && find / -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true \
     && find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true \
@@ -71,9 +71,8 @@ COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY defs/opencode/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Default to the non-root build user. The harness wrapper overrides the runtime
-# uid at launch with `--user $(id -u):$(id -g)`; see ensure_runtime_user in the
-# entrypoint for the matching passwd/HOME handling for arbitrary uids.
+# Default to the non-root build user; the wrapper overrides the runtime uid with
+# `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).
 USER ${USER_NAME}
 WORKDIR /workspace
 

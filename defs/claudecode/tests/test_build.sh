@@ -2,9 +2,11 @@
 # tests/test_build.sh - Image build verification
 
 # --- Build solo image ---
+# Variant Dockerfiles resolve COPY paths from the repo root (same context
+# build.sh uses), not the variant directory.
 TESTS_RUN=$((TESTS_RUN + 1))
 printf "Building solo image... "
-if (cd "$PROJECT_ROOT/solo" && docker build -t "$STANDALONE_IMAGE" -f Dockerfile . 2>&1); then
+if docker build -t "$STANDALONE_IMAGE" -f "$PROJECT_ROOT/solo/Dockerfile" "$PROJECT_ROOT/../.." 2>&1; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
   printf "${GREEN}PASS${NC} [%d] solo image builds successfully\n" "$TESTS_RUN"
 else
@@ -14,6 +16,12 @@ else
   echo "FATAL: Cannot continue without solo image."
   print_summary
   exit 1
+fi
+
+# Cover the mcp variant too when its image is available locally (build.sh
+# builds both); downstream phases key off this flag.
+if docker image inspect "$MCP_IMAGE" >/dev/null 2>&1; then
+  MCP_IMAGE_AVAILABLE=true
 fi
 
 # --- Verify Docker labels ---

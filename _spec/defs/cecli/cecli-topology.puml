@@ -13,7 +13,7 @@ actor "Human (Pair)" as Human
 actor "Cecli (Aider fork)" as Cecli
 
 package "Harness Layer" as Harness {
-  component "entrypoint.sh\n(gosu non-root)" as Entrypoint <<script>>
+  component "entrypoint.sh\n(runs as host uid, root-free)" as Entrypoint <<script>>
   component ".env + model bridge\n(CECLI_*/AIDER_* vars)" as Env <<logic>>
   component "seed subagents" as Seed <<logic>>
   component "CONVENTIONS.md\n(pair rules)" as ConvMd <<prompt>>

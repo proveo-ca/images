@@ -12,7 +12,9 @@ The human remains the HITL (human-in-the-loop) who reviews plans, approves risky
 - Workflow-friendly configuration is the default.
 
 ## Entrypoint Responsibilities (`defs/opencode/entrypoint.sh`)
+- Run as the invoking host user, never root (see `paradigms.md` — Runtime User Boundary): the wrapper passes `--user $(id -u):$(id -g)` and `ensure_runtime_user` makes any uid usable.
 - Load `.env` and normalize model variables.
+- Report git context at startup (shared `report_git_context`): git-tracked repo or not, remote origin (or "not tracking a remote repo"), commit identity, and whether a gh session is authenticated.
 - Seed global config and default subagents.
 - Detect workspace languages and auto-enable matching LSPs.
 - Detect project config and surface available subagents.

@@ -68,20 +68,15 @@ for image in $(images_to_test); do
     'echo $HOME' \
     "/home/claude"
 
-  # Start script
+  # Launch contract lives in the baked entrypoint (start-claude.sh was retired)
   assert_success \
-    "[$tag] start-claude.sh exists" \
+    "[$tag] entrypoint.sh is baked and executable" \
     "$image" \
-    "test -f /home/claude/start-claude.sh"
-
-  assert_success \
-    "[$tag] start-claude.sh is executable" \
-    "$image" \
-    "test -x /home/claude/start-claude.sh"
+    "test -x /entrypoint.sh"
 
   assert_output_contains \
-    "[$tag] start-claude.sh runs claude with --dangerously-skip-permissions" \
+    "[$tag] entrypoint launches claude with --dangerously-skip-permissions" \
     "$image" \
-    "cat /home/claude/start-claude.sh" \
+    "cat /entrypoint.sh" \
     "exec claude --dangerously-skip-permissions"
 done

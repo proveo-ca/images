@@ -21,7 +21,7 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
 
 # Install system dependencies with security hardening
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl wget ca-certificates python3 python3-pip build-essential \
+    git gh curl wget ca-certificates python3 python3-pip build-essential \
     dumb-init \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /tmp/* \
@@ -88,9 +88,8 @@ COPY --chown=${USER_NAME}:${USER_NAME} packages/lib/entrypoint-lib.sh /entrypoin
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Default to the non-root build user. The harness wrapper overrides the runtime
-# uid at launch with `--user $(id -u):$(id -g)`; see ensure_runtime_user in the
-# entrypoint for the matching passwd/HOME handling for arbitrary uids.
+# Default to the non-root build user; the wrapper overrides the runtime uid with
+# `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).
 USER ${USER_NAME}
 WORKDIR /workspace
 ENV PATH="/home/${USER_NAME}/.foundry/bin:$PATH"

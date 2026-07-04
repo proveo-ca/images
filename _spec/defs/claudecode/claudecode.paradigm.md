@@ -13,7 +13,9 @@ The harness deliberately runs with `--dangerously-skip-permissions` to enable fu
 - Errors are expected; the value is fast iteration inside the loop.
 
 ## Entrypoint Responsibilities (`defs/claudecode/*/entrypoint.sh`)
+- Run as the invoking host user, never root (see `paradigms.md` — Runtime User Boundary): the wrapper passes `--user $(id -u):$(id -g)` and `ensure_runtime_user` makes any uid usable.
 - Load `.env`.
+- Report git context at startup (shared `report_git_context`, pointed at the `/workspace/input` mount): git-tracked repo or not, remote origin (or "not tracking a remote repo"), commit identity, and whether a gh session is authenticated.
 - Optional RTK attach.
 - Smoke-test mode support.
 - Launch `claude --dangerously-skip-permissions`.

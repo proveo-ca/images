@@ -1,5 +1,23 @@
 FROM node:22-slim
 
+ARG USER_ID=1000
+ARG USER_NAME=cecli
+
+RUN if getent passwd "${USER_ID}" >/dev/null; then \
+      existing_user="$(getent passwd "${USER_ID}" | cut -d: -f1)"; \
+      existing_group="$(getent group "${USER_ID}" | cut -d: -f1)"; \
+      if [ "${existing_group}" != "${USER_NAME}" ]; then \
+        groupmod -n "${USER_NAME}" "${existing_group}"; \
+      fi; \
+      if [ "${existing_user}" != "${USER_NAME}" ]; then \
+        usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m "${existing_user}"; \
+      fi; \
+      usermod -s /bin/bash "${USER_NAME}"; \
+    else \
+      groupadd -g "${USER_ID}" "${USER_NAME}" && \
+      useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
+    fi
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -14,11 +32,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-venv \
     git \
+    gh \
     curl \
     ca-certificates \
     build-essential \
     less \
-    gosu \
     dumb-init \
   && rm -rf /var/lib/apt/lists/*
 
@@ -36,7 +54,12 @@ COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY defs/cecli/entrypoint.sh /usr/local/bin/cecli-entrypoint
 COPY defs/cecli/defaults/ /opt/cecli/defaults/
 COPY defs/cecli/proveo-lib/ /opt/proveo/lib/
-RUN chmod +x /usr/local/bin/cecli-entrypoint
+RUN chmod +x /usr/local/bin/cecli-entrypoint \
+  && chown "${USER_NAME}:${USER_NAME}" /app
+
+# Default to the non-root build user; the wrapper overrides the runtime uid with
+# `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).
+USER ${USER_NAME}
 
 ENTRYPOINT ["dumb-init", "--", "cecli-entrypoint"]
 CMD ["cecli"]

@@ -11,11 +11,15 @@ for image in $(images_to_test); do
     "whoami" \
     "claude"
 
+  # The image bakes uid/gid 1000 as "claude" (see Dockerfile ARG USER_ID). Keep
+  # this in sync with that build arg; override via EXPECTED_UID.
+  EXPECTED_UID="${EXPECTED_UID:-1000}"
+
   assert_output_contains \
-    "[$tag] UID is 1001" \
+    "[$tag] UID is $EXPECTED_UID" \
     "$image" \
     "id -u" \
-    "1001"
+    "$EXPECTED_UID"
 
   # No setuid/setgid binaries
   assert_failure \
@@ -78,4 +82,25 @@ for image in $(images_to_test); do
     "$image" \
     '{{.Config.User}}' \
     "claude"
+
+  # Run-as-host-uid contract: any `--user` uid (not just the baked 1000) must
+  # get a usable identity and writable HOME via ensure_runtime_user.
+  TESTS_RUN=$((TESTS_RUN + 1))
+  LAST_OUTPUT=$(docker run --rm --user 4242:4242 --entrypoint bash "$image" -c \
+    'source /entrypoint-lib.sh && ensure_runtime_user && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"' 2>&1)
+  if echo "$LAST_OUTPUT" | grep -qF "uid=4242 home_writable=yes"; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    printf "${GREEN}PASS${NC} [%d] [%s] arbitrary --user uid gets usable identity and writable HOME\n" "$TESTS_RUN" "$tag"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    FAILURES+=("[$tag] arbitrary --user uid gets usable identity and writable HOME")
+    printf "${RED}FAIL${NC} [%d] [%s] arbitrary --user uid gets usable identity and writable HOME\n" "$TESTS_RUN" "$tag"
+    printf "     Output: %.200s\n" "$LAST_OUTPUT"
+  fi
+
+  # Never root at runtime, even without wrapper flags.
+  assert_failure \
+    "[$tag] does not run as root by default" \
+    "$image" \
+    '[ "$(id -u)" = "0" ]'
 done

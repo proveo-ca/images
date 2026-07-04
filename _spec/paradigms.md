@@ -16,6 +16,22 @@ This directory defines the intended working mode for each harness so that entryp
 - `opencode.paradigm.md` — Team workflow with subagent orchestration.
 - `cecli.paradigm.md` — Pair-programming specialist with containment focus.
 
+## Runtime User Boundary
+
+Every harness container runs as the invoking host user, never root:
+
+- **Wrappers** (`defs/*/run.sh`, the distributable CLI runners) launch with `docker run --user $(id -u):$(id -g)`, so files written to bind mounts come back owned by the developer — for any host uid, not just the image's baked default.
+- **Images** bake a non-root default user (uid 1000) and set `USER`, so even a bare `docker run` without the wrapper is never root.
+- **Entrypoints** call the shared `ensure_runtime_user` helper (`packages/lib/entrypoint-lib.sh`) first: it gives an arbitrary run-as uid a passwd identity and a writable `HOME` without root. There is no gosu and no in-container privilege drop; this is one generic helper, identical across harnesses.
+
+## Git Identity & Context
+
+Every harness image bakes `git` and `gh`. Containers ship no `~/.gitconfig` and never mount the host's, so commit identity flows through the environment:
+
+- **Wrappers** forward the invoking developer's identity as `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env — explicit env wins, otherwise the host's `git config` identity — via the shared `defs/lib/git-identity.sh` helper (mirrored inside the distributable CLI's `runners.sh`, which cannot source the defs tree).
+- **Entrypoints** bridge those env values into git's config-env (`bridge_git_identity` in `packages/lib/entrypoint-lib.sh`) so `git config --get` resolves file-free; repo-local identity stays authoritative. This keeps tools like cecli from seeding placeholder identity into the mounted repo's `.git/config`.
+- **Entrypoints report** the git context at startup (`report_git_context`): git-tracked repo or not, remote origin (or "not tracking a remote repo"), commit identity, and whether a gh session is authenticated.
+
 ## Network Egress Boundary
 
 The dangerous in-container posture (especially Claude Code's `--dangerously-skip-permissions`) is made acceptable by a network egress layer, not just the container. It is a reusable lifecycle (`defs/lib/egress.sh`, wired into `claudecode` run/debug today) with three modes:
