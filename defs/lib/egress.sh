@@ -188,9 +188,12 @@ proveo_egress_detect_providers() {
 # Generate the provider allowlist include. Provider(s) come from an explicit
 # PROVEO_EGRESS_PROVIDER (override) or, by default, are auto-detected from the
 # API keys present in the env/.env. With none resolved it stays a no-op (squid
-# keeps its read-allow/write-deny default). With one or more, it becomes
-# default-deny: allow ONLY those provider endpoints, deny every other host —
-# the no-leak + no-irreversible-write posture for cloud-hosted models.
+# keeps its read-allow/write-deny default). With one or more, it pins visible
+# write methods to ONLY those provider endpoints and denies them to every other
+# host. NOTE: this is enforced for cleartext HTTP and (in inspected-firewall
+# mode) for decrypted HTTPS. In plain proxy mode Squid cannot see the method
+# inside an HTTPS CONNECT tunnel, so HTTPS writes to other hosts are NOT blocked
+# — full write-pinning requires inspected-firewall (TLS interception).
 proveo_egress_write_provider_allow() {
   local file="$1"
   local providers="${PROVEO_EGRESS_PROVIDER_RESOLVED:-${PROVEO_EGRESS_PROVIDER:-}}"
@@ -217,9 +220,11 @@ proveo_egress_write_provider_allow() {
       echo "acl provider_allow dstdomain ${PROVEO_EGRESS_PROVIDER_DOMAINS}"
       matched="$matched custom"
     fi
-    # Inference writes may go ONLY to the provider. Web reads (docs/search/
-    # scraping) always stay allowed by the base policy below, and writes to any
-    # other host stay denied — no leaks, no stray writes, agents still research.
+    # Visible write methods (POST/PUT/...) may go ONLY to the provider. Web reads
+    # (docs/search/scraping) always stay allowed by the base policy below. Writes
+    # to other hosts are denied for cleartext HTTP and, under TLS interception,
+    # for HTTPS too. Without interception (plain proxy mode) HTTPS methods are
+    # invisible to Squid, so that denial does not extend to HTTPS.
     echo "http_access allow unsafe_methods provider_allow"
   } >"$file"
 
@@ -228,7 +233,12 @@ proveo_egress_write_provider_allow() {
     return 1
   fi
   [[ -n "${unknown// /}" ]] && echo "⚠️  ignoring unknown provider(s):${unknown}" >&2
-  echo "🔒 Provider writes pinned to:${matched} (web reads stay open for context)" >&2
+  if [[ "${PROVEO_EGRESS_MODE:-}" == "inspected-firewall" ]]; then
+    echo "🔒 Provider writes pinned to:${matched} — HTTPS is decrypted, so writes to other hosts are blocked (web reads stay open)" >&2
+  else
+    echo "🔒 Provider allowlist set for:${matched} (web reads stay open)" >&2
+    echo "⚠️  proxy mode does NOT inspect HTTPS: writes/exfiltration over HTTPS to non-provider hosts are NOT blocked. Use --egress-mode inspected-firewall for enforced write-pinning." >&2
+  fi
 }
 
 proveo_egress_prepare_logs() {

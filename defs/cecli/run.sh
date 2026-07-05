@@ -118,6 +118,10 @@ DOCKER_ARGS=(
   # Run as the caller's host UID/GID (never root) so files written to the mounted
   # workspace come back owned by the developer, for any uid — not just 1000.
   "--user" "$(id -u):$(id -g)"
+  # Capability/privilege hardening baseline, matching the claudecode runner.
+  "--cap-drop=ALL"
+  "--security-opt=no-new-privileges:true"
+  "--pids-limit=100"
   "-e" "CECLI_HOME=$CECLI_HOME_VALUE"
   "-e" "CECLI_INSTALL_NODE_DEPS=$INSTALL_NODE_DEPS"
 )

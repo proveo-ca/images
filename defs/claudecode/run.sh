@@ -36,6 +36,10 @@ Network Security Levels (Egress Modes):
       HTTP/HTTPS traffic is routed through a Squid enforcement proxy.
       Non-web protocols (SSH, database connections, etc.) are blocked by
       Docker network topology. The agent container cannot bypass the proxy.
+      NOTE: without TLS interception Squid sees only "CONNECT host:443" for
+      HTTPS, so it enforces destination host/port but NOT the request method.
+      Writes/exfiltration over HTTPS to arbitrary hosts are therefore NOT
+      blocked in this mode — use inspected-firewall for enforced write-pinning.
 
   inspected-firewall (recommended for production/auditing)
       HTTP/HTTPS traffic is first routed through a mitmproxy inspection proxy
@@ -58,10 +62,12 @@ Provider egress allowlist (proxy / inspected-firewall modes):
   The provider is auto-detected from whichever API key is present (current env
   or the project .env) — ANTHROPIC_API_KEY→anthropic, OPENAI_API_KEY→openai,
   GMI_API_KEY→gmi, AWS creds→bedrock, etc. Inference writes are then pinned to
-  that provider's endpoint; web reads (docs/search/scraping) stay open and
-  writes to any other host are denied. No flag needed — the key you already
-  have is the intent. (Custom/self-hosted endpoints, if ever needed:
-  PROVEO_EGRESS_PROVIDER_DOMAINS=".host".)
+  that provider's endpoint; web reads (docs/search/scraping) stay open. No flag
+  needed — the key you already have is the intent. (Custom/self-hosted
+  endpoints, if ever needed: PROVEO_EGRESS_PROVIDER_DOMAINS=".host".)
+  IMPORTANT: write-pinning to "any other host is denied" is fully enforced only
+  in inspected-firewall mode (TLS is decrypted). In proxy mode the pin applies
+  to cleartext HTTP only; HTTPS writes to non-provider hosts are not blocked.
 
 Examples:
   # Default (open mode)
@@ -196,7 +202,13 @@ if [[ "$SHELL_MODE" == "1" ]]; then
   DOCKER_ARGS+=("--entrypoint" "bash")
 fi
 
-if ! proveo_egress_prepare "$EGRESS_MODE" "claudecode-$VARIANT" "$OUTPUT_DIR"; then
+# Egress artifacts — Squid access logs, mitmproxy flow captures, and the
+# mitmproxy CA *private key* — are audit evidence and secrets. They MUST live
+# outside every path bind-mounted into the agent (input is RO, output is RW), or
+# the sandboxed agent could read the CA key or tamper with its own audit trail.
+# Keep them in a host-side state dir; override the base with PROVEO_EGRESS_ROOT.
+EGRESS_STATE_ROOT="${PROVEO_EGRESS_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/proveo}"
+if ! proveo_egress_prepare "$EGRESS_MODE" "claudecode-$VARIANT" "$EGRESS_STATE_ROOT"; then
   echo "❌ egress preflight failed; aborting before launch" >&2
   exit 1
 fi
@@ -211,8 +223,16 @@ if [[ -d "$INPUT_DIR/.claude" ]]; then
   DOCKER_ARGS+=("-v" "${INPUT_DIR}/.claude:/workspace/.claude:ro")
   echo "🧩 Using project Claude config: $INPUT_DIR/.claude"
 elif [[ -d "${HOME:-}/.claude" ]]; then
-  DOCKER_ARGS+=("-v" "${HOME}/.claude:/home/claude/.claude:ro")
-  echo "🧩 Using home Claude config: ${HOME}/.claude"
+  # The host ~/.claude holds credentials, conversation history, and MCP configs.
+  # Do NOT expose it to the sandboxed agent by default: an autonomous agent
+  # running --dangerously-skip-permissions could read and (given open/proxy
+  # egress) exfiltrate it. Opt in explicitly to inherit your personal config.
+  if [[ "${PROVEO_MOUNT_HOME_CLAUDE:-0}" =~ ^(1|true|yes|on)$ ]]; then
+    DOCKER_ARGS+=("-v" "${HOME}/.claude:/home/claude/.claude:ro")
+    echo "🧩 Using home Claude config: ${HOME}/.claude (PROVEO_MOUNT_HOME_CLAUDE)"
+  else
+    echo "🔒 Not mounting host ~/.claude into the sandbox (set PROVEO_MOUNT_HOME_CLAUDE=1 to opt in)"
+  fi
 fi
 
 if [[ "$SHELL_MODE" == "1" ]]; then

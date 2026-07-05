@@ -395,6 +395,9 @@ main() {
 
   assert_run_target cecli "proveo/cecli:latest" "$run_dir" "$docker_log" \
     "--user $(id -u):$(id -g)" \
+    "--cap-drop=ALL" \
+    "--security-opt=no-new-privileges:true" \
+    "--pids-limit=100" \
     "CECLI_HOME=/app/.cecli" \
     "CECLI_INSTALL_NODE_DEPS=0" \
     "$run_dir:/app" \
@@ -405,6 +408,9 @@ main() {
 
   assert_run_target cecli-node "proveo/cecli-node:latest" "$run_dir" "$docker_log" \
     "--user $(id -u):$(id -g)" \
+    "--cap-drop=ALL" \
+    "--security-opt=no-new-privileges:true" \
+    "--pids-limit=100" \
     "CECLI_HOME=/app/.cecli" \
     "CECLI_INSTALL_NODE_DEPS=0" \
     "$run_dir:/app" \
@@ -450,10 +456,33 @@ main() {
 
   assert_run_target opencode "proveo/opencode" "$run_dir" "$docker_log" \
     "--user $(id -u):$(id -g)" \
+    "--cap-drop=ALL" \
+    "--security-opt=no-new-privileges:true" \
+    "--pids-limit=100" \
     "$run_dir:/app" \
     "-w" \
     "/app"
   assert_run_target_forwards_args opencode "$run_dir" "$docker_log"
+
+  # Egress enforcement modes are not shipped in the installed CLI; requesting one
+  # must FAIL CLOSED (exit non-zero) rather than silently run with open egress.
+  : > "$docker_log"
+  assert_failure "proveo run claudecode --egress-mode proxy fails closed" \
+    run_cli_in_temp_dir "$run_dir" run claudecode --egress-mode proxy
+  # The rejection exits non-zero, so capture its output directly (assert_output_contains
+  # requires success) and confirm it explains why enforcement is unavailable.
+  TESTS_RUN=$((TESTS_RUN + 1))
+  LAST_OUTPUT="$(run_cli_in_temp_dir "$run_dir" run claudecode --egress-mode inspected-firewall 2>&1 || true)"
+  if [[ "$LAST_OUTPUT" == *"not available in the installed proveo CLI"* ]]; then
+    record_pass "egress-mode rejection is explained"
+  else
+    record_fail "egress-mode rejection is explained"
+  fi
+  # open mode is accepted and must not leak the flag into the container args.
+  : > "$docker_log"
+  assert_success "proveo run claudecode --egress-mode open is accepted" \
+    run_cli_in_temp_dir "$run_dir" run claudecode --egress-mode open
+  assert_file_contains "claudecode still launches its image under open egress" "$docker_log" "proveo/claudecode"
 
   local install_home="$TEMP_ROOT/home"
   local install_root="$TEMP_ROOT/install-root"

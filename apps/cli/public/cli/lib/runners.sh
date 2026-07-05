@@ -168,8 +168,16 @@ run_opencode() {
   ensure_image_available "$image"
 
   # Run as the caller's host UID/GID (never root) so files written to mounts
-  # come back owned by the developer, for any uid — not just 1000.
-  local -a docker_args=(run -it --rm --user "$(id -u):$(id -g)")
+  # come back owned by the developer, for any uid — not just 1000. Apply the
+  # same capability/privilege hardening baseline as the claudecode runner so all
+  # harnesses share one floor (this runner is also the DinD-capable one).
+  local -a docker_args=(
+    run -it --rm
+    --user "$(id -u):$(id -g)"
+    --cap-drop=ALL
+    --security-opt=no-new-privileges:true
+    --pids-limit=100
+  )
 
   # Forward the developer's git identity for commit attribution
   proveo_git_identity_env_args
@@ -242,6 +250,10 @@ run_cecli() {
     # Run as the caller's host UID/GID (never root) so files written to the
     # mounted workspace come back owned by the developer, for any uid.
     --user "$(id -u):$(id -g)"
+    # Capability/privilege hardening baseline, matching the claudecode runner.
+    --cap-drop=ALL
+    --security-opt=no-new-privileges:true
+    --pids-limit=100
     -e "CECLI_HOME=/app/.cecli"
   )
 
@@ -270,6 +282,49 @@ run_target() {
   shift
   local -a extra_args=("$@")
   local scope_dir=""
+
+  # The installed CLI runs containers directly on the default Docker bridge; it
+  # does NOT ship the Squid/mitmproxy egress topology (that is orchestrated by
+  # the harness runner, defs/claudecode/run.sh). Intercept --egress-mode here so
+  # a request for network enforcement FAILS CLOSED rather than being silently
+  # forwarded to the harness as an unknown flag while the container runs with
+  # full open egress — silently downgrading to open is a false sense of security.
+  local egress_mode=""
+  local -a passthrough_args=()
+  local ea_i=0
+  while [[ $ea_i -lt ${#extra_args[@]} ]]; do
+    case "${extra_args[$ea_i]}" in
+      --egress-mode)
+        egress_mode="${extra_args[$((ea_i + 1))]:-}"
+        ea_i=$((ea_i + 2))
+        ;;
+      --egress-mode=*)
+        egress_mode="${extra_args[$ea_i]#*=}"
+        ea_i=$((ea_i + 1))
+        ;;
+      *)
+        passthrough_args+=("${extra_args[$ea_i]}")
+        ea_i=$((ea_i + 1))
+        ;;
+    esac
+  done
+  extra_args=(${passthrough_args[@]+"${passthrough_args[@]}"})
+
+  case "$egress_mode" in
+    ""|open)
+      : # open egress is the only mode the installed CLI can honor
+      ;;
+    proxy|inspected-firewall)
+      print_error "--egress-mode '$egress_mode' is not available in the installed proveo CLI."
+      echo "   The Squid/mitmproxy egress topology is orchestrated by the harness runner." >&2
+      echo "   Run it from the proveo source tree: defs/claudecode/run.sh --egress-mode $egress_mode" >&2
+      exit 1
+      ;;
+    *)
+      print_error "Unknown --egress-mode '$egress_mode' (expected: open, proxy, inspected-firewall)."
+      exit 1
+      ;;
+  esac
 
   ensure_docker_available
 
@@ -336,8 +391,12 @@ run_target() {
   if [[ "$use_dind" == "true" ]]; then
     dind_name="proveo-dind-${target}"
     print_info "Starting sibling Docker-in-Docker (dind) container: $dind_name"
-    printf "🔒 %sSecurity:%s This dind sidecar is a pristine, secure, and isolated container.\n" "$BOLD" "$RESET" >&2
-    printf "            It has NO access to your host system outside of the shared path: %s\n\n" "$scope_dir" >&2
+    printf "⚠️  %sSecurity warning:%s this dind sidecar runs with --privileged and shares the\n" "$BOLD" "$RESET" >&2
+    printf "            host kernel. Its Docker daemon is exposed to the harness over an\n" >&2
+    printf "            unauthenticated tcp://docker:2375 socket, so any code the agent runs\n" >&2
+    printf "            can launch further privileged containers and may be able to escape to\n" >&2
+    printf "            the host. It also has read-write access to the shared path: %s\n" "$scope_dir" >&2
+    printf "            Only enable it for project code you trust.\n\n" >&2
 
     # Clean existing sidecar with same name if any
     docker rm -f "$dind_name" >/dev/null 2>&1 || true

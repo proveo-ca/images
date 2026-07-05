@@ -51,7 +51,9 @@ The bundled addon `addons/ndjson_dump.py` appends one JSON record per flow to
 `/flows/flows.ndjson` with the fields the egress dashboard normalizes (`ts`,
 `source`, `decision`, `protocol`, `method`, `host`, `port`, `path`, `status`,
 `reason`). The egress lifecycle persists these under
-`reports/egress/<session-id>/mitmproxy/flows/`.
+`$PROVEO_EGRESS_ROOT/egress/<session-id>/mitmproxy/flows/` — a host-side state
+dir kept OUTSIDE the agent's bind mounts (default `~/.local/state/proveo`) so the
+sandboxed agent cannot read the mitmproxy CA key or tamper with its own flow log.
 
 ## Standalone Use
 

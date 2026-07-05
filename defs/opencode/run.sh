@@ -63,6 +63,8 @@ DOCKER_ARGS=("run" "-it" "--rm")
 # Run as the caller's host UID/GID (never root) so files written to the mounted
 # workspace come back owned by the developer, for any uid — not just 1000.
 DOCKER_ARGS+=("--user" "$(id -u):$(id -g)")
+# Capability/privilege hardening baseline, matching the claudecode runner.
+DOCKER_ARGS+=("--cap-drop=ALL" "--security-opt=no-new-privileges:true" "--pids-limit=100")
 # Forward the developer's git identity (host git config or GIT_* env) so the
 # agent's commits are attributed to them; see defs/lib/git-identity.sh.
 proveo_git_identity_env_args

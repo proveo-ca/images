@@ -55,10 +55,14 @@ EOF
   chmod +x "$fakebin/docker"
 
   : >"$capture_dir/docker.args"
+  # run.sh keeps egress artifacts (logs + mitmproxy CA) out of the agent's mounts
+  # under PROVEO_EGRESS_ROOT; point it at a scratch dir separate from --output-dir
+  # so this test also proves the audit dir is not the agent's writable output.
+  local egress_root="$capture_dir/state"
   if [[ "$mode" == "inspected-firewall" ]]; then
     # Pre-seed the mitmproxy CA so the CA-wait returns instantly under fake
     # docker (no real container generates it). Mirrors mitmproxy's own output.
-    local mitm_confdir="$capture_dir/reports/egress/test-${mode}/mitmproxy/confdir"
+    local mitm_confdir="$egress_root/egress/test-${mode}/mitmproxy/confdir"
     mkdir -p "$mitm_confdir"
     printf -- '-----BEGIN CERTIFICATE-----\n' >"$mitm_confdir/mitmproxy-ca-cert.pem"
   fi
@@ -66,6 +70,7 @@ EOF
   PATH="$fakebin:$PATH" \
   CLAUDE_CODE_OAUTH_TOKEN="test-token" \
   PROVEO_EGRESS_SESSION="test-${mode}" \
+  PROVEO_EGRESS_ROOT="$egress_root" \
   PROVEO_MITM_CA_WAIT_SECS="3" \
   PROVEO_LOCAL_MODEL="$local_model" \
   "$PROJECT_ROOT/run.sh" --variant solo --egress-mode "$mode" --output-dir "$capture_dir/reports" -- --version >"$output_file" 2>&1
