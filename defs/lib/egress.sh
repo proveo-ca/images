@@ -499,9 +499,17 @@ proveo_egress_prepare() {
   echo "📁 Egress logs: $PROVEO_EGRESS_DIR"
 }
 
+# Append the shared agent Docker args to the caller's array, named by "$1".
+# bash 3.2 (macOS /bin/bash) has no `local -n` namerefs, so indirect through
+# eval; each element is re-quoted with %q so eval can neither word-split nor
+# expand it. Dynamic scoping makes the caller's array — global, or a `local` in
+# an ancestor frame — visible here, matching the old nameref behavior. The
+# `+`-guard keeps an empty source array from tripping `set -u` on bash < 4.4.
 proveo_egress_append_agent_args() {
-  local -n target_array="$1"
-  target_array+=("${PROVEO_EGRESS_AGENT_DOCKER_ARGS[@]}")
+  local _proveo_target="$1" _proveo_arg
+  for _proveo_arg in ${PROVEO_EGRESS_AGENT_DOCKER_ARGS[@]+"${PROVEO_EGRESS_AGENT_DOCKER_ARGS[@]}"}; do
+    eval "${_proveo_target}+=($(printf '%q' "$_proveo_arg"))"
+  done
 }
 
 _egress_json_rows() {
@@ -587,11 +595,14 @@ proveo_egress_cleanup() {
     return 0
   fi
 
+  # `+`-guard both loops: on bash < 4.4 (macOS ships 3.2) expanding an empty
+  # array under `set -u` raises "unbound variable", which fires in open mode
+  # where nothing was ever registered for cleanup.
   local item
-  for item in "${PROVEO_EGRESS_CLEANUP_CONTAINERS[@]}"; do
+  for item in ${PROVEO_EGRESS_CLEANUP_CONTAINERS[@]+"${PROVEO_EGRESS_CLEANUP_CONTAINERS[@]}"}; do
     docker rm -f "$item" >/dev/null 2>&1 || true
   done
-  for item in "${PROVEO_EGRESS_CLEANUP_NETWORKS[@]}"; do
+  for item in ${PROVEO_EGRESS_CLEANUP_NETWORKS[@]+"${PROVEO_EGRESS_CLEANUP_NETWORKS[@]}"}; do
     docker network rm "$item" >/dev/null 2>&1 || true
   done
 }

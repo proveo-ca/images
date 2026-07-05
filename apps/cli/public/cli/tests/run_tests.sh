@@ -510,7 +510,12 @@ main() {
   assert_file_exists "install writes runners helper" "$install_root/lib/runners.sh"
   assert_file_executable "installed proveo is executable" "$install_root/bin/proveo"
   assert_file_executable "installed init script is executable" "$install_root/bin/init.sh"
-  assert_file_contains "install writes PATH marker" "$install_home/.bashrc" "# Added by proveo install.sh"
+  # install.sh appends the PATH marker to the shell-appropriate rc file, and for
+  # bash that differs by OS: macOS uses ~/.bash_profile, other systems ~/.bashrc
+  # (mirrors shell_config_file in install.sh). Check the right one per platform.
+  local install_rc="$install_home/.bashrc"
+  [[ "$(uname -s)" == "Darwin" ]] && install_rc="$install_home/.bash_profile"
+  assert_file_contains "install writes PATH marker" "$install_rc" "# Added by proveo install.sh"
   assert_output_contains "installed proveo can list targets" "- cecli-node" "$install_root/bin/proveo" list
   assert_failure "installed proveo uninstall rejects extra args" "$install_root/bin/proveo" uninstall extra
 
