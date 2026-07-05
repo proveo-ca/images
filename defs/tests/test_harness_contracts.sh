@@ -89,12 +89,14 @@ for harness_entrypoint in \
   "$ROOT/defs/claudecode/mcp/entrypoint.sh" \
   "$ROOT/defs/claudecode/solo/entrypoint.sh" \
   "$ROOT/defs/opencode/entrypoint.sh" \
+  "$ROOT/defs/cursor/entrypoint.sh" \
   "$ROOT/defs/cecli/entrypoint.sh"; do
   assert_file_contains "${harness_entrypoint#$ROOT/defs/} makes the run-as uid usable" "$harness_entrypoint" "ensure_runtime_user"
   assert_file_not_contains "${harness_entrypoint#$ROOT/defs/} never escalates via gosu" "$harness_entrypoint" "gosu"
 done
 assert_file_contains "claudecode wrapper runs container as invoking host user" "$ROOT/defs/claudecode/run.sh" '"--user" "$(id -u):$(id -g)"'
 assert_file_contains "opencode wrapper runs container as invoking host user" "$ROOT/defs/opencode/run.sh" '"--user" "$(id -u):$(id -g)"'
+assert_file_contains "cursor wrapper runs container as invoking host user" "$ROOT/defs/cursor/run.sh" '"--user" "$(id -u):$(id -g)"'
 assert_file_contains "cecli wrapper runs container as invoking host user" "$ROOT/defs/cecli/run.sh" '"--user" "$(id -u):$(id -g)"'
 assert_file_contains "distributable CLI runs containers as invoking host user" "$ROOT/apps/cli/public/cli/lib/runners.sh" '--user "$(id -u):$(id -g)"'
 assert_file_not_contains "cecli wrapper no longer passes LOCAL_UID" "$ROOT/defs/cecli/run.sh" "LOCAL_UID"
@@ -103,22 +105,34 @@ assert_file_not_contains "cecli node image ships no gosu" "$ROOT/defs/cecli/Dock
 assert_file_not_contains "cecli python image ships no gosu" "$ROOT/defs/cecli/Dockerfile.python" "gosu"
 assert_file_contains "cecli node image defaults to a non-root user" "$ROOT/defs/cecli/Dockerfile.node" 'USER ${USER_NAME}'
 assert_file_contains "cecli python image defaults to a non-root user" "$ROOT/defs/cecli/Dockerfile.python" 'USER ${USER_NAME}'
+assert_file_contains "cursor image defaults to a non-root user" "$ROOT/defs/cursor/Dockerfile" 'USER ${USER_NAME}'
+assert_file_contains "cursor image bakes the shared uid-1000 user block" "$ROOT/defs/cursor/Dockerfile" 'ARG USER_ID=1000'
+assert_file_not_contains "cursor image ships no gosu" "$ROOT/defs/cursor/Dockerfile" "gosu"
+
+# Contribution guideline: the runtime user boundary is documented for new defs
+assert_file_contains "contribution guideline exists and mandates host-uid launch" "$ROOT/CONTRIBUTING.md" '--user $(id -u):$(id -g)'
+assert_file_contains "contribution guideline mandates the shared runtime-user helper" "$ROOT/CONTRIBUTING.md" "ensure_runtime_user"
+assert_file_contains "contribution guideline forbids gosu escalation" "$ROOT/CONTRIBUTING.md" "no gosu"
+assert_file_contains "contribution guideline mandates non-root image default" "$ROOT/CONTRIBUTING.md" 'USER ${USER_NAME}'
 
 # Git + GitHub CLI contracts (coding agents lean on git and gh in every harness)
 assert_file_contains "claudecode mcp image installs git and gh" "$ROOT/defs/claudecode/mcp/Dockerfile" "git gh"
 assert_file_contains "claudecode solo image installs git and gh" "$ROOT/defs/claudecode/solo/Dockerfile" "git gh"
 assert_file_contains "opencode image installs git and gh" "$ROOT/defs/opencode/Dockerfile" "git gh"
+assert_file_contains "cursor image installs git and gh" "$ROOT/defs/cursor/Dockerfile" "git gh"
 assert_file_contains "cecli node image installs gh" "$ROOT/defs/cecli/Dockerfile.node" '    gh \'
 assert_file_contains "cecli python image installs gh" "$ROOT/defs/cecli/Dockerfile.python" '    gh \'
 assert_file_contains "shared wrapper lib forwards host git identity as env" "$ROOT/defs/lib/git-identity.sh" "proveo_git_identity_env_args()"
 assert_file_contains "claudecode wrapper forwards host git identity" "$ROOT/defs/claudecode/run.sh" "proveo_git_identity_env_args"
 assert_file_contains "opencode wrapper forwards host git identity" "$ROOT/defs/opencode/run.sh" "proveo_git_identity_env_args"
+assert_file_contains "cursor wrapper forwards host git identity" "$ROOT/defs/cursor/run.sh" "proveo_git_identity_env_args"
 assert_file_contains "cecli wrapper forwards host git identity" "$ROOT/defs/cecli/run.sh" "proveo_git_identity_env_args"
 assert_file_contains "distributable CLI forwards host git identity" "$ROOT/apps/cli/public/cli/lib/runners.sh" "proveo_git_identity_env_args()"
 assert_file_contains "entrypoint lib bridges env git identity into config-env" "$ROOT/packages/lib/entrypoint-lib.sh" "bridge_git_identity()"
 assert_file_contains "git identity bridge uses git config-env, not files" "$ROOT/packages/lib/entrypoint-lib.sh" "GIT_CONFIG_COUNT"
 assert_file_contains "cecli entrypoint attaches env-provided git identity" "$ROOT/defs/cecli/entrypoint.sh" "bridge_git_identity"
 assert_file_contains "opencode entrypoint attaches env-provided git identity" "$ROOT/defs/opencode/entrypoint.sh" "bridge_git_identity"
+assert_file_contains "cursor entrypoint attaches env-provided git identity" "$ROOT/defs/cursor/entrypoint.sh" "bridge_git_identity"
 assert_file_contains "claudecode mcp entrypoint attaches env-provided git identity" "$ROOT/defs/claudecode/mcp/entrypoint.sh" "bridge_git_identity /workspace/input"
 assert_file_contains "claudecode solo entrypoint attaches env-provided git identity" "$ROOT/defs/claudecode/solo/entrypoint.sh" "bridge_git_identity /workspace/input"
 assert_file_contains "entrypoint lib reports git context at startup" "$ROOT/packages/lib/entrypoint-lib.sh" "report_git_context()"
@@ -126,6 +140,7 @@ assert_file_contains "git context report flags missing remote" "$ROOT/packages/l
 assert_file_contains "git context report surfaces gh session state" "$ROOT/packages/lib/entrypoint-lib.sh" "gh auth status"
 assert_file_contains "cecli entrypoint reports git context" "$ROOT/defs/cecli/entrypoint.sh" "report_git_context"
 assert_file_contains "opencode entrypoint reports git context" "$ROOT/defs/opencode/entrypoint.sh" "report_git_context"
+assert_file_contains "cursor entrypoint reports git context" "$ROOT/defs/cursor/entrypoint.sh" "report_git_context"
 assert_file_contains "claudecode mcp entrypoint reports git context on the input mount" "$ROOT/defs/claudecode/mcp/entrypoint.sh" "report_git_context /workspace/input"
 assert_file_contains "claudecode solo entrypoint reports git context on the input mount" "$ROOT/defs/claudecode/solo/entrypoint.sh" "report_git_context /workspace/input"
 
@@ -158,6 +173,31 @@ assert_file_contains "opencode config keeps plan read-only" "$ROOT/defs/opencode
 assert_file_contains "opencode config keeps build bash ask" "$ROOT/defs/opencode/defaults/opencode.json" '"bash": "ask"'
 assert_file_contains "opencode image bakes shared verification lib" "$ROOT/defs/opencode/Dockerfile" "COPY defs/lib/ /opt/proveo/lib/"
 assert_file_contains "opencode build uses repo-root context" "$ROOT/defs/opencode/build.sh" '"$SCRIPT_DIR/../.."'
+
+# Cursor contracts (policy-gated autonomous loop)
+assert_file_contains "cursor entrypoint keeps policy-gated full-consent launch" "$ROOT/defs/cursor/entrypoint.sh" "agent \"\${LAUNCH_ARGS[@]}\""
+assert_file_contains "cursor entrypoint launches with --force autonomy" "$ROOT/defs/cursor/entrypoint.sh" "LAUNCH_ARGS=(--force --sandbox disabled)"
+assert_file_contains "cursor entrypoint supports smoke mode" "$ROOT/defs/cursor/entrypoint.sh" "run_smoke_test"
+assert_file_contains "cursor entrypoint reseeds home config on demand" "$ROOT/defs/cursor/entrypoint.sh" "CURSOR_RESEED"
+assert_file_contains "cursor entrypoint keeps workspace seeding opt-in" "$ROOT/defs/cursor/entrypoint.sh" "CURSOR_SEED_RULES"
+assert_file_not_contains "cursor entrypoint never seeds the workspace unconditionally" "$ROOT/defs/cursor/entrypoint.sh" "Seeded AGENTS.md"
+assert_file_contains "cursor deny baseline survives --force (privilege escalation)" "$ROOT/defs/cursor/defaults/cli-config.json" '"Shell(sudo)"'
+assert_file_contains "cursor deny baseline protects credential material" "$ROOT/defs/cursor/defaults/cli-config.json" '"Read(.env*)"'
+assert_file_contains "cursor image bakes the root-owned enterprise hook layer" "$ROOT/defs/cursor/Dockerfile" "/etc/cursor/hooks.json"
+assert_file_contains "cursor enterprise hooks wire the shell audit" "$ROOT/defs/cursor/defaults/hooks.json" "beforeShellExecution"
+assert_file_contains "cursor audit hook is fail-open by design" "$ROOT/defs/cursor/defaults/hooks/audit-shell.sh" '{"permission":"allow"}'
+assert_executable "cursor audit hook is executable" "$ROOT/defs/cursor/defaults/hooks/audit-shell.sh"
+assert_file_contains "cursor reviewer subagents are structurally readonly" "$ROOT/defs/cursor/defaults/agents/adversarial-reviewer.md" "readonly: true"
+assert_file_contains "cursor loop rule encodes the verification loop" "$ROOT/defs/cursor/defaults/rules/proveo-loop.mdc" "Verification Commands"
+assert_file_contains "cursor run wrapper sources shared egress lifecycle" "$ROOT/defs/cursor/run.sh" 'source "$DEFS_DIR/lib/egress.sh"'
+assert_file_contains "cursor run supports the three egress modes" "$ROOT/defs/cursor/run.sh" "open|proxy|inspected-firewall"
+assert_file_contains "cursor run rejects local models (vendor-pinned inference)" "$ROOT/defs/cursor/run.sh" "no local-model path"
+assert_file_not_contains "cursor run has no --local-model flag" "$ROOT/defs/cursor/run.sh" '--local-model)'
+assert_file_contains "cursor entrypoint handles proxied HTTP/2 fallback" "$ROOT/defs/cursor/entrypoint.sh" "useHttp1ForAgent"
+assert_file_contains "egress lib pins the Cursor backend for CURSOR_API_KEY" "$ROOT/defs/lib/egress.sh" ".cursor.sh .cursor.com"
+assert_file_contains "egress lib detects the cursor provider" "$ROOT/defs/lib/egress.sh" "CURSOR_API_KEY"
+assert_file_contains "cursor image bakes shared verification lib" "$ROOT/defs/cursor/Dockerfile" "COPY defs/lib/ /opt/proveo/lib/"
+assert_file_contains "cursor build uses repo-root context" "$ROOT/defs/cursor/build.sh" '"$SCRIPT_DIR/../.."'
 
 # Cecli contracts
 assert_file_contains "cecli entrypoint seeds CONVENTIONS.md" "$ROOT/defs/cecli/entrypoint.sh" "Seeded CONVENTIONS.md"

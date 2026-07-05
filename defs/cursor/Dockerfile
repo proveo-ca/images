@@ -1,0 +1,87 @@
+# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor.paradigm.md
+FROM node:22-slim
+
+ARG USER_ID=1000
+ARG USER_NAME=cursor
+# The official installer resolves the current CLI release; override to point at
+# a mirrored copy. There is no documented pinning env var — pinning means
+# fetching the versioned tarball from downloads.cursor.com yourself.
+ARG CURSOR_INSTALL_URL=https://cursor.com/install
+
+RUN if getent passwd "${USER_ID}" >/dev/null; then \
+      existing_user="$(getent passwd "${USER_ID}" | cut -d: -f1)"; \
+      existing_group="$(getent group "${USER_ID}" | cut -d: -f1)"; \
+      if [ "${existing_group}" != "${USER_NAME}" ]; then \
+        groupmod -n "${USER_NAME}" "${existing_group}"; \
+      fi; \
+      if [ "${existing_user}" != "${USER_NAME}" ]; then \
+        usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m "${existing_user}"; \
+      fi; \
+      usermod -s /bin/bash "${USER_NAME}"; \
+    else \
+      groupadd -g "${USER_ID}" "${USER_NAME}" && \
+      useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
+    fi
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git gh curl ca-certificates dumb-init unzip python3 \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && find / -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true \
+    && find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true \
+    && rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true
+
+RUN npm install -g pnpm@10.33.0
+
+# Install the Cursor CLI system-wide under a root-owned prefix. The installer
+# writes to $HOME, so point HOME at /opt/cursor-dist: the agent (running as the
+# host uid) cannot tamper with the binary, and runtime auto-update cannot write
+# there — the image is immutable; updating the CLI means rebuilding the image.
+RUN HOME=/opt/cursor-dist bash -c "curl -fsS ${CURSOR_INSTALL_URL} | bash" \
+    && ln -s /opt/cursor-dist/.local/bin/agent /usr/local/bin/agent \
+    && ln -s /opt/cursor-dist/.local/bin/cursor-agent /usr/local/bin/cursor-agent \
+    && agent --version
+
+RUN mkdir -p /app \
+             /home/${USER_NAME}/.cursor \
+             /opt/cursor/defaults \
+    && chown -R ${USER_NAME}:${USER_NAME} /app /home/${USER_NAME}
+
+# Pre-baked defaults (deny-rule config + readonly reviewer subagents + loop
+# rule). Seeded into ~/.cursor on first run by entrypoint.sh, or re-seeded when
+# CURSOR_RESEED=1. The loop rule reaches the workspace only via CURSOR_SEED_RULES=1.
+COPY defs/cursor/defaults/ /opt/cursor/defaults/
+RUN chmod +x /opt/cursor/defaults/hooks/*.sh
+
+# Enterprise hook layer: root-owned, highest precedence (enterprise > team >
+# project > user), so the sandboxed agent can neither edit nor out-rank it.
+RUN mkdir -p /etc/cursor \
+    && cp /opt/cursor/defaults/hooks.json /etc/cursor/hooks.json \
+    && chmod 644 /etc/cursor/hooks.json
+
+COPY defs/lib/ /opt/proveo/lib/
+
+COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
+COPY defs/cursor/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Default to the non-root build user; the wrapper overrides the runtime uid with
+# `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).
+USER ${USER_NAME}
+WORKDIR /app
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    NPM_CONFIG_AUDIT=false \
+    NPM_CONFIG_FUND=false \
+    RLIMIT_CORE=0 \
+    RLIMIT_NOFILE=1024 \
+    NO_OPEN_BROWSER=1 \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    PATH="/usr/local/bin:${PATH}"
+
+LABEL security.non-root=true \
+      security.hardened=true \
+      security.version="1.0"
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD agent --version >/dev/null 2>&1 || exit 1
+
+ENTRYPOINT ["dumb-init", "--", "/entrypoint.sh"]

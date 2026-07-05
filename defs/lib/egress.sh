@@ -139,6 +139,10 @@ proveo_egress_provider_acl() {
     #     provider; US/EU jurisdiction, enterprise no-train terms available) ---
     anthropic)  printf 'acl provider_allow dstdomain .anthropic.com\n' ;;
     openai)     printf 'acl provider_allow dstdomain .openai.com .api.openai.com\n' ;;
+    # Cursor CLI: inference is vendor-pinned to the Cursor backend (api5/api2
+    # .cursor.sh for agent/API traffic; downloads live on .cursor.com). There is
+    # no custom base-URL escape hatch, so this pin covers all of its egress.
+    cursor)     printf 'acl provider_allow dstdomain .cursor.sh .cursor.com\n' ;;
     xai)        printf 'acl provider_allow dstdomain .x.ai\n' ;;
     perplexity) printf 'acl provider_allow dstdomain .perplexity.ai\n' ;;
     google)     printf 'acl provider_allow dstdomain generativelanguage.googleapis.com\n' ;;
@@ -167,6 +171,7 @@ proveo_egress_key_present() {
 proveo_egress_detect_providers() {
   local out=""
   proveo_egress_key_present ANTHROPIC_API_KEY   || proveo_egress_key_present CLAUDE_CODE_OAUTH_TOKEN && out="$out anthropic"
+  proveo_egress_key_present CURSOR_API_KEY      && out="$out cursor"
   proveo_egress_key_present OPENAI_API_KEY      && out="$out openai"
   proveo_egress_key_present XAI_API_KEY         && out="$out xai"
   proveo_egress_key_present PERPLEXITY_API_KEY  && out="$out perplexity"

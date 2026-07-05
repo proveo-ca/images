@@ -1,0 +1,83 @@
+@startuml CursorTopology
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam linetype ortho
+skinparam ranksep 120
+skinparam nodesep 80
+
+left to right direction
+
+title Cursor CLI Topology — Policy-Gated Autonomous Loop
+
+actor "Human" as Human
+actor "Cursor CLI\n(agent)" as Cursor
+
+package "Harness Layer" as Harness {
+  component "entrypoint.sh\n(docker)" as Entrypoint <<script>>
+  component ".env loader\nCURSOR_API_KEY check" as EnvLoader <<logic>>
+  component "smoke-test mode" as Smoke <<mode>>
+  component "steering detection\nAGENTS.md | CLAUDE.md | .cursor/rules" as Steering <<prompt>>
+  component "proveo-loop.mdc seed\n(opt-in: CURSOR_SEED_RULES=1)" as LoopRule <<prompt>>
+}
+
+package "Native Policy Layer" as Policy {
+  component "cli-config.json\npermissions.deny\n(survives --force)" as Deny <<config>>
+  component "/etc/cursor/hooks.json\nenterprise shell-audit hook\n(root-owned, immutable)" as Hooks <<security>>
+  component "readonly subagents\n@adversarial-reviewer\n@security-reviewer" as Subagents <<subagent>>
+}
+
+package "Execution Loop" as Loop {
+  component "Spec / Goal" as Spec <<step>>
+  component "Plan + Acceptance Criteria" as Plan <<step>>
+  component "Implement (edit)" as Implement <<step>>
+  component "Verify (run tests/lint)" as Verify <<step>>
+  component "Inspect Failure → Adjust" as Inspect <<step>>
+}
+
+package "Container Sandbox" as Sandbox {
+  component "agent --force --sandbox disabled\n(Docker is the sandbox)" as Force <<flag>>
+  component "/app workspace mount\nruns as host uid (non-root)" as Mounts <<storage>>
+  component "network egress layer\nopen | proxy | inspected-firewall" as Net <<security>>
+}
+
+cloud "Cursor backend\napi5.cursor.sh (inference)\napi2.cursor.sh (API / auth)" as Backend
+
+Human --> Entrypoint : starts container
+Entrypoint --> EnvLoader
+Entrypoint --> Smoke
+Entrypoint --> Steering : report, never write
+Entrypoint --> Cursor : " exec ""agent --force"" "
+Cursor --> Steering : reads project rules
+Cursor --> Loop : executes loop
+Loop --> Verify : runs detected commands
+Verify -> Inspect : on failure
+Inspect -> Plan : next iteration
+Cursor --> Deny : every tool call checked
+Cursor --> Hooks : shell requests audited\n(NDJSON)
+Cursor --> Subagents : in-loop review gates
+Cursor -[#00BAC6,dashed,bold]-> Backend : inference (vendor-pinned)
+Net ..> Backend : provider pin = "".cursor.sh""
+Force --> Sandbox : within\ncontainer boundary
+LoopRule ..> Steering : when\nopted in
+
+note right of Policy
+Native policy survives ""--force"":
+deny rules beat allow, enterprise hooks
+beat project hooks. The harness owns
+""/etc/cursor/hooks.json"" (root-owned);
+the project owns "".cursor/*"".
+Audit hook is fail-open by design —
+enforcement lives in deny rules + egress.
+end note
+
+note right of Sandbox
+Outer boundary identical to claudecode:
+container + egress modes. Cursor adds an
+in-process policy layer, but ALL inference
+transits the Cursor backend — no local
+model / custom base-URL escape hatch,
+so ""--local-model"" does not apply here.
+end note
+
+Net .> Force : network containment\noffsets full consent
+
+@enduml

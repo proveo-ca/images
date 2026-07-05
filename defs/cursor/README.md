@@ -1,0 +1,167 @@
+# cursor Docker Runner
+
+Custom Docker image for the [Cursor CLI](https://cursor.com/docs/cli) (`agent`, legacy alias
+`cursor-agent`) with:
+
+- `node:22-slim` base (has `node`, `npm`, `corepack` + `pnpm` for project tooling — the CLI
+  itself is a self-contained binary)
+- Root-free runtime: baked non-root user `cursor` (uid 1000); the run wrapper launches as the
+  invoking host uid via `--user $(id -u):$(id -g)`
+- CLI installed under a root-owned prefix (`/opt/cursor-dist`) — the agent cannot tamper with
+  or self-update the binary; updating the CLI means rebuilding the image
+- `.env` autoloading, git identity bridging, monorepo-friendly mounts
+- Reusable network egress modes (`open | proxy | inspected-firewall`)
+
+Paradigm: **policy-gated autonomous loop** — see
+[`_spec/defs/cursor/cursor.paradigm.md`](../../_spec/defs/cursor/cursor.paradigm.md).
+
+## Contract Status
+
+Candidate coding harness definition. This definition exposes:
+
+- `Dockerfile`
+- `entrypoint.sh`
+- `build.sh`
+- `run.sh`
+- `test.sh`
+- `README.md`
+- `defaults/` (baked policy + steering)
+- `tests/`
+
+`debug.sh` is not present; `./run.sh --shell` covers the troubleshooting workflow.
+
+This definition follows the shared [coding harness container contract](../../CODING_HARNESSES.md).
+
+## Image Names and Mounts
+
+- Default image: `proveo/cursor:latest`
+- Build override: `PROVEO_CURSOR_IMAGE=example/cursor:tag ./build.sh`
+- Run override: `./run.sh --image example/cursor:tag`
+- Workspace mount: input directory mounted at `/app` (monorepo scope preserved under
+  `/app/<relative-scope>` with root `.git` mounted alongside)
+
+## Build
+
+```bash
+./build.sh              # or: ./build.sh --tag local
+```
+
+The build runs the official installer (`https://cursor.com/install`), which resolves the
+current CLI release — Cursor publishes no pinning env var. To pin, mirror the versioned
+tarball from `downloads.cursor.com` and pass `--build-arg CURSOR_INSTALL_URL=<mirror>`.
+
+## Run
+
+```bash
+./run.sh                                  # interactive TUI in the current repo
+./run.sh --egress-mode inspected-firewall # fully audited egress
+./run.sh --shell                          # debug shell with the same mounts/env
+```
+
+### Headless (CI shape)
+
+```bash
+CURSOR_API_KEY=... ./run.sh -- -p "Fix the failing tests" --output-format stream-json
+```
+
+Any args after `--` are forwarded to `agent`. The entrypoint launches
+`agent --force --sandbox disabled` and adds `--trust` automatically for `-p/--print` runs;
+utility subcommands (`login`, `status`, `ls`, `mcp`, …) pass through without the autonomy
+flags. Set `CURSOR_MODEL` to pin a model (`agent --list-models` enumerates valid ids).
+
+## Authentication
+
+All inference transits the Cursor backend — there is **no** provider-API-key or local-model
+alternative (`--local-model` is rejected by the wrapper).
+
+| Method | How |
+| ------ | --- |
+| API key (recommended) | Create at cursor.com/dashboard → API Keys; export `CURSOR_API_KEY` (the wrapper forwards it) |
+| Interactive login | `./run.sh -- login` — `NO_OPEN_BROWSER=1` is baked, so the URL is printed |
+
+Login tokens live under `~/.cursor` inside the container and vanish with it. To reuse your
+host Cursor session instead, opt in with `PROVEO_MOUNT_HOME_CURSOR=1` (mounts host `~/.cursor`
+read-only) — off by default because an autonomous agent could read those credentials.
+
+## Baked-in policy defaults
+
+The image ships defaults at `/opt/cursor/defaults/` and seeds them into `~/.cursor/` on first
+run. Re-run with `-e CURSOR_RESEED=1` to force a refresh. The launch posture is `--force`
+(Cursor's documented autonomous mode), qualified by three native controls that survive it:
+
+| Layer | File | What it does |
+| ----- | ---- | ------------ |
+| Deny rules | `~/.cursor/cli-config.json` | Denies `sudo`/`su`, host power commands, `nc`/`netcat`, and credential reads (`.env*`, `.ssh`, AWS creds). Deny beats allow — even under `--force`. |
+| Enterprise hook | `/etc/cursor/hooks.json` (root-owned) | Audits every `beforeShellExecution` to `~/.cursor/audit-shell.ndjson` (override: `PROVEO_CURSOR_AUDIT_LOG`). Highest hooks precedence; the run-as uid cannot edit or out-rank it. Audit-only and fail-open — enforcement lives in deny rules + egress. |
+| Readonly subagents | `~/.cursor/agents/*.md` | `adversarial-reviewer` and `security-reviewer` review gates with the native `readonly: true` bit. |
+
+Cursor's own OS sandbox is disabled (`--sandbox disabled`): Docker is the sandbox, and
+Landlock/seccomp inside a cap-dropped container is nondeterministic.
+
+### Steering (rules)
+
+The CLI natively reads `.cursor/rules/*.mdc`, root `AGENTS.md`, `CLAUDE.md`, and legacy
+`.cursorrules` from the mounted repo. The entrypoint **detects and reports** these — it never
+writes into your workspace on its own. To seed the baked verification-loop rule
+(`proveo-loop.mdc`, `alwaysApply: true`) into `.cursor/rules/`, opt in:
+
+```bash
+./run.sh ... -e CURSOR_SEED_RULES=1   # via docker args, or export in .env
+```
+
+### Overriding the defaults
+
+Precedence (highest wins): enterprise hooks (`/etc/cursor/hooks.json`) → project
+`.cursor/cli.json` + `.cursor/hooks.json` + `.cursor/agents/*.md` → seeded `~/.cursor/*`.
+Project deny rules extend (and can only tighten alongside) the seeded baseline; drop a
+`.cursor/agents/<name>.md` in your repo to override or add a subagent. The CLI also reads
+`.claude/agents/` and `.codex/agents/` for compatibility.
+
+## Egress modes
+
+`--egress-mode proxy|inspected-firewall` reuses the shared sidecar lifecycle
+(`defs/lib/egress.sh`). Cursor specifics:
+
+- Provider pinning auto-detects `CURSOR_API_KEY` and pins inference writes to
+  `.cursor.sh`/`.cursor.com` (agent traffic: `api5.cursor.sh`; API/auth: `api2.cursor.sh`).
+  Web reads (docs/search) stay open, as for every harness.
+- The entrypoint detects proxy env and sets `useHttp1ForAgent: true` in the seeded config —
+  Cursor's HTTP/2 streaming does not survive every proxy chain. The CLI honors
+  `NODE_EXTRA_CA_CERTS`, which the inspected-firewall mode points at the mitmproxy CA.
+- If the network cannot reach the Cursor backend, there is no inference, full stop — this
+  harness has no offline/local-model fallback.
+
+## MCP servers
+
+Declare MCP servers in project `.cursor/mcp.json` (stdio or remote):
+
+```jsonc
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app"]
+    }
+  }
+}
+```
+
+Gate them with `Mcp(server:tool)` permission rules. See <https://cursor.com/docs/mcp>.
+
+## Tests
+
+```bash
+./test.sh
+```
+
+The suite covers image availability/labels, tool presence, security hardening (no setuid, no
+`nc`, immutable enterprise hook + dist prefix), entrypoint behavior (smoke mode, proxy
+compat, preamble), default seeding (`CURSOR_RESEED`, workspace non-mutation,
+`CURSOR_SEED_RULES` opt-in, audit hook round-trip), and — when `CURSOR_API_KEY` is set — a
+live round-trip through the Cursor backend.
+
+## Conventions
+
+See [`CONVENTIONS.md`](../CONVENTIONS.md) at the repo root for project-wide agent
+conventions. Cursor automatically picks up `AGENTS.md` / `CLAUDE.md` from the working
+directory.
