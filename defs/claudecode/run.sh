@@ -39,9 +39,9 @@ Network Security Levels (Egress Modes):
       NOTE: without TLS interception Squid sees only "CONNECT host:443" for
       HTTPS, so it enforces destination host/port but NOT the request method.
       Writes/exfiltration over HTTPS to arbitrary hosts are therefore NOT
-      blocked in this mode — use inspected-firewall for enforced write-pinning.
+      blocked in this mode — use firewall for enforced write-pinning.
 
-  inspected-firewall (recommended for production/auditing)
+  firewall (recommended for production/auditing)
       HTTP/HTTPS traffic is first routed through a mitmproxy inspection proxy
       that decrypts and records each request (method/path/host), then through
       Squid for enforcement. Non-web protocols are blocked. This provides
@@ -58,7 +58,7 @@ Options:
                        egress stays policed. Also honored via PROVEO_LOCAL_MODEL.
   --shell              Open bash in the container instead of launching Claude
 
-Provider egress allowlist (proxy / inspected-firewall modes):
+Provider egress allowlist (proxy / firewall modes):
   The provider is auto-detected from whichever API key is present (current env
   or the project .env) — ANTHROPIC_API_KEY→anthropic, OPENAI_API_KEY→openai,
   GMI_API_KEY→gmi, AWS creds→bedrock, etc. Inference writes are then pinned to
@@ -66,7 +66,7 @@ Provider egress allowlist (proxy / inspected-firewall modes):
   needed — the key you already have is the intent. (Custom/self-hosted
   endpoints, if ever needed: PROVEO_EGRESS_PROVIDER_DOMAINS=".host".)
   IMPORTANT: write-pinning to "any other host is denied" is fully enforced only
-  in inspected-firewall mode (TLS is decrypted). In proxy mode the pin applies
+  in firewall mode (TLS is decrypted). In proxy mode the pin applies
   to cleartext HTTP only; HTTPS writes to non-provider hosts are not blocked.
 
 Examples:
@@ -77,7 +77,7 @@ Examples:
   proveo run claudecode --egress-mode proxy
 
   # Full inspection + enforcement (provider still auto-detected)
-  proveo run claudecode --egress-mode inspected-firewall
+  proveo run claudecode --egress-mode firewall
 EOF
 }
 
@@ -96,7 +96,7 @@ while [[ $# -gt 0 ]]; do
     --egress-mode)
       [[ $# -ge 2 ]] || { echo "--egress-mode requires a value" >&2; exit 1; }
       case "$2" in
-        open|proxy|inspected-firewall)
+        open|proxy|firewall)
           EGRESS_MODE="$2"
           ;;
         *)
@@ -190,8 +190,14 @@ DOCKER_ARGS=(
   "--pids-limit=100"
   "-v" "${INPUT_DIR}:/workspace/input:ro"
   "-v" "${OUTPUT_DIR}:/workspace/output:rw"
-  "-e" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}"
 )
+
+# Pass the raw token to the agent ONLY in open mode. In proxy/firewall the egress
+# broker injects it at the proxy, so the agent process never sees the credential
+# (it cannot then be exfiltrated by a compromised/prompt-injected agent).
+if [[ "$EGRESS_MODE" == "open" ]]; then
+  DOCKER_ARGS+=("-e" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}")
+fi
 
 # Forward the developer's git identity (host git config or GIT_* env) so the
 # agent's commits are attributed to them; see defs/lib/git-identity.sh.

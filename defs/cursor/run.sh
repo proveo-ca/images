@@ -31,7 +31,7 @@ Network Security Levels (Egress Modes):
   open                No proxy enforcement (default Docker bridge).
   proxy               HTTP/HTTPS via Squid enforcement proxy; non-web protocols
                       blocked by Docker network topology.
-  inspected-firewall  mitmproxy (TLS-decrypting recorder) → Squid → internet;
+  firewall  mitmproxy (TLS-decrypting recorder) → Squid → internet;
                       complete decrypted audit trail of outbound web requests.
 
 Options:
@@ -39,7 +39,7 @@ Options:
 
 Cursor-specific notes:
   ALL inference transits the Cursor backend (api5.cursor.sh / api2.cursor.sh);
-  there is no custom base-URL or local-model path. In proxy/inspected-firewall
+  there is no custom base-URL or local-model path. In proxy/firewall
   modes, inference writes are pinned to the Cursor domains (CURSOR_API_KEY is
   the detected intent). --local-model / PROVEO_LOCAL_MODEL do not apply here.
 
@@ -48,7 +48,7 @@ Examples:
   ./run.sh
 
   # Headless autonomous run, fully audited egress
-  CURSOR_API_KEY=... ./run.sh --egress-mode inspected-firewall -- \
+  CURSOR_API_KEY=... ./run.sh --egress-mode firewall -- \
     -p "Fix the failing tests" --output-format stream-json
 EOF
 }
@@ -73,7 +73,7 @@ while [[ $# -gt 0 ]]; do
     --egress-mode)
       [[ $# -ge 2 ]] || { echo "--egress-mode requires a value" >&2; exit 1; }
       case "$2" in
-        open|proxy|inspected-firewall)
+        open|proxy|firewall)
           EGRESS_MODE="$2"
           ;;
         *)
@@ -128,7 +128,12 @@ DOCKER_ARGS=("run" "-it" "--rm")
 DOCKER_ARGS+=("--user" "$(id -u):$(id -g)")
 # Capability/privilege hardening baseline, matching the claudecode runner.
 DOCKER_ARGS+=("--cap-drop=ALL" "--security-opt=no-new-privileges:true" "--pids-limit=100")
-DOCKER_ARGS+=("-e" "CURSOR_API_KEY=${CURSOR_API_KEY:-}")
+# Pass the raw key to the agent ONLY in open mode. In proxy/firewall the egress
+# broker injects it at the proxy, so the agent process never sees the credential
+# (it cannot then be exfiltrated by a compromised/prompt-injected agent).
+if [[ "$EGRESS_MODE" == "open" ]]; then
+  DOCKER_ARGS+=("-e" "CURSOR_API_KEY=${CURSOR_API_KEY:-}")
+fi
 # Forward the developer's git identity (host git config or GIT_* env) so the
 # agent's commits are attributed to them; see defs/lib/git-identity.sh.
 proveo_git_identity_env_args

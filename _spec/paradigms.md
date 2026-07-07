@@ -40,7 +40,7 @@ The dangerous in-container posture (especially Claude Code's `--dangerously-skip
 
 - **open** — direct bridge egress (default).
 - **proxy** — agent → Squid enforcement proxy; HTTP/HTTPS only, non-web protocols blocked by Docker network topology.
-- **inspected-firewall** — agent → mitmproxy (TLS-decrypting recorder) → Squid → internet, with the agent trusting mitmproxy's CA.
+- **firewall** — agent → mitmproxy (TLS-decrypting recorder) → Squid → internet, with the agent trusting mitmproxy's CA.
 
 It serves two purposes:
 
@@ -50,6 +50,16 @@ It serves two purposes:
 A local model can be assigned with `--local-model` (an Ollama sidecar serving host models offline, `NO_PROXY`-bypassed). Each run writes a top-allowed/top-denied egress report. See `claudecode.paradigm.md` and `defs/claudecode/claudecode-egress-topology.puml` for the full topology.
 
 Cursor CLI is the exception on local models: all of its inference transits the Cursor backend (no custom base-URL escape hatch), so `--local-model` does not apply and the provider pin maps `CURSOR_API_KEY` to the `.cursor.sh`/`.cursor.com` domains instead (see `defs/cursor/cursor.paradigm.md`).
+
+## Credential Boundary
+
+Pinning *where* inference may go is only half the guarantee; the other half is *what secret the agent holds*. By default the provider key reaches the agent process (sourced from `.env` or forwarded via `-e`), so an autonomous agent can read its own environment and — absent method-level enforcement — attempt to send that key anywhere. In `firewall` mode this is closed by a **credential broker** on the inspection hop (the only point where TLS is decrypted), importing omnigent's `credential_proxy` principle ("inject keys, never expose"), adapted to the constraint that the *vendor CLI*, not the harness, makes the model call:
+
+- **Inject** — the real provider credential is confined to the broker proxy, read at startup from a `0600` env-file mounted outside every agent mount (the same discipline that protects the CA private key). The broker sets the correct auth header on requests to the pinned-provider host only.
+- **Strip** — credential headers (`authorization`, `x-api-key`, `x-goog-api-key`, `api-key`, `proxy-authorization`) are removed from requests to every other host, so a key the agent read from a mounted `.env` is useless for exfiltration at the network layer.
+- **Sentinel** *(planned, Plan 4 Ph3)* — for credentials the wrapper forwards via `-e` (e.g. the Claude OAuth token, `CURSOR_API_KEY`), the real value goes to the broker and the agent receives a sentinel, so the agent process never holds the real key. A key committed to a *mounted* `.env` is still readable as a file — provision provider keys via host env for full isolation.
+
+The broker is a property of `firewall` mode; `open`/`proxy` modes cannot decrypt TLS, so they keep the key-in-env behavior with the existing honest warnings. **Implementation:** the inspector is `proveo-egress`, a Go MITM proxy (`cmd/proveo-egress`, `internal/{egressproxy,broker,provider}`) built on martian that records flows and brokers credentials — not a Python mitmproxy addon. It is the default inspector; `PROVEO_EGRESS_INSPECTOR=mitmproxy` selects the legacy Python sidecar (without the broker). The enforcement layer carries no static broad provider allowlist (`defs/sidecars/squid-proxy/squid.conf`), so the tight per-provider pin generated in `defs/lib/egress.sh` is the sole write-allow. See `plans/01-security-credential-broker.md` and `plans/04-bash-to-go-migration.md`.
 
 ## Usage
 

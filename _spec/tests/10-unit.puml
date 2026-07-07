@@ -1,0 +1,40 @@
+@startuml TestingLayer1Unit
+' SPEC source: internal/runner/runner_test.go
+' Layer 1 — pure-logic unit tests. Fast, deterministic, no Docker, no keys.
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+left to right direction
+
+title Layer 1 · Unit — components under test (go test -race)
+
+actor "go test -race" as GoTest <<actor>>
+
+package "Go packages (internal/*) + *_test.go" as Pkgs {
+  component "broker\ninject / strip logic" as Broker <<app>>
+  component "provider\nregistry · detection · ACL" as Provider <<app>>
+  component "egress\nBuildPlan · ProviderAllowConf" as Egress <<app>>
+  component "runner\nhardened docker argv · mounts" as Runner <<app>>
+  component "manifest\nharness.manifest loader" as Manifest <<app>>
+  component "workspace\ngit scope · DiscoverProjects" as Workspace <<app>>
+  component "shell\nPATH install per shell" as Shell <<app>>
+  component "tmux\nheadless driver (fake runner)" as Tmux <<app>>
+}
+
+cloud "github.com/google/go-cmp\n(diff assertions)" as Cmp <<external>>
+
+GoTest --> Pkgs : run all, -race
+Pkgs ..> Cmp : cmp.Diff
+
+note bottom of Pkgs
+Conventions (docs/go-testing-standards.md): table-driven + t.Run subtests,
+t.Parallel, go-cmp with got/want+input messages, golden files, no assert libs.
+Injectable runners (tmux, workspace git, egress Runner) keep I/O out of unit tests.
+end note
+
+note right of GoTest
+Always runs. No Docker, no network, no API keys.
+Deterministic; milliseconds.
+end note
+@enduml

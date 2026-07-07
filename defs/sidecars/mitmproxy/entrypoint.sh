@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Headless mitmproxy (mitmdump) inspector.
 #
-# In `inspected-firewall` egress mode this runs as the agent's first hop:
+# In `firewall` egress mode this runs as the agent's first hop:
 #   agent -> mitmproxy (decrypts + records) -> squid (enforces) -> internet
 #
 # HTTPS interception is ON by default (the whole point of using mitmproxy over
@@ -16,8 +16,10 @@ set -euo pipefail
 : "${PROVEO_MITM_FLOWS:=/flows}"
 : "${PROVEO_MITM_UPSTREAM:=}"
 
-echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-mitmproxy}"
+# Emit the readiness sentinel ONLY in smoke mode — printing it on every normal
+# run gives any orchestrator that greps stdout a false "ready" positive.
 if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
+  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-mitmproxy}"
   exec sleep infinity
 fi
 

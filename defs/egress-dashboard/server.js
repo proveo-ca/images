@@ -5,6 +5,11 @@ import { join } from 'node:path'
 
 const root = process.env.PROVEO_EGRESS_DIR || process.cwd()
 const port = Number(process.env.PORT || 4174)
+// Bind loopback only — the dashboard serves captured egress (which may contain
+// URL-embedded tokens), so it must never be reachable off the host.
+const host = process.env.PROVEO_EGRESS_DASHBOARD_HOST || '127.0.0.1'
+// Optional shared-secret gate (defense in depth on top of loopback binding).
+const token = process.env.PROVEO_EGRESS_DASHBOARD_TOKEN || ''
 
 async function listFiles(dir) {
   const result = []
@@ -111,7 +116,13 @@ async function loadEvents() {
 }
 
 createServer(async (req, res) => {
-  if (req.url === '/api/events') {
+  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+  if (url.pathname === '/api/events') {
+    if (token && req.headers['x-dashboard-token'] !== token && url.searchParams.get('token') !== token) {
+      res.writeHead(403, { 'content-type': 'application/json' })
+      res.end('{"error":"forbidden"}')
+      return
+    }
     const events = await loadEvents()
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify(events))
@@ -119,6 +130,6 @@ createServer(async (req, res) => {
   }
   res.writeHead(200, { 'content-type': 'text/plain' })
   res.end('Run `npm run dev` for the Vite UI and `npm run serve-logs` for /api/events.\n')
-}).listen(port, () => {
-  console.log(`egress dashboard api listening on :${port}; root=${root}`)
+}).listen(port, host, () => {
+  console.log(`egress dashboard api listening on ${host}:${port}; root=${root}`)
 })

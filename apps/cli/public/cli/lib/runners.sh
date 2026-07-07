@@ -314,14 +314,14 @@ run_target() {
     ""|open)
       : # open egress is the only mode the installed CLI can honor
       ;;
-    proxy|inspected-firewall)
+    proxy|firewall)
       print_error "--egress-mode '$egress_mode' is not available in the installed proveo CLI."
       echo "   The Squid/mitmproxy egress topology is orchestrated by the harness runner." >&2
       echo "   Run it from the proveo source tree: defs/claudecode/run.sh --egress-mode $egress_mode" >&2
       exit 1
       ;;
     *)
-      print_error "Unknown --egress-mode '$egress_mode' (expected: open, proxy, inspected-firewall)."
+      print_error "Unknown --egress-mode '$egress_mode' (expected: open, proxy, firewall)."
       exit 1
       ;;
   esac

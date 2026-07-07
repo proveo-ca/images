@@ -4,10 +4,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/git-identity.sh
 source "$SCRIPT_DIR/../lib/git-identity.sh"
+# shellcheck source=../lib/egress.sh
+source "$SCRIPT_DIR/../lib/egress.sh"
+trap proveo_egress_cleanup EXIT
 
 IMAGE_NAME="${PROVEO_OPENCODE_IMAGE:-proveo/opencode:latest}"
 INPUT_DIR="$PWD"
 REPO_ROOT=""
+EGRESS_MODE="open"
+SHELL_MODE=0
 OPENCODE_ARGS=()
 
 usage() {
@@ -37,6 +42,23 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "--repo-root requires a value" >&2; exit 1; }
       REPO_ROOT="$(cd "$2" && pwd)"
       shift 2
+      ;;
+    --egress-mode)
+      [[ $# -ge 2 ]] || { echo "--egress-mode requires a value" >&2; exit 1; }
+      case "$2" in
+        open|proxy|firewall) EGRESS_MODE="$2" ;;
+        *) echo "Invalid egress-mode: $2" >&2; exit 1 ;;
+      esac
+      shift 2
+      ;;
+    --local-model)
+      [[ $# -ge 2 ]] || { echo "--local-model requires a value" >&2; exit 1; }
+      export PROVEO_LOCAL_MODEL="$2"
+      shift 2
+      ;;
+    --shell)
+      SHELL_MODE=1
+      shift
       ;;
     -h|--help)
       usage
@@ -96,6 +118,20 @@ else
   DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$INPUT_DIR:/app" -w /app)
 fi
+
+if [[ "$SHELL_MODE" == "1" ]]; then
+  DOCKER_ARGS+=("--entrypoint" "bash")
+fi
+
+# Wrap the agent in the network egress boundary (open|proxy|firewall),
+# same lifecycle as claudecode/cursor. Egress artifacts stay in a host state dir
+# outside the agent mounts; override the base with PROVEO_EGRESS_ROOT.
+EGRESS_STATE_ROOT="${PROVEO_EGRESS_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/proveo}"
+if ! proveo_egress_prepare "$EGRESS_MODE" "opencode" "$EGRESS_STATE_ROOT"; then
+  echo "❌ egress preflight failed; aborting before launch" >&2
+  exit 1
+fi
+proveo_egress_append_agent_args DOCKER_ARGS
 
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 

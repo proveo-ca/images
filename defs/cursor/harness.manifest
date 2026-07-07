@@ -1,0 +1,11 @@
+# SPEC: _spec/components.puml
+name: cursor
+description: Policy-gated autonomous loop (Cursor CLI, --force + native deny rules)
+egress: true
+stability: candidate
+images:
+  cursor: proveo/cursor:latest
+workspace:
+  layout: app
+  configDir: .cursor
+  gitMode: rw

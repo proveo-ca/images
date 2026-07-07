@@ -36,7 +36,7 @@ package "Monorepo Discovery" as Monorepo {
 }
 
 package "Egress Layer (claudecode run/debug)\ndefs/lib/egress.sh" as Egress {
-  component "modes\nopen | proxy | inspected-firewall" as EgressModes <<logic>>
+  component "modes\nopen | proxy | firewall" as EgressModes <<logic>>
   component "--local-model NAME\n(Ollama sidecar)" as EgressLocal <<logic>>
   component "provider allowlist\nauto-detected from API key" as EgressProvider <<logic>>
   component "Squid + mitmproxy + ollama sidecars\nreports/egress/<session>/report" as EgressSidecars <<runtime>>
@@ -104,7 +104,7 @@ claudecode run/debug can wrap the agent in a network
 egress layer (defs/lib/egress.sh):
 - open: direct bridge (default)
 - proxy: Squid enforcement (HTTP/HTTPS only, non-web blocked)
-- inspected-firewall: mitmproxy TLS inspection upstream of Squid
+- firewall: mitmproxy TLS inspection upstream of Squid
 Provider egress is auto-pinned to the API key present;
 web reads stay open. --local-model adds an Ollama
 sidecar. Every run writes an egress report.

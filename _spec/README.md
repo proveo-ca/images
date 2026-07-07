@@ -8,6 +8,8 @@ A collection of compressed prompt inputs used to architect, scale, and communica
 
 This is a generic blueprint. Drop it into any project's `_spec/` directory and adapt the examples — the conventions below are deliberately project-agnostic so diagrams look and read the same everywhere.
 
+Prose companions to the diagrams live alongside them: [`paradigms.md`](paradigms.md) (per-harness working modes + the egress/credential boundaries) and [`testing.md`](testing.md) (the four-layer testing approach, including the headless-tmux + local-model agent-E2E pattern).
+
 ## SPEC references
 
 Source files link to their spec via a top-line comment:

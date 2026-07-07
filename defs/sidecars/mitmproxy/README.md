@@ -1,7 +1,7 @@
 # mitmproxy Inspector Harness
 
 Headless [mitmproxy](https://mitmproxy.org/) (`mitmdump`) is the first-hop
-inspection proxy for agent egress. In `inspected-firewall` mode it forwards all
+inspection proxy for agent egress. In `firewall` mode it forwards all
 HTTP(S) traffic to Squid as its enforcement upstream so that mitmproxy records
 the attempt and Squid remains the policy/egress boundary:
 
@@ -18,7 +18,7 @@ mitmproxy replaced the previous Charles inspector. The reasons:
 - **Real HTTPS inspection.** mitmproxy terminates TLS and records the decrypted
   method, path, and host. The old Charles wiring never bumped TLS, so it only
   ever saw `CONNECT host:443`. This is the upgrade implied by the word
-  "inspected".
+  "firewall".
 
 ## HTTPS Interception and Trust
 
@@ -67,7 +67,7 @@ defs/mitmproxy/run.sh
 
 ## Network Invariant
 
-In `inspected-firewall` mode:
+In `firewall` mode:
 
 - the agent can only reach `mitm:8888`,
 - `mitm` can only reach `squid:3128`,

@@ -81,7 +81,7 @@ Existing project steering always wins — the harness only reports what it found
 
 ### Outbound Web Access Policy
 Same protocol posture as the Claude Code paradigm: HTTP/HTTPS only through the configured
-egress chain (`open | proxy | inspected-firewall`); non-web protocols denied by Docker network
+egress chain (`open | proxy | firewall`); non-web protocols denied by Docker network
 topology; read-oriented web access stays open.
 
 One material difference: **all Cursor inference transits Cursor's backend** (`api5.cursor.sh`

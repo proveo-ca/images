@@ -53,8 +53,8 @@ printf '\n'
 printf '  %s%sNetwork Security — egress modes (claudecode)%s\n' "$BOLD" "$YELLOW" "$RESET"
 printf '    %-34s %s\n' "--egress-mode open" "Direct internet on the default bridge (default)"
 printf '    %-34s %s\n' "--egress-mode proxy" "Squid enforcement; HTTP/HTTPS only, non-web blocked"
-printf '    %-34s %s\n' "--egress-mode inspected-firewall" "mitmproxy HTTPS inspection upstream of Squid"
-printf '    %s%s%s\n' "$DIM" "    proxy / inspected-firewall are enforced only by the harness runner" "$RESET"
+printf '    %-34s %s\n' "--egress-mode firewall" "mitmproxy HTTPS inspection upstream of Squid"
+printf '    %s%s%s\n' "$DIM" "    proxy / firewall are enforced only by the harness runner" "$RESET"
 printf '    %s%s%s\n' "$DIM" "    (proveo repo: defs/claudecode/run.sh). The installed CLI honors only" "$RESET"
 printf '    %s%s%s\n' "$DIM" "    'open' and rejects the others instead of silently running unenforced." "$RESET"
 printf '\n'
@@ -73,7 +73,7 @@ printf '    %s\n' "proveo init"
 printf '    %s\n' "proveo run cecli-node"
 printf '    %s\n' "proveo run opencode"
     printf '    %s\n' "proveo run claudecode -- --debug --mcp-debug"
-printf '    %s\n' "proveo run claudecode --egress-mode inspected-firewall --local-model gemma4"
+printf '    %s\n' "proveo run claudecode --egress-mode firewall --local-model gemma4"
 printf '\n'
 
 printf '  %s%sNotes%s\n' "$BOLD" "$YELLOW" "$RESET"

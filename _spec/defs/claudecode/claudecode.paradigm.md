@@ -38,7 +38,7 @@ Network access is constrained by protocol, not by one-off blocked services. The 
 
 Write/mutation operations that require authentication (npm publish, PyPI uploads, git push, registry writes) are blocked where the proxy can observe method/path/host policy. Squid alone sees only CONNECT host/port for HTTPS, so host/port policy is its hard boundary; the mitmproxy inspector adds the decrypted method/path view.
 
-Two proxies coexist in `inspected-firewall` mode:
+Two proxies coexist in `firewall` mode:
 - **Enforcement proxy** (Squid): default-deny outside HTTP/HTTPS, allow-list for read/search destinations and methods (`GET`, `HEAD`, `OPTIONS`), with explicit provider API exceptions. It is the only container with internet egress.
 - **Inspection proxy** (mitmproxy): the agent's first hop. It performs TLS interception to decrypt and record each request (method/path/host) as NDJSON, then forwards to Squid as its upstream. The agent trusts mitmproxy's generated CA via standard CA env vars; mitmproxy has no direct internet route.
 

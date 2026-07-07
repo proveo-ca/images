@@ -472,7 +472,7 @@ main() {
   # The rejection exits non-zero, so capture its output directly (assert_output_contains
   # requires success) and confirm it explains why enforcement is unavailable.
   TESTS_RUN=$((TESTS_RUN + 1))
-  LAST_OUTPUT="$(run_cli_in_temp_dir "$run_dir" run claudecode --egress-mode inspected-firewall 2>&1 || true)"
+  LAST_OUTPUT="$(run_cli_in_temp_dir "$run_dir" run claudecode --egress-mode firewall 2>&1 || true)"
   if [[ "$LAST_OUTPUT" == *"not available in the installed proveo CLI"* ]]; then
     record_pass "egress-mode rejection is explained"
   else

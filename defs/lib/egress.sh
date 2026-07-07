@@ -4,9 +4,9 @@
 # Modes:
 #   open                direct bridge egress
 #   proxy               agent -> Squid -> internet
-#   inspected-firewall  agent -> mitmproxy -> Squid -> internet
+#   firewall  agent -> mitmproxy -> Squid -> internet
 #
-# In inspected-firewall mode mitmproxy is the first-hop inspector. It decrypts
+# In firewall mode mitmproxy is the first-hop inspector. It decrypts
 # HTTPS (records method/path/host) and forwards everything to Squid, which stays
 # the enforcement + egress boundary. The agent trusts mitmproxy's generated CA
 # via standard CA env vars, so all of its TLS terminates at mitmproxy.
@@ -18,6 +18,11 @@ PROVEO_EGRESS_SESSION_ID=""
 PROVEO_EGRESS_DIR=""
 PROVEO_EGRESS_MODE=""
 PROVEO_EGRESS_PROVIDER_RESOLVED=""
+# Credential broker (firewall + Go inspector): the single resolved
+# provider and the host path to the 0600 secret env-file mounted into the proxy.
+# See _spec/paradigms.md (Credential Boundary) and plans/01, plans/04.
+PROVEO_EGRESS_BROKER_PROVIDER=""
+PROVEO_EGRESS_BROKER_ENVFILE_HOST=""
 
 proveo_egress_defs_dir() {
   if [[ -n "${PROVEO_DEFS_DIR:-}" ]]; then
@@ -76,9 +81,14 @@ proveo_egress_ensure_images() {
     proxy)
       images+=("${PROVEO_SQUID_PROXY_IMAGE:-ubuntu/squid:latest}")
       ;;
-    inspected-firewall)
+    firewall)
       images+=("${PROVEO_SQUID_PROXY_IMAGE:-ubuntu/squid:latest}")
-      images+=("${PROVEO_MITMPROXY_IMAGE:-proveo/mitmproxy:latest}")
+      # Inspector: the Go egress proxy (default) or the legacy mitmproxy sidecar.
+      if [[ "${PROVEO_EGRESS_INSPECTOR:-go}" == "mitmproxy" ]]; then
+        images+=("${PROVEO_MITMPROXY_IMAGE:-proveo/mitmproxy:latest}")
+      else
+        images+=("${PROVEO_EGRESS_PROXY_IMAGE:-proveo/egress-proxy:latest}")
+      fi
       ;;
   esac
   [[ -n "$local_model" ]] && images+=("${PROVEO_OLLAMA_IMAGE:-ollama/ollama:latest}")
@@ -120,74 +130,30 @@ proveo_egress_copy_squid_config() {
   proveo_egress_write_provider_allow "$squid_config_dir/provider-allow.conf" || return 1
 }
 
-# Squid ACL line(s) defining `provider_allow` for a known provider. Hyperscaler
-# endpoints use tight regexes so the allowlist can't become an exfil/write hole
-# to the rest of the cloud (S3, GCS, etc.) — only the inference host matches.
-proveo_egress_provider_acl() {
-  case "$1" in
-    # --- Hyperscalers hosting open weights in-region (tight regex: only the
-    #     inference host, never the rest of the cloud) ---
-    bedrock)    printf 'acl provider_allow dstdom_regex (^|\\.)bedrock-runtime\\.[a-z0-9-]+\\.amazonaws\\.com$\n' ;;
-    vertex)     printf 'acl provider_allow dstdom_regex (^|\\.)([a-z0-9-]+-)?aiplatform\\.googleapis\\.com$\n' ;;
-    azure)      printf 'acl provider_allow dstdomain .inference.ai.azure.com .services.ai.azure.com .openai.azure.com .cognitiveservices.azure.com\n' ;;
-    # --- Independent Western inference / aggregator ---
-    together)   printf 'acl provider_allow dstdomain .together.xyz .together.ai\n' ;;
-    fireworks)  printf 'acl provider_allow dstdomain .fireworks.ai\n' ;;
-    gmi)        printf 'acl provider_allow dstdomain .gmi-serving.com\n' ;;
-    openrouter) printf 'acl provider_allow dstdomain openrouter.ai .openrouter.ai\n' ;;
-    # --- Trusted first-party native APIs (the destination is itself the safe
-    #     provider; US/EU jurisdiction, enterprise no-train terms available) ---
-    anthropic)  printf 'acl provider_allow dstdomain .anthropic.com\n' ;;
-    openai)     printf 'acl provider_allow dstdomain .openai.com .api.openai.com\n' ;;
-    # Cursor CLI: inference is vendor-pinned to the Cursor backend (api5/api2
-    # .cursor.sh for agent/API traffic; downloads live on .cursor.com). There is
-    # no custom base-URL escape hatch, so this pin covers all of its egress.
-    cursor)     printf 'acl provider_allow dstdomain .cursor.sh .cursor.com\n' ;;
-    xai)        printf 'acl provider_allow dstdomain .x.ai\n' ;;
-    perplexity) printf 'acl provider_allow dstdomain .perplexity.ai\n' ;;
-    google)     printf 'acl provider_allow dstdomain generativelanguage.googleapis.com\n' ;;
-    groq)       printf 'acl provider_allow dstdomain .groq.com\n' ;;
-    mistral)    printf 'acl provider_allow dstdomain .mistral.ai\n' ;;
-    cohere)     printf 'acl provider_allow dstdomain .cohere.com .cohere.ai\n' ;;
-    *)          return 1 ;;
-  esac
+# Resolve and run the Go egress helper — the SINGLE SOURCE for provider knowledge
+# (detection + Squid write-pin ACL, in internal/provider). The Bash equivalents
+# were retired here; this delegates. Resolution order: PROVEO_EGRESS_BIN, then
+# `proveo-egress` on PATH (the shipped harness bakes it), then a repo dev build.
+proveo_egress_run_bin() {
+  if [[ -n "${PROVEO_EGRESS_BIN:-}" && -x "${PROVEO_EGRESS_BIN}" ]]; then
+    "$PROVEO_EGRESS_BIN" "$@"; return
+  fi
+  if command -v proveo-egress >/dev/null 2>&1; then
+    proveo-egress "$@"; return
+  fi
+  local repo_root; repo_root="$(cd "$(proveo_egress_defs_dir)/.." && pwd)"
+  if command -v go >/dev/null 2>&1 && [[ -f "$repo_root/go.mod" ]]; then
+    ( cd "$repo_root" && go run ./cmd/proveo-egress "$@" ); return
+  fi
+  echo "❌ proveo-egress not found: set PROVEO_EGRESS_BIN or build it (go build ./cmd/proveo-egress)" >&2
+  return 127
 }
 
-# True if an API-key-style env var is set, considering both the current
-# environment and an optional .env file (PROVEO_EGRESS_ENV_FILE) — so a key in
-# the project's .env auto-selects the provider with no extra flags. Only the key
-# NAME's presence is checked; values are never read or logged.
-proveo_egress_key_present() {
-  local name="$1"
-  [[ -n "${!name:-}" ]] && return 0
-  local f="${PROVEO_EGRESS_ENV_FILE:-}"
-  [[ -n "$f" && -f "$f" ]] && grep -Eq "^[[:space:]]*(export[[:space:]]+)?${name}=[^[:space:]\"']" "$f"
-}
-
-# Infer the provider(s) the run will talk to from which API keys are present.
-# The credential the user already has IS the intent — no flag needed. When
-# several are present we allow the union (you can reach every provider you hold a
-# key for, nothing else). Echoes a space-separated provider list (possibly empty).
+# Infer the provider(s) from the API keys present — delegates to the Go registry.
+# The env (and PROVEO_EGRESS_ENV_FILE, via the binary's merged lookup) is the
+# intent; echoes a space-separated provider list (possibly empty).
 proveo_egress_detect_providers() {
-  local out=""
-  proveo_egress_key_present ANTHROPIC_API_KEY   || proveo_egress_key_present CLAUDE_CODE_OAUTH_TOKEN && out="$out anthropic"
-  proveo_egress_key_present CURSOR_API_KEY      && out="$out cursor"
-  proveo_egress_key_present OPENAI_API_KEY      && out="$out openai"
-  proveo_egress_key_present XAI_API_KEY         && out="$out xai"
-  proveo_egress_key_present PERPLEXITY_API_KEY  && out="$out perplexity"
-  proveo_egress_key_present GEMINI_API_KEY      || proveo_egress_key_present GOOGLE_API_KEY && out="$out google"
-  proveo_egress_key_present GROQ_API_KEY        && out="$out groq"
-  proveo_egress_key_present MISTRAL_API_KEY     && out="$out mistral"
-  proveo_egress_key_present COHERE_API_KEY      && out="$out cohere"
-  proveo_egress_key_present TOGETHER_API_KEY    && out="$out together"
-  proveo_egress_key_present FIREWORKS_API_KEY   && out="$out fireworks"
-  proveo_egress_key_present GMI_API_KEY         && out="$out gmi"
-  proveo_egress_key_present OPENROUTER_API_KEY  && out="$out openrouter"
-  proveo_egress_key_present AWS_BEARER_TOKEN_BEDROCK || proveo_egress_key_present AWS_ACCESS_KEY_ID && out="$out bedrock"
-  proveo_egress_key_present AZURE_API_KEY       || proveo_egress_key_present AZURE_OPENAI_API_KEY && out="$out azure"
-  proveo_egress_key_present GOOGLE_APPLICATION_CREDENTIALS && out="$out vertex"
-  # shellcheck disable=SC2086
-  echo $out
+  proveo_egress_run_bin detect
 }
 
 # Generate the provider allowlist include. Provider(s) come from an explicit
@@ -195,54 +161,27 @@ proveo_egress_detect_providers() {
 # API keys present in the env/.env. With none resolved it stays a no-op (squid
 # keeps its read-allow/write-deny default). With one or more, it pins visible
 # write methods to ONLY those provider endpoints and denies them to every other
-# host. NOTE: this is enforced for cleartext HTTP and (in inspected-firewall
+# host. NOTE: this is enforced for cleartext HTTP and (in firewall
 # mode) for decrypted HTTPS. In plain proxy mode Squid cannot see the method
 # inside an HTTPS CONNECT tunnel, so HTTPS writes to other hosts are NOT blocked
-# — full write-pinning requires inspected-firewall (TLS interception).
+# — full write-pinning requires firewall (TLS interception).
 proveo_egress_write_provider_allow() {
   local file="$1"
-  local providers="${PROVEO_EGRESS_PROVIDER_RESOLVED:-${PROVEO_EGRESS_PROVIDER:-}}"
-  if [[ -z "$providers" ]]; then
-    providers="$(proveo_egress_detect_providers)"
-  fi
-  providers="${providers//,/ }"
-  if [[ -z "$providers" || "$providers" == none ]]; then
-    printf '# No provider allowlist active (no provider pinned or API key detected).\n' >"$file"
-    return 0
-  fi
-
-  local p acl_line matched="" unknown=""
-  {
-    echo "# Provider allowlist — resolved provider(s): $providers"
-    for p in $providers; do
-      if acl_line="$(proveo_egress_provider_acl "$p")"; then
-        printf '%s' "$acl_line"; matched="$matched $p"
-      else
-        unknown="$unknown $p"
-      fi
-    done
-    if [[ -n "${PROVEO_EGRESS_PROVIDER_DOMAINS:-}" ]]; then
-      echo "acl provider_allow dstdomain ${PROVEO_EGRESS_PROVIDER_DOMAINS}"
-      matched="$matched custom"
-    fi
-    # Visible write methods (POST/PUT/...) may go ONLY to the provider. Web reads
-    # (docs/search/scraping) always stay allowed by the base policy below. Writes
-    # to other hosts are denied for cleartext HTTP and, under TLS interception,
-    # for HTTPS too. Without interception (plain proxy mode) HTTPS methods are
-    # invisible to Squid, so that denial does not extend to HTTPS.
-    echo "http_access allow unsafe_methods provider_allow"
-  } >"$file"
-
-  if [[ -z "${matched// /}" ]]; then
-    echo "❌ unknown egress provider(s):${unknown}; set PROVEO_EGRESS_PROVIDER_DOMAINS to pin custom endpoints" >&2
+  local prov="${PROVEO_EGRESS_PROVIDER_RESOLVED:-${PROVEO_EGRESS_PROVIDER:-}}"
+  # Delegates to the Go registry (internal/egress.ProviderAllowConf); the Bash
+  # generator + provider ACL map were retired. Forward the custom-domains var
+  # explicitly — the Go binary is a subprocess and only sees passed/exported env
+  # (the Bash generator used to read it as a plain shell var).
+  if ! PROVEO_EGRESS_PROVIDER="$prov" \
+       PROVEO_EGRESS_PROVIDER_DOMAINS="${PROVEO_EGRESS_PROVIDER_DOMAINS:-}" \
+       proveo_egress_run_bin provider-allow >"$file"; then
     return 1
   fi
-  [[ -n "${unknown// /}" ]] && echo "⚠️  ignoring unknown provider(s):${unknown}" >&2
-  if [[ "${PROVEO_EGRESS_MODE:-}" == "inspected-firewall" ]]; then
-    echo "🔒 Provider writes pinned to:${matched} — HTTPS is decrypted, so writes to other hosts are blocked (web reads stay open)" >&2
-  else
-    echo "🔒 Provider allowlist set for:${matched} (web reads stay open)" >&2
-    echo "⚠️  proxy mode does NOT inspect HTTPS: writes/exfiltration over HTTPS to non-provider hosts are NOT blocked. Use --egress-mode inspected-firewall for enforced write-pinning." >&2
+  if [[ "${PROVEO_EGRESS_MODE:-}" == "firewall" ]]; then
+    echo "🔒 Provider writes pinned — HTTPS decrypted; writes to other hosts blocked (web reads open)" >&2
+  elif [[ -n "$prov" && "$prov" != "none" ]]; then
+    echo "🔒 Provider allowlist set (web reads stay open)" >&2
+    echo "⚠️  proxy mode does NOT inspect HTTPS: writes/exfiltration over HTTPS to non-provider hosts are NOT blocked. Use --egress-mode firewall for enforced write-pinning." >&2
   fi
 }
 
@@ -309,6 +248,111 @@ proveo_egress_start_mitm() {
       -v "$flows_dir:/flows" \
       "$image" >/dev/null; then
     echo "❌ failed to start mitmproxy sidecar ($image)" >&2
+    return 1
+  fi
+  proveo_egress_docker network connect "$upstream_network" "$name"
+}
+
+# Candidate provider-key env-var names the broker may inject. Mirrors the Go
+# provider registry (internal/provider) and the detection list above. TRANSITIONAL
+# duplication: it collapses into the Go registry once host orchestration moves to
+# Go (Plan 4 Ph1). Only the NAMES appear here; values are read from the env.
+proveo_egress_broker_key_names() {
+  printf '%s\n' \
+    ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN OPENAI_API_KEY OPENROUTER_API_KEY \
+    GROQ_API_KEY MISTRAL_API_KEY XAI_API_KEY PERPLEXITY_API_KEY TOGETHER_API_KEY \
+    FIREWORKS_API_KEY GMI_API_KEY COHERE_API_KEY CURSOR_API_KEY GEMINI_API_KEY GOOGLE_API_KEY
+}
+
+# Prepare the credential broker for the Go inspector: when exactly one provider
+# is resolved and the broker is not disabled, write the provider keys present in
+# the host env to a 0600 file OUTSIDE every agent mount, and record the provider
+# name. The Go proxy resolves which key/header to inject via its provider
+# registry; keys only in a mounted .env (not the host env) are not written here,
+# so the broker degrades to strip + pass-through (documented — provision keys in
+# the host env for full isolation). Sets PROVEO_EGRESS_BROKER_{PROVIDER,ENVFILE_HOST}.
+proveo_egress_prepare_broker_secrets() {
+  case "$(printf '%s' "${PROVEO_CREDENTIAL_BROKER:-on}" | tr '[:upper:]' '[:lower:]')" in
+    off|0|no|false|disable|disabled) return 0 ;;
+  esac
+  # Injecting one auth header is unambiguous only with a single pinned provider.
+  local -a providers
+  # shellcheck disable=SC2206
+  providers=(${PROVEO_EGRESS_PROVIDER_RESOLVED//,/ })
+  if (( ${#providers[@]} != 1 )); then
+    (( ${#providers[@]} > 1 )) && echo "ℹ️  credential broker skipped: multiple providers resolved (${providers[*]}); pin one with PROVEO_EGRESS_PROVIDER" >&2
+    return 0
+  fi
+
+  local inject_dir="$PROVEO_EGRESS_DIR/inject"
+  local envfile="$inject_dir/broker.env"
+  mkdir -p "$inject_dir"
+  chmod 700 "$inject_dir" 2>/dev/null || true
+  local name val wrote=0
+  (
+    umask 077
+    : >"$envfile"
+    while IFS= read -r name; do
+      val="${!name:-}"
+      [[ -n "$val" ]] && printf '%s=%s\n' "$name" "$val" >>"$envfile"
+    done < <(proveo_egress_broker_key_names)
+    true  # a `while read` loop ends non-zero at EOF; keep the subshell exit 0
+  )
+  chmod 600 "$envfile" 2>/dev/null || true
+  if [[ -s "$envfile" ]]; then wrote=1; fi
+
+  PROVEO_EGRESS_BROKER_PROVIDER="${providers[0]}"
+  if (( wrote )); then
+    PROVEO_EGRESS_BROKER_ENVFILE_HOST="$envfile"
+    echo "🔑 Credential broker: provider '${PROVEO_EGRESS_BROKER_PROVIDER}' — injecting at the proxy, stripping credentials off-provider" >&2
+  else
+    rm -f "$envfile" 2>/dev/null || true
+    echo "🔒 Credential broker: provider '${PROVEO_EGRESS_BROKER_PROVIDER}' has no host-env key to inject; stripping off-provider + provider pass-through (put the key in your host env for full isolation)" >&2
+  fi
+}
+
+# Start the Go egress inspection proxy (proveo-egress) as the agent's first hop.
+# Replaces proveo_egress_start_mitm on the default firewall path: it
+# TLS-terminates with a generated CA (written to the same confdir path the CA
+# wait watches), records flows to the same NDJSON path the dashboard reads,
+# brokers credentials, and forwards to Squid upstream. Runs as the invoking host
+# uid (not root, unlike the mitmproxy sidecar) since it only writes host-owned
+# bind mounts.
+proveo_egress_start_egress_proxy() {
+  local network="$1" upstream_network="$2"
+  local image name confdir flows_dir
+  image="${PROVEO_EGRESS_PROXY_IMAGE:-proveo/egress-proxy:latest}"
+  name="$(proveo_egress_container_name egress)"
+  confdir="$PROVEO_EGRESS_DIR/mitmproxy/confdir"
+  flows_dir="$PROVEO_EGRESS_DIR/mitmproxy/flows"
+
+  local -a run_args=(
+    run -d --rm
+    --name "$name"
+    --user "$(id -u):$(id -g)"
+    --label "proveo.egress.session=${PROVEO_EGRESS_SESSION_ID}"
+    --network "$network"
+    --network-alias mitm
+    -e "PROVEO_EGRESS_LISTEN=:8888"
+    -e "PROVEO_EGRESS_UPSTREAM=http://squid:3128"
+    -e "PROVEO_EGRESS_CA_CERT_OUT=/confdir/mitmproxy-ca-cert.pem"
+    -e "PROVEO_EGRESS_FLOWS=/flows/flows.ndjson"
+    -v "$confdir:/confdir"
+    -v "$flows_dir:/flows"
+  )
+  if [[ -n "$PROVEO_EGRESS_BROKER_PROVIDER" ]]; then
+    run_args+=("-e" "PROVEO_EGRESS_PROVIDER=${PROVEO_EGRESS_BROKER_PROVIDER}")
+  fi
+  if [[ -n "$PROVEO_EGRESS_BROKER_ENVFILE_HOST" ]]; then
+    run_args+=(
+      "-e" "PROVEO_EGRESS_BROKER_ENVFILE=/broker/broker.env"
+      "-v" "$(dirname "$PROVEO_EGRESS_BROKER_ENVFILE_HOST"):/broker:ro"
+    )
+  fi
+
+  PROVEO_EGRESS_CLEANUP_CONTAINERS+=("$name")
+  if ! proveo_egress_docker "${run_args[@]}" "$image" >/dev/null; then
+    echo "❌ failed to start egress proxy sidecar ($image)" >&2
     return 1
   fi
   proveo_egress_docker network connect "$upstream_network" "$name"
@@ -406,12 +450,12 @@ proveo_egress_prepare() {
     PROVEO_EGRESS_PROVIDER_RESOLVED="$(proveo_egress_detect_providers)"
   fi
 
-  # A pinned provider is enforced by Squid, which only exists in proxy/inspected
+  # A pinned provider is enforced by Squid, which only exists in proxy/firewall
   # modes. An EXPLICIT provider in open mode is a misconfig (nothing enforces the
   # allowlist) — refuse rather than imply containment. Auto-detection stays quiet
   # in open mode (no proxy to apply it to).
   if [[ -n "${PROVEO_EGRESS_PROVIDER:-}" && "${PROVEO_EGRESS_PROVIDER}" != "none" && "$mode" == "open" ]]; then
-    echo "❌ PROVEO_EGRESS_PROVIDER requires --egress-mode proxy or inspected-firewall (open has no enforcement proxy)" >&2
+    echo "❌ PROVEO_EGRESS_PROVIDER requires --egress-mode proxy or firewall (open has no enforcement proxy)" >&2
     return 1
   fi
 
@@ -440,7 +484,7 @@ proveo_egress_prepare() {
       PROVEO_EGRESS_AGENT_DOCKER_ARGS+=("--network=bridge" "--add-host=host.docker.internal:127.0.0.1")
       return 0
       ;;
-    proxy|inspected-firewall)
+    proxy|firewall)
       proveo_egress_prepare_logs
       proveo_egress_write_metadata
       ;;
@@ -467,7 +511,14 @@ proveo_egress_prepare() {
     proveo_egress_network_create "$enforce_network" internal
     proveo_egress_network_create "$egress_network" ""
     proveo_egress_start_squid "$enforce_network" "$egress_network"
-    proveo_egress_start_mitm "$agent_network" "$enforce_network"
+    # Inspector first hop: the Go egress proxy (default; TLS-terminate + record +
+    # credential broker) or the legacy Python mitmproxy sidecar.
+    if [[ "${PROVEO_EGRESS_INSPECTOR:-go}" == "mitmproxy" ]]; then
+      proveo_egress_start_mitm "$agent_network" "$enforce_network"
+    else
+      proveo_egress_prepare_broker_secrets
+      proveo_egress_start_egress_proxy "$agent_network" "$enforce_network"
+    fi
     PROVEO_EGRESS_AGENT_DOCKER_ARGS+=("--network" "$agent_network")
     PROVEO_EGRESS_AGENT_DOCKER_ARGS+=("-e" "INSPECT_PROXY=http://mitm:8888")
     PROVEO_EGRESS_AGENT_DOCKER_ARGS+=("-e" "ENFORCEMENT_PROXY=http://squid:3128")
@@ -594,6 +645,12 @@ proveo_egress_cleanup() {
   # Summarize allowed/denied egress before tearing anything down (the agent
   # container has already exited by the time cleanup runs).
   proveo_egress_report || true
+
+  # The brokered secret env-file must never outlive the run, even when egress
+  # artifacts are kept for inspection.
+  if [[ -n "$PROVEO_EGRESS_BROKER_ENVFILE_HOST" && -f "$PROVEO_EGRESS_BROKER_ENVFILE_HOST" ]]; then
+    rm -f "$PROVEO_EGRESS_BROKER_ENVFILE_HOST" 2>/dev/null || true
+  fi
 
   if [[ "${PROVEO_KEEP_EGRESS:-0}" =~ ^(1|true|yes|on)$ ]]; then
     echo "🔎 Keeping egress sidecars/networks for session: $PROVEO_EGRESS_SESSION_ID"

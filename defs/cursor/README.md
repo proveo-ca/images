@@ -10,7 +10,7 @@ Custom Docker image for the [Cursor CLI](https://cursor.com/docs/cli) (`agent`, 
 - CLI installed under a root-owned prefix (`/opt/cursor-dist`) — the agent cannot tamper with
   or self-update the binary; updating the CLI means rebuilding the image
 - `.env` autoloading, git identity bridging, monorepo-friendly mounts
-- Reusable network egress modes (`open | proxy | inspected-firewall`)
+- Reusable network egress modes (`open | proxy | firewall`)
 
 Paradigm: **policy-gated autonomous loop** — see
 [`_spec/defs/cursor/cursor.paradigm.md`](../../_spec/defs/cursor/cursor.paradigm.md).
@@ -54,7 +54,7 @@ tarball from `downloads.cursor.com` and pass `--build-arg CURSOR_INSTALL_URL=<mi
 
 ```bash
 ./run.sh                                  # interactive TUI in the current repo
-./run.sh --egress-mode inspected-firewall # fully audited egress
+./run.sh --egress-mode firewall # fully audited egress
 ./run.sh --shell                          # debug shell with the same mounts/env
 ```
 
@@ -119,7 +119,7 @@ Project deny rules extend (and can only tighten alongside) the seeded baseline; 
 
 ## Egress modes
 
-`--egress-mode proxy|inspected-firewall` reuses the shared sidecar lifecycle
+`--egress-mode proxy|firewall` reuses the shared sidecar lifecycle
 (`defs/lib/egress.sh`). Cursor specifics:
 
 - Provider pinning auto-detects `CURSOR_API_KEY` and pins inference writes to
@@ -127,7 +127,7 @@ Project deny rules extend (and can only tighten alongside) the seeded baseline; 
   Web reads (docs/search) stay open, as for every harness.
 - The entrypoint detects proxy env and sets `useHttp1ForAgent: true` in the seeded config —
   Cursor's HTTP/2 streaming does not survive every proxy chain. The CLI honors
-  `NODE_EXTRA_CA_CERTS`, which the inspected-firewall mode points at the mitmproxy CA.
+  `NODE_EXTRA_CA_CERTS`, which the firewall mode points at the mitmproxy CA.
 - If the network cannot reach the Cursor backend, there is no inference, full stop — this
   harness has no offline/local-model fallback.
 

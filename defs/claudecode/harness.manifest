@@ -1,0 +1,12 @@
+# SPEC: _spec/components.puml
+# Single registration point for the claudecode harness (Plan 2). Adding or
+# changing a harness should touch only this file + the def dir it lives in.
+name: claudecode
+description: ML-loop harness (Claude Code, --dangerously-skip-permissions)
+egress: true
+stability: candidate
+images:
+  claudecode: proveo/claudecode:latest
+  claudecode-solo: proveo/claudecode-solo:latest
+workspace:
+  layout: input-output

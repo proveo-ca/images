@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPEC: _spec/tests/20-contract.puml
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -153,7 +154,7 @@ for variant_entrypoint in "$ROOT/defs/claudecode/mcp/entrypoint.sh" "$ROOT/defs/
 done
 assert_file_contains "shared entrypoint lib implements smoke mode" "$ROOT/packages/lib/entrypoint-lib.sh" "PROVEO_SMOKE_READY"
 assert_file_contains "claudecode default prompt encodes verification loop" "$ROOT/defs/claudecode/defaults/CLAUDE.md" "Verification Commands"
-assert_file_contains "claudecode run supports open egress mode" "$ROOT/defs/claudecode/run.sh" "open|proxy|inspected-firewall"
+assert_file_contains "claudecode run supports open egress mode" "$ROOT/defs/claudecode/run.sh" "open|proxy|firewall"
 assert_file_contains "claudecode parent runner sources shared egress lifecycle" "$ROOT/defs/claudecode/run.sh" 'source "$DEFS_DIR/lib/egress.sh"'
 assert_file_contains "claudecode parent runner owns debug shell flow" "$ROOT/defs/claudecode/run.sh" '--shell'
 assert_file_contains "claudecode parent runner selects mcp variant image" "$ROOT/defs/claudecode/run.sh" 'PROVEO_CLAUDECODE_IMAGE'
@@ -190,12 +191,14 @@ assert_executable "cursor audit hook is executable" "$ROOT/defs/cursor/defaults/
 assert_file_contains "cursor reviewer subagents are structurally readonly" "$ROOT/defs/cursor/defaults/agents/adversarial-reviewer.md" "readonly: true"
 assert_file_contains "cursor loop rule encodes the verification loop" "$ROOT/defs/cursor/defaults/rules/proveo-loop.mdc" "Verification Commands"
 assert_file_contains "cursor run wrapper sources shared egress lifecycle" "$ROOT/defs/cursor/run.sh" 'source "$DEFS_DIR/lib/egress.sh"'
-assert_file_contains "cursor run supports the three egress modes" "$ROOT/defs/cursor/run.sh" "open|proxy|inspected-firewall"
+assert_file_contains "cursor run supports the three egress modes" "$ROOT/defs/cursor/run.sh" "open|proxy|firewall"
 assert_file_contains "cursor run rejects local models (vendor-pinned inference)" "$ROOT/defs/cursor/run.sh" "no local-model path"
 assert_file_not_contains "cursor run has no --local-model flag" "$ROOT/defs/cursor/run.sh" '--local-model)'
 assert_file_contains "cursor entrypoint handles proxied HTTP/2 fallback" "$ROOT/defs/cursor/entrypoint.sh" "useHttp1ForAgent"
-assert_file_contains "egress lib pins the Cursor backend for CURSOR_API_KEY" "$ROOT/defs/lib/egress.sh" ".cursor.sh .cursor.com"
-assert_file_contains "egress lib detects the cursor provider" "$ROOT/defs/lib/egress.sh" "CURSOR_API_KEY"
+# Provider knowledge was retired from egress.sh into the Go registry (single
+# source). Assert it there.
+assert_file_contains "provider registry pins the Cursor backend for CURSOR_API_KEY" "$ROOT/internal/provider/provider.go" ".cursor.sh .cursor.com"
+assert_file_contains "provider registry detects the cursor provider" "$ROOT/internal/provider/provider.go" "CURSOR_API_KEY"
 assert_file_contains "cursor image bakes shared verification lib" "$ROOT/defs/cursor/Dockerfile" "COPY defs/lib/ /opt/proveo/lib/"
 assert_file_contains "cursor build uses repo-root context" "$ROOT/defs/cursor/build.sh" '"$SCRIPT_DIR/../.."'
 
@@ -264,10 +267,12 @@ assert_file_contains "egress tests reuse the shared image preflight (dedupe)" "$
 # Provider allowlist (pin model-provider egress; auto-detected from API keys)
 assert_file_contains "squid.conf includes the provider allowlist" "$ROOT/defs/sidecars/squid-proxy/squid.conf" "include /etc/squid/provider-allow.conf"
 assert_file_contains "egress auto-detects the provider from the present API key" "$ROOT/defs/lib/egress.sh" "proveo_egress_detect_providers"
-assert_file_contains "egress maps trusted first-party APIs (anthropic)" "$ROOT/defs/lib/egress.sh" "anthropic)"
-assert_file_contains "egress maps GMI Cloud inference endpoint" "$ROOT/defs/lib/egress.sh" ".gmi-serving.com"
-assert_file_contains "egress scopes hyperscaler endpoints tightly (bedrock regex)" "$ROOT/defs/lib/egress.sh" "bedrock-runtime"
-assert_file_contains "provider pin governs writes, not reads (no deny-all)" "$ROOT/defs/lib/egress.sh" "http_access allow unsafe_methods provider_allow"
+# The provider map + Squid write-pin ACL were retired from egress.sh into Go
+# (internal/provider = endpoints, internal/egress = allowlist rendering).
+assert_file_contains "provider registry maps trusted first-party APIs (anthropic)" "$ROOT/internal/provider/provider.go" ".anthropic.com"
+assert_file_contains "provider registry maps GMI Cloud inference endpoint" "$ROOT/internal/provider/provider.go" ".gmi-serving.com"
+assert_file_contains "provider registry scopes hyperscaler endpoints tightly (bedrock regex)" "$ROOT/internal/provider/provider.go" "bedrock-runtime"
+assert_file_contains "provider pin governs writes, not reads (no deny-all)" "$ROOT/internal/egress/egress.go" "http_access allow unsafe_methods provider_allow"
 assert_file_not_contains "provider pin never blocks web reads (no lockdown deny-all)" "$ROOT/defs/lib/egress.sh" "http_access deny all"
 assert_file_not_contains "no lockdown option remains" "$ROOT/defs/lib/egress.sh" "PROVEO_EGRESS_LOCKDOWN"
 assert_executable "provider allowlist updater is executable" "$ROOT/defs/sidecars/squid-proxy/update-provider-allow.sh"

@@ -16,7 +16,6 @@ set -euo pipefail
 # (jurisdiction / no-train) stays a human curation decision in egress.sh.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-EGRESS_LIB="${PROVEO_EGRESS_LIB:-$SCRIPT_DIR/../../lib/egress.sh}"
 SOURCE_URL="${PROVEO_PROVIDER_SOURCE_URL:-https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json}"
 CACHED=""
 OUTPUT_DIR="${PROVEO_PROVIDER_OUTPUT_DIR:-$(pwd)}"
@@ -34,10 +33,11 @@ Options:
 
 Environment:
   PROVEO_PROVIDER_SOURCE_URL   Override the registry URL.
-  PROVEO_EGRESS_LIB            Path to egress.sh (default: ../../lib/egress.sh).
+  PROVEO_EGRESS_BIN            Path to the proveo-egress binary (else PATH / go run).
 
 Notes:
-  - Non-destructive: reports drift; does not edit egress.sh.
+  - Non-destructive: reports drift; the provider map is curated in Go
+    (internal/provider), read here via `proveo-egress providers`.
   - Endpoint *names* are mechanical (pulled here); *trust* is curated by hand.
 EOF
 }
@@ -92,10 +92,14 @@ else
     | while IFS= read -r p; do normalize_provider "$p"; done | sort -u >"$upstream"
 fi
 
-# 3. Extract the providers egress.sh maps (the case arms of provider_acl).
+# 3. Extract the providers the Go registry maps (single source: internal/provider).
 mapped="$(mktemp)"; trap 'rm -f "$json" "$upstream" "$mapped"' EXIT
-sed -n "s/^[[:space:]]*\([a-z_]\{1,\}\))[[:space:]]*printf 'acl provider_allow.*/\1/p" \
-  "$EGRESS_LIB" | sort -u >"$mapped"
+proveo_egress_providers() {
+  if [[ -n "${PROVEO_EGRESS_BIN:-}" && -x "${PROVEO_EGRESS_BIN}" ]]; then "$PROVEO_EGRESS_BIN" providers; return; fi
+  if command -v proveo-egress >/dev/null 2>&1; then proveo-egress providers; return; fi
+  ( cd "$SCRIPT_DIR/../../.." && go run ./cmd/proveo-egress providers )
+}
+proveo_egress_providers | sort -u >"$mapped"
 
 # 4. Report drift.
 missing="$(comm -23 "$upstream" "$mapped" || true)"   # upstream has, we don't map
@@ -104,7 +108,7 @@ stale="$(comm -13 "$upstream" "$mapped" || true)"     # we map, upstream doesn't
 {
   echo "# Provider allowlist coverage vs $SOURCE_URL"
   echo "# Generated at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  echo "# Mapped in egress.sh: $(tr '\n' ' ' <"$mapped")"
+  echo "# Mapped in the Go provider registry: $(tr '\n' ' ' <"$mapped")"
   echo
   echo "## Upstream providers NOT yet mapped (review for trust, then add to egress.sh):"
   # shellcheck disable=SC2086  # intentional split: one printf arg per provider
