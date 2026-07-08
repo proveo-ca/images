@@ -1,8 +1,10 @@
+ARG BASE_IMAGE=proveo/base:latest
+
 FROM golang:1.22-bookworm AS plantuml-lsp-builder
 
 RUN GOBIN=/out go install github.com/ptdewey/plantuml-lsp@latest
 
-FROM node:22-slim
+FROM ${BASE_IMAGE}
 
 ARG USER_ID=1000
 ARG USER_NAME=opencode
@@ -21,12 +23,12 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       groupadd -g "${USER_ID}" "${USER_NAME}" && \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
+# Harness extras on top of proveo/base (git/gh/curl/python3/dumb-init/pnpm and
+# the hardening pass live there); re-run the harden pass after installing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git gh curl ca-certificates dumb-init unzip xclip python3 plantuml \
+    unzip xclip plantuml \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-    && find / -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true \
-    && find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true \
-    && rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true
+    && /usr/local/sbin/proveo-harden
 
 # Install lightweight docker static client (non-setuid).
 # Resolve the tarball arch from the build platform so arm64 images get an
@@ -42,8 +44,6 @@ RUN DOCKER_VERSION=26.1.4 \
     && mv /tmp/docker/docker /usr/local/bin/docker \
     && rm -rf /tmp/docker /tmp/docker.tgz
 
-RUN npm install -g pnpm@10.33.0
-
 RUN npm install -g \
     opencode-ai@latest \
     typescript-language-server \
@@ -51,7 +51,8 @@ RUN npm install -g \
     bash-language-server \
     dockerfile-language-server-nodejs \
     yaml-language-server \
-    pyright
+    pyright \
+    && npm cache clean --force
 
 COPY --from=plantuml-lsp-builder /out/plantuml-lsp /usr/local/bin/plantuml-lsp
 
@@ -76,13 +77,8 @@ RUN chmod +x /entrypoint.sh
 USER ${USER_NAME}
 WORKDIR /workspace
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    NPM_CONFIG_AUDIT=false \
-    NPM_CONFIG_FUND=false \
-    RLIMIT_CORE=0 \
-    RLIMIT_NOFILE=1024 \
-    OPENCODE_AUTO_UPDATE=false \
-    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+# opencode-specific env; the common floor lives in proveo/base
+ENV OPENCODE_AUTO_UPDATE=false \
     PATH="/usr/local/bin:${PATH}"
 
 LABEL security.non-root=true \

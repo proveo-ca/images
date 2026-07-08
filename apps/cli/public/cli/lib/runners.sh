@@ -42,10 +42,16 @@ image_name() {
     claudecode-solo)
       echo "proveo/claudecode-solo"
       ;;
-    # Maintainer build/deploy names (not in the consumer TARGETS menu): cursor
-    # is consumed via the Go `proveo` CLI; the rest are sidecar dependencies.
+    claudecode-sol)
+      echo "proveo/claudecode-sol"
+      ;;
     cursor)
       echo "proveo/cursor"
+      ;;
+    # Maintainer build/deploy names (not in the consumer TARGETS menu): the
+    # shared harness base and the sidecar dependency images.
+    base)
+      echo "proveo/base"
       ;;
     egress-proxy)
       echo "proveo/egress-proxy"
@@ -75,8 +81,14 @@ target_description() {
     claudecode-solo)
       echo "Claude Code without the MCP-integrated stack"
       ;;
+    claudecode-sol)
+      echo "Claude Code with the Solidity/security toolchain (Foundry, solc, semgrep)"
+      ;;
     opencode)
       echo "opencode with baked-in Proveo defaults"
+      ;;
+    cursor)
+      echo "Cursor CLI agent with policy-gated autonomy"
       ;;
     *)
       echo "Container target"
@@ -230,6 +242,79 @@ run_opencode() {
 
   # Append dind arguments if sidecar is active
   docker_args+=(${DIND_DOCKER_ARGS[@]+"${DIND_DOCKER_ARGS[@]}"})
+
+  docker_args+=("$image")
+  docker_args+=(${extra_args[@]+"${extra_args[@]}"})
+
+  docker "${docker_args[@]}"
+}
+
+run_cursor() {
+  local scope_dir="$1"
+  shift
+  local -a extra_args=("$@")
+
+  local image
+  image="$(image_name "cursor")"
+  ensure_image_available "$image"
+
+  if [[ -z "${CURSOR_API_KEY:-}" ]]; then
+    printf "⚠️  CURSOR_API_KEY not set. Create one at cursor.com/dashboard → API Keys.\n" >&2
+  fi
+
+  # Same hardening baseline as the other runners: caller's UID/GID, no caps,
+  # no privilege escalation, bounded pids.
+  local -a docker_args=(
+    run -it --rm
+    --user "$(id -u):$(id -g)"
+    --cap-drop=ALL
+    --security-opt=no-new-privileges:true
+    --pids-limit=100
+  )
+
+  # Forward the API key by NAME only — docker reads the value from this shell's
+  # environment, so the secret never appears on a process argv.
+  if [[ -n "${CURSOR_API_KEY:-}" ]]; then
+    docker_args+=(-e CURSOR_API_KEY)
+  fi
+
+  # Forward the developer's git identity for commit attribution
+  proveo_git_identity_env_args
+  docker_args+=(${PROVEO_GIT_IDENTITY_ARGS[@]+"${PROVEO_GIT_IDENTITY_ARGS[@]}"})
+
+  local container_name
+  if [[ "$scope_dir" == "$CURRENT_REPO_ROOT" ]]; then
+    container_name="$(basename "$CURRENT_REPO_ROOT")-cursor"
+    docker_args+=(--name "$container_name")
+    docker_args+=(-v "$CURRENT_REPO_ROOT:/app" -w /app)
+  elif [[ "$scope_dir" == "$CURRENT_REPO_ROOT/"* ]]; then
+    local relative_scope
+    relative_scope="${scope_dir#$CURRENT_REPO_ROOT/}"
+
+    container_name="$(basename "$CURRENT_REPO_ROOT")-${relative_scope//\//-}-cursor"
+    docker_args+=(--name "$container_name")
+    docker_args+=(-v "$scope_dir:/app/$relative_scope" -v "$CURRENT_REPO_ROOT/.git:/app/.git" -w /app)
+
+    for root_file in .env AGENTS.md CONVENTIONS.md CLAUDE.md .cursorrules package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
+      if [[ -e "$CURRENT_REPO_ROOT/$root_file" && ! -e "$scope_dir/$root_file" ]]; then
+        docker_args+=(-v "$CURRENT_REPO_ROOT/$root_file:/app/$root_file:ro")
+      fi
+    done
+
+    if [[ -d "$CURRENT_REPO_ROOT/.cursor" && ! -e "$scope_dir/.cursor" ]]; then
+      docker_args+=(-v "$CURRENT_REPO_ROOT/.cursor:/app/.cursor:ro")
+    fi
+
+    if [[ -f "$scope_dir/.env" && ! -e "$CURRENT_REPO_ROOT/.env" ]]; then
+      docker_args+=(-v "$scope_dir/.env:/app/.env:ro")
+    fi
+  else
+    container_name="$(basename "$scope_dir")-cursor"
+    docker_args+=(--name "$container_name")
+    docker_args+=(-v "$scope_dir:/app" -w /app)
+  fi
+
+  docker rm -f "$container_name" >/dev/null 2>&1 || true
 
   docker_args+=("$image")
   docker_args+=(${extra_args[@]+"${extra_args[@]}"})
@@ -439,11 +524,14 @@ run_target() {
     cecli|cecli-node)
       run_cecli "$target" "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
       ;;
-    claudecode|claudecode-solo)
+    claudecode|claudecode-solo|claudecode-sol)
       run_claude_container "$(image_name "$target")" "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
       ;;
     opencode)
       run_opencode "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
+      ;;
+    cursor)
+      run_cursor "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
       ;;
     *)
       print_error "Unsupported run target: $target"

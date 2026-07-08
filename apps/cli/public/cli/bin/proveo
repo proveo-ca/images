@@ -13,6 +13,8 @@ TARGETS=(
   "opencode"
   "claudecode"
   "claudecode-solo"
+  "claudecode-sol"
+  "cursor"
 )
 
 # Source helper modules
@@ -92,7 +94,7 @@ list_targets() {
 is_ai_harness() {
   local target="$1"
   case "$target" in
-    cecli|cecli-node|claudecode|claudecode-solo|opencode)
+    cecli|cecli-node|claudecode|claudecode-solo|claudecode-sol|opencode|cursor)
       return 0
       ;;
     *)

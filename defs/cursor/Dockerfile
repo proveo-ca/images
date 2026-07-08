@@ -1,5 +1,6 @@
 # SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor.paradigm.md
-FROM node:22-slim
+ARG BASE_IMAGE=proveo/base:latest
+FROM ${BASE_IMAGE}
 
 ARG USER_ID=1000
 ARG USER_NAME=cursor
@@ -22,14 +23,12 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       groupadd -g "${USER_ID}" "${USER_NAME}" && \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
+# Harness extras on top of proveo/base (git/gh/curl/python3/dumb-init/pnpm and
+# the hardening pass live there); re-run the harden pass after installing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git gh curl ca-certificates dumb-init unzip python3 \
+    unzip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-    && find / -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true \
-    && find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true \
-    && rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true
-
-RUN npm install -g pnpm@10.33.0
+    && /usr/local/sbin/proveo-harden
 
 # Install the Cursor CLI system-wide under a root-owned prefix. The installer
 # writes to $HOME, so point HOME at /opt/cursor-dist: the agent (running as the
@@ -68,13 +67,8 @@ RUN chmod +x /entrypoint.sh
 USER ${USER_NAME}
 WORKDIR /app
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    NPM_CONFIG_AUDIT=false \
-    NPM_CONFIG_FUND=false \
-    RLIMIT_CORE=0 \
-    RLIMIT_NOFILE=1024 \
-    NO_OPEN_BROWSER=1 \
-    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+# cursor-specific env; the common floor lives in proveo/base
+ENV NO_OPEN_BROWSER=1 \
     PATH="/usr/local/bin:${PATH}"
 
 LABEL security.non-root=true \

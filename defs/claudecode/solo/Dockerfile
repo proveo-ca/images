@@ -1,4 +1,5 @@
-FROM node:20-bookworm-slim
+ARG BASE_IMAGE=proveo/base:latest
+FROM ${BASE_IMAGE}
 
 ARG USER_ID=1000
 ARG USER_NAME=claude
@@ -19,29 +20,18 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 
-# Install system dependencies with security hardening
+# Harness extras on top of proveo/base (which carries git/gh/curl/ca-certs/
+# python3/dumb-init/pnpm and the hardening pass). The Solidity/security
+# toolchain (Foundry, solc, solhint, semgrep) lives in the sol variant.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git gh curl wget ca-certificates python3 python3-pip build-essential \
-    dumb-init \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /tmp/* \
-    && rm -rf /var/tmp/* \
-    && find / -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true \
-    && find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true \
-    && rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true
+    wget python3-pip \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && /usr/local/sbin/proveo-harden
 
 # Install basic Python tools
 RUN pip3 install --no-cache-dir --break-system-packages \
     requests \
     python-dotenv
-
-# Install Python security tools
-RUN pip3 install --no-cache-dir --break-system-packages \
-    semgrep \
-    solc-select
-
-# Setup solc-select with a default Solidity compiler
-RUN solc-select install 0.8.20 && solc-select use 0.8.20
 
 # Install Node.js tools
 RUN npm install -g --no-optional \
@@ -49,16 +39,10 @@ RUN npm install -g --no-optional \
     ts-node \
     prettier \
     eslint \
-    solhint
-
-# Install Foundry (Solidity toolkit)
-RUN curl -L https://foundry.paradigm.xyz | bash
-ENV PATH="/root/.foundry/bin:$PATH"
-RUN /root/.foundry/bin/foundryup
-RUN cp -r /root/.foundry /home/${USER_NAME}/ && chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}/
+    && npm cache clean --force
 
 # Install Claude Code
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
 
 # Setup secure workspace with proper permissions
 RUN mkdir -p /workspace/input \
@@ -92,15 +76,9 @@ RUN chmod +x /entrypoint.sh
 # `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).
 USER ${USER_NAME}
 WORKDIR /workspace
-ENV PATH="/home/${USER_NAME}/.foundry/bin:$PATH"
 
-# Security: Set secure environment variables and limits
-ENV DEBIAN_FRONTEND=noninteractive \
-    NODE_ENV=production \
-    NPM_CONFIG_AUDIT=false \
-    NPM_CONFIG_FUND=false \
-    RLIMIT_CORE=0 \
-    RLIMIT_NOFILE=1024 \
+# claudecode-specific env; the common floor (npm/rlimit/corepack) is in proveo/base
+ENV NODE_ENV=production \
     YAMA_PTRACE_SCOPE=1
 
 # Add security labels

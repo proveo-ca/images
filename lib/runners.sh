@@ -1,24 +1,28 @@
 #!/usr/bin/env bash
 # Maintainer runners for proveo CLI
 
-# Maintainer-only image targets, appended to the consumer TARGETS the mise
-# tasks already sourced from bin/proveo: cursor (its consumer runner is the Go
-# `proveo` CLI, not the installed Bash CLI) plus the sidecar dependency images
-# (never runnable harnesses). Everything with a defs/**/build.sh must ship
-# through `mise build` / `mise deploy` so consumers can pull it from Docker
-# Hub — the harness contract test derives that invariant from the filesystem.
-TARGETS+=("cursor" "egress-proxy" "mitmproxy")
+# Maintainer-only image targets around the consumer TARGETS the mise tasks
+# already sourced from bin/proveo: the shared harness base FIRST (every
+# Node-based harness builds FROM it, so `all` must build it before them) and
+# the sidecar dependency images after. Everything with a defs/**/build.sh must
+# ship through `mise build` / `mise deploy` so consumers can pull it from
+# Docker Hub — the harness contract test derives that invariant from the
+# filesystem.
+TARGETS=("base" "${TARGETS[@]}" "egress-proxy" "mitmproxy")
 
 target_dir() {
   local target="$1"
   case "$target" in
+    base)
+      echo "$REPO_ROOT/defs/base"
+      ;;
     cecli|cecli-node)
       echo "$REPO_ROOT/defs/cecli"
       ;;
     opencode)
       echo "$REPO_ROOT/defs/opencode"
       ;;
-    claudecode|claudecode-solo)
+    claudecode|claudecode-solo|claudecode-sol)
       echo "$REPO_ROOT/defs/claudecode"
       ;;
     cursor)

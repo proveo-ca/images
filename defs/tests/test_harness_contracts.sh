@@ -117,11 +117,10 @@ assert_file_contains "contribution guideline forbids gosu escalation" "$ROOT/CON
 assert_file_contains "contribution guideline mandates non-root image default" "$ROOT/CONTRIBUTING.md" 'USER ${USER_NAME}'
 
 # Git + GitHub CLI contracts (coding agents lean on git and gh in every harness)
-assert_file_contains "claudecode mcp image installs git and gh" "$ROOT/defs/claudecode/mcp/Dockerfile" "git gh"
-assert_file_contains "claudecode solo image installs git and gh" "$ROOT/defs/claudecode/solo/Dockerfile" "git gh"
-assert_file_contains "opencode image installs git and gh" "$ROOT/defs/opencode/Dockerfile" "git gh"
-assert_file_contains "cursor image installs git and gh" "$ROOT/defs/cursor/Dockerfile" "git gh"
-assert_file_contains "cecli node image installs gh" "$ROOT/defs/cecli/Dockerfile.node" '    gh \'
+# git + gh moved into the shared base; the Node harnesses inherit them (their
+# FROM ${BASE_IMAGE} is asserted below). The python cecli image is not on the
+# shared base and still installs its own.
+assert_file_contains "shared base installs git and gh for every Node harness" "$ROOT/defs/base/Dockerfile" "git gh"
 assert_file_contains "cecli python image installs gh" "$ROOT/defs/cecli/Dockerfile.python" '    gh \'
 assert_file_contains "shared wrapper lib forwards host git identity as env" "$ROOT/defs/lib/git-identity.sh" "proveo_git_identity_env_args()"
 assert_file_contains "claudecode wrapper forwards host git identity" "$ROOT/defs/claudecode/run.sh" "proveo_git_identity_env_args"
@@ -191,6 +190,29 @@ INNER
   fi
 done
 assert_file_contains "mise test suite covers the cursor def" "$ROOT/mise.toml" 'defs/cursor/test.sh'
+
+# Shared-base structure: every Node-based harness builds FROM proveo/base (one
+# common layer set across images) and re-runs the baked hardening pass after
+# installing its extras. The Solidity toolchain lives only in the sol variant.
+for harness_dockerfile in \
+  defs/claudecode/mcp/Dockerfile defs/claudecode/solo/Dockerfile \
+  defs/cursor/Dockerfile defs/opencode/Dockerfile defs/cecli/Dockerfile.node; do
+  assert_file_contains "$harness_dockerfile builds FROM the shared base" "$ROOT/$harness_dockerfile" 'FROM ${BASE_IMAGE}'
+  assert_file_contains "$harness_dockerfile re-runs the baked harden pass" "$ROOT/$harness_dockerfile" 'proveo-harden'
+done
+assert_file_contains "base image bakes the harden pass" "$ROOT/defs/base/Dockerfile" "proveo-harden"
+assert_file_contains "sol variant carries Foundry" "$ROOT/defs/claudecode/sol/Dockerfile" "foundryup"
+assert_file_contains "sol variant carries semgrep" "$ROOT/defs/claudecode/sol/Dockerfile" "semgrep"
+assert_file_not_contains "claudecode mcp variant sheds Foundry" "$ROOT/defs/claudecode/mcp/Dockerfile" "foundryup"
+assert_file_not_contains "claudecode solo variant sheds Foundry" "$ROOT/defs/claudecode/solo/Dockerfile" "foundryup"
+assert_file_not_contains "claudecode mcp variant sheds solc" "$ROOT/defs/claudecode/mcp/Dockerfile" "solc-select"
+assert_file_contains "claudecode manifest registers the sol variant" "$ROOT/defs/claudecode/harness.manifest" "proveo/claudecode-sol"
+
+# Consumer CLI target surface: cursor and claudecode-sol are runnable targets.
+assert_file_contains "consumer CLI lists the cursor target" "$ROOT/apps/cli/public/cli/bin/proveo" '"cursor"'
+assert_file_contains "consumer CLI dispatches cursor runs" "$ROOT/apps/cli/public/cli/lib/runners.sh" 'run_cursor'
+assert_file_contains "consumer cursor runner forwards the API key by name only" "$ROOT/apps/cli/public/cli/lib/runners.sh" '(-e CURSOR_API_KEY)'
+assert_file_contains "consumer CLI dispatches claudecode-sol runs" "$ROOT/apps/cli/public/cli/lib/runners.sh" 'claudecode|claudecode-solo|claudecode-sol)'
 assert_file_contains "claudecode parent runner sources shared egress lifecycle" "$ROOT/defs/claudecode/run.sh" 'source "$DEFS_DIR/lib/egress.sh"'
 assert_file_contains "claudecode parent runner owns debug shell flow" "$ROOT/defs/claudecode/run.sh" '--shell'
 assert_file_contains "claudecode parent runner selects mcp variant image" "$ROOT/defs/claudecode/run.sh" 'PROVEO_CLAUDECODE_IMAGE'

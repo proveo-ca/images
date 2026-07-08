@@ -9,9 +9,10 @@ NO_CACHE=""
 usage() {
   cat <<'EOF'
 Usage:
-  ./build.sh [--variant mcp|solo|all] [--tag <tag>] [--no-cache]
+  ./build.sh [--variant mcp|solo|sol|all] [--tag <tag>] [--no-cache]
 
 Builds the claudecode harness images. Defaults to all variants.
+sol = mcp + the Solidity/security toolchain (Foundry, solc, solhint, semgrep).
 EOF
 }
 
@@ -50,6 +51,21 @@ build_variant() {
   docker build ${NO_CACHE:+$NO_CACHE} -t "$image:$TAG" -f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/../.."
 }
 
+# sol layers the Solidity/security toolchain (Foundry, solc, solhint, semgrep)
+# on the mcp image: ensure the same-tag parent exists, then build FROM it.
+build_sol() {
+  if ! docker image inspect "proveo/claudecode:$TAG" >/dev/null 2>&1; then
+    build_variant mcp proveo/claudecode
+  fi
+  echo "Building proveo/claudecode-sol:$TAG from sol..."
+  docker build ${NO_CACHE:+$NO_CACHE} \
+    --build-arg BASE_IMAGE="proveo/claudecode:$TAG" \
+    -t "proveo/claudecode-sol:$TAG" -f "$SCRIPT_DIR/sol/Dockerfile" "$SCRIPT_DIR/../.."
+}
+
+# mcp/solo build FROM proveo/base
+"$SCRIPT_DIR/../base/ensure.sh"
+
 case "$VARIANT" in
   mcp)
     build_variant mcp proveo/claudecode
@@ -57,9 +73,13 @@ case "$VARIANT" in
   solo)
     build_variant solo proveo/claudecode-solo
     ;;
+  sol)
+    build_sol
+    ;;
   all)
     build_variant mcp proveo/claudecode
     build_variant solo proveo/claudecode-solo
+    build_sol
     ;;
   *)
     echo "Unknown variant: $VARIANT" >&2

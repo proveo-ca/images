@@ -1,0 +1,8 @@
+#!/bin/sh
+# Strip privilege-escalation vectors from the image: remove setuid/setgid bits
+# and delete raw network utilities. Baked into proveo/base so every harness
+# layer that apt-installs extras re-runs the SAME pass (new packages can
+# reintroduce setuid binaries) instead of copy-pasting a drifting inline RUN.
+find / -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true
+find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true
+rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true
