@@ -47,18 +47,14 @@ proveo_egress_image_present() {
   proveo_egress_docker image inspect "$1" >/dev/null 2>&1
 }
 
-# Ensure ONE image is ready for `docker run`. proveo/* images are built locally
-# and are never pulled; everything else is pulled when missing. Set
-# PROVEO_EGRESS_PULL=1 to force-refresh an already-present pullable image.
-# Returns non-zero with an actionable message when the image can't be readied.
+# Ensure ONE image is ready for `docker run`. Every missing image is pulled
+# first — proveo/* images are published to Docker Hub by `mise deploy`, so the
+# consumer path is a pull; a failed proveo/* pull falls back to local-build
+# guidance (maintainers iterating pre-publish). Set PROVEO_EGRESS_PULL=1 to
+# force-refresh an already-present image. Returns non-zero with an actionable
+# message when the image can't be readied.
 proveo_egress_ensure_image() {
   local image="$1"
-  if [[ "$image" == proveo/* ]]; then
-    proveo_egress_image_present "$image" && return 0
-    local target="${image#proveo/}"
-    echo "❌ image not built: $image — run: defs/sidecars/${target%%:*}/build.sh" >&2
-    return 1
-  fi
   if proveo_egress_image_present "$image" \
      && [[ ! "${PROVEO_EGRESS_PULL:-0}" =~ ^(1|true|yes|on)$ ]]; then
     return 0
@@ -67,6 +63,11 @@ proveo_egress_ensure_image() {
   proveo_egress_docker pull "$image" >/dev/null 2>&1 && return 0
   # Pull failed — tolerate only if a usable local copy already exists.
   proveo_egress_image_present "$image" && { echo "⚠️  using local $image (pull failed)" >&2; return 0; }
+  if [[ "$image" == proveo/* ]]; then
+    local target="${image#proveo/}"
+    echo "❌ image not built: $image (pull failed) — run: defs/sidecars/${target%%:*}/build.sh, or publish it with: mise deploy" >&2
+    return 1
+  fi
   echo "❌ image unavailable: $image (pull failed)" >&2
   return 1
 }

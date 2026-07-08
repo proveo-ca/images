@@ -21,6 +21,7 @@ type Plan struct {
 	CAWaitPath      string    // host path to await before trusting the CA (firewall mode)
 	OllamaContainer string    // local-model sidecar to await before launching the agent
 	UsesSquid       bool      // proxy/firewall stage a Squid config + logs dir
+	Images          []string  // every sidecar image, for the preflight (in add order)
 }
 
 // Options parameterizes a Plan. Zero values are sensible: images default to the
@@ -136,6 +137,9 @@ func (b *builder) network(name string, internal bool) {
 func (b *builder) sidecar(cmd Command, name string) {
 	b.p.Sidecars = append(b.p.Sidecars, cmd)
 	b.containers = append(b.containers, name)
+	// Every sidecar run command ends with its image (none takes a trailing
+	// container command), so record it here for the image preflight.
+	b.p.Images = append(b.p.Images, cmd[len(cmd)-1])
 }
 
 // attachLocalModel adds the optional Ollama sidecar + its agent env on net.

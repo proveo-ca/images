@@ -11,7 +11,7 @@ source "$DEFS_DIR/lib/git-identity.sh"
 trap proveo_egress_cleanup EXIT
 
 IMAGE_NAME="${PROVEO_CURSOR_IMAGE:-proveo/cursor:latest}"
-EGRESS_MODE="open"
+EGRESS_MODE="firewall"
 INPUT_DIR="$PWD"
 REPO_ROOT=""
 SHELL_MODE=0
@@ -28,10 +28,10 @@ a git repository, the wrapper preserves the monorepo path under /app and mounts
 root .git for repo-aware tools.
 
 Network Security Levels (Egress Modes):
-  open                No proxy enforcement (default Docker bridge).
+  open                No proxy enforcement (plain Docker bridge network).
   proxy               HTTP/HTTPS via Squid enforcement proxy; non-web protocols
                       blocked by Docker network topology.
-  firewall  mitmproxy (TLS-decrypting recorder) → Squid → internet;
+  firewall (default)  mitmproxy (TLS-decrypting recorder) → Squid → internet;
                       complete decrypted audit trail of outbound web requests.
 
 Options:
@@ -44,12 +44,15 @@ Cursor-specific notes:
   the detected intent). --local-model / PROVEO_LOCAL_MODEL do not apply here.
 
 Examples:
-  # Interactive TUI in the current repo
+  # Interactive TUI in the current repo (firewall egress by default)
   ./run.sh
 
   # Headless autonomous run, fully audited egress
-  CURSOR_API_KEY=... ./run.sh --egress-mode firewall -- \
+  CURSOR_API_KEY=... ./run.sh -- \
     -p "Fix the failing tests" --output-format stream-json
+
+  # No egress enforcement (development only)
+  ./run.sh --egress-mode open
 EOF
 }
 

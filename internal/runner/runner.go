@@ -21,7 +21,7 @@ type Config struct {
 	Remove      bool     // add --rm
 	Tmpfs       []string // e.g. "/tmp:noexec,nosuid,size=100m"
 	Mounts      []Mount
-	Env         []string // "KEY=VALUE"
+	Env         []string // "KEY=VALUE", or bare "KEY" to forward the client env value (keeps secrets off the argv)
 	Workdir     string   // container working dir (-w), e.g. a monorepo sub-scope
 	Entrypoint  string   // override the image entrypoint (--entrypoint), e.g. "bash" for --shell
 	ExtraArgs   []string // pass-through (e.g. egress agent args, --network)

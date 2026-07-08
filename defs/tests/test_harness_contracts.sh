@@ -155,6 +155,42 @@ done
 assert_file_contains "shared entrypoint lib implements smoke mode" "$ROOT/packages/lib/entrypoint-lib.sh" "PROVEO_SMOKE_READY"
 assert_file_contains "claudecode default prompt encodes verification loop" "$ROOT/defs/claudecode/defaults/CLAUDE.md" "Verification Commands"
 assert_file_contains "claudecode run supports open egress mode" "$ROOT/defs/claudecode/run.sh" "open|proxy|firewall"
+# Secure-by-default: every run wrapper starts in firewall mode; open is opt-in.
+for runner_wrapper in claudecode cursor opencode cecli; do
+  assert_file_contains "$runner_wrapper run defaults to firewall egress" "$ROOT/defs/$runner_wrapper/run.sh" 'EGRESS_MODE="firewall"'
+done
+# Distribution completeness: every buildable def — any defs dir with a
+# build.sh — must be a registered mise build/deploy target with a working
+# dir + image mapping, so a new def cannot silently miss Docker Hub. Derived
+# from the filesystem, never a hand-maintained list.
+for def_build in "$ROOT"/defs/*/build.sh "$ROOT"/defs/sidecars/*/build.sh; do
+  [[ -f "$def_build" ]] || continue
+  def_dir="$(dirname "$def_build")"
+  def_name="$(basename "$def_dir")"
+  # Resolve through the same source chain the mise tasks use, in a subshell so
+  # the sourced CLI cannot clobber this test's helpers.
+  resolved="$(REPO_ROOT="$ROOT" bash -s "$def_name" <<'INNER' 2>/dev/null
+set -euo pipefail
+source "$REPO_ROOT/apps/cli/public/cli/bin/proveo"
+source "$REPO_ROOT/lib/helpers.sh"
+source "$REPO_ROOT/lib/runners.sh"
+name="$1"
+registered=0
+for t in "${TARGETS[@]}"; do
+  [[ "$t" == "$name" ]] && registered=1
+done
+[[ "$registered" == 1 ]] || { echo "unregistered"; exit 0; }
+printf '%s|%s\n' "$(target_dir "$name")" "$(image_name "$name")"
+INNER
+)"
+  if [[ "$resolved" == "$def_dir|proveo/"* ]]; then
+    pass "buildable def '$def_name' is a mise target with dir + image mappings"
+  else
+    fail "buildable def '$def_name' is a mise target with dir + image mappings" \
+      "Expected TARGETS (lib/runners.sh) to include '$def_name' resolving to '$def_dir|proveo/…', got: ${resolved:-nothing}"
+  fi
+done
+assert_file_contains "mise test suite covers the cursor def" "$ROOT/mise.toml" 'defs/cursor/test.sh'
 assert_file_contains "claudecode parent runner sources shared egress lifecycle" "$ROOT/defs/claudecode/run.sh" 'source "$DEFS_DIR/lib/egress.sh"'
 assert_file_contains "claudecode parent runner owns debug shell flow" "$ROOT/defs/claudecode/run.sh" '--shell'
 assert_file_contains "claudecode parent runner selects mcp variant image" "$ROOT/defs/claudecode/run.sh" 'PROVEO_CLAUDECODE_IMAGE'
@@ -259,7 +295,7 @@ assert_file_contains "egress cleanup triggers the post-run report" "$ROOT/defs/l
 assert_file_contains "egress report ranks the top 5 allowed operations" "$ROOT/defs/lib/egress.sh" "Top 5 ALLOWED"
 assert_file_contains "egress report ranks the top 5 denied operations" "$ROOT/defs/lib/egress.sh" "Top 5 DENIED"
 assert_file_contains "egress preflights all sidecar images before docker run" "$ROOT/defs/lib/egress.sh" "proveo_egress_ensure_images"
-assert_file_contains "egress preflight builds local proveo images, pulls the rest" "$ROOT/defs/lib/egress.sh" "image not built"
+assert_file_contains "egress preflight pulls published images, guides a local build on pull failure" "$ROOT/defs/lib/egress.sh" "image not built"
 assert_file_contains "egress prepare fails fast when an image is not ready" "$ROOT/defs/lib/egress.sh" "egress preflight failed"
 assert_file_contains "egress sidecar start checks the docker run exit code" "$ROOT/defs/lib/egress.sh" "failed to start Squid sidecar"
 assert_file_contains "egress tests reuse the shared image preflight (dedupe)" "$ROOT/defs/claudecode/tests/test_egress.sh" "proveo_egress_ensure_image"

@@ -42,6 +42,17 @@ image_name() {
     claudecode-solo)
       echo "proveo/claudecode-solo"
       ;;
+    # Maintainer build/deploy names (not in the consumer TARGETS menu): cursor
+    # is consumed via the Go `proveo` CLI; the rest are sidecar dependencies.
+    cursor)
+      echo "proveo/cursor"
+      ;;
+    egress-proxy)
+      echo "proveo/egress-proxy"
+      ;;
+    mitmproxy)
+      echo "proveo/mitmproxy"
+      ;;
     *)
       print_error "No image name mapping for target: $target"
       exit 1

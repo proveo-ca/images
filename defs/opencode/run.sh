@@ -11,7 +11,7 @@ trap proveo_egress_cleanup EXIT
 IMAGE_NAME="${PROVEO_OPENCODE_IMAGE:-proveo/opencode:latest}"
 INPUT_DIR="$PWD"
 REPO_ROOT=""
-EGRESS_MODE="open"
+EGRESS_MODE="firewall"
 SHELL_MODE=0
 OPENCODE_ARGS=()
 

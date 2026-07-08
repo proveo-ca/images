@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # Maintainer runners for proveo CLI
 
+# Maintainer-only image targets, appended to the consumer TARGETS the mise
+# tasks already sourced from bin/proveo: cursor (its consumer runner is the Go
+# `proveo` CLI, not the installed Bash CLI) plus the sidecar dependency images
+# (never runnable harnesses). Everything with a defs/**/build.sh must ship
+# through `mise build` / `mise deploy` so consumers can pull it from Docker
+# Hub — the harness contract test derives that invariant from the filesystem.
+TARGETS+=("cursor" "egress-proxy" "mitmproxy")
+
 target_dir() {
   local target="$1"
   case "$target" in
@@ -12,6 +20,15 @@ target_dir() {
       ;;
     claudecode|claudecode-solo)
       echo "$REPO_ROOT/defs/claudecode"
+      ;;
+    cursor)
+      echo "$REPO_ROOT/defs/cursor"
+      ;;
+    egress-proxy)
+      echo "$REPO_ROOT/defs/sidecars/egress-proxy"
+      ;;
+    mitmproxy)
+      echo "$REPO_ROOT/defs/sidecars/mitmproxy"
       ;;
     *)
       print_error "No directory mapping for target: $target"

@@ -12,7 +12,7 @@ trap proveo_egress_cleanup EXIT
 
 VARIANT="mcp"
 IMAGE=""
-EGRESS_MODE="open"
+EGRESS_MODE="firewall"
 INPUT_DIR="$(pwd)"
 OUTPUT_DIR="$(pwd)/reports"
 DATA_DIR=""
@@ -41,7 +41,7 @@ Network Security Levels (Egress Modes):
       Writes/exfiltration over HTTPS to arbitrary hosts are therefore NOT
       blocked in this mode — use firewall for enforced write-pinning.
 
-  firewall (recommended for production/auditing)
+  firewall (default; recommended for production/auditing)
       HTTP/HTTPS traffic is first routed through a mitmproxy inspection proxy
       that decrypts and records each request (method/path/host), then through
       Squid for enforcement. Non-web protocols are blocked. This provides
@@ -70,14 +70,14 @@ Provider egress allowlist (proxy / firewall modes):
   to cleartext HTTP only; HTTPS writes to non-provider hosts are not blocked.
 
 Examples:
-  # Default (open mode)
+  # Default (firewall mode: full inspection + enforcement, provider auto-detected)
   proveo run claudecode
 
   # Enforced proxy; egress auto-pinned to the provider of your present API key
   proveo run claudecode --egress-mode proxy
 
-  # Full inspection + enforcement (provider still auto-detected)
-  proveo run claudecode --egress-mode firewall
+  # No egress enforcement (development only)
+  proveo run claudecode --egress-mode open
 EOF
 }
 

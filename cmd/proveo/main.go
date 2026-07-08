@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	proveo "github.com/proveo-ca/proveo"
 	"github.com/proveo-ca/proveo/internal/egress"
@@ -30,6 +31,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/shell"
+	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
@@ -79,15 +81,22 @@ func main() {
 	root.AddCommand(versionCmd(), listCmd(), runCmd(), projectsCmd(), setupCmd())
 	if err := root.Execute(); err != nil {
 		// The agent's own non-zero exit is not a proveo error — propagate its code
-		// verbatim, without the "error:" prefix (C6).
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			os.Exit(ee.ExitCode())
+		// verbatim, without the "error:" prefix (C6). Only the agent's: a failed
+		// helper subprocess (docker pull, build.sh) wraps an ExitError too and
+		// must still be reported, so execAgent marks its exit with a named type.
+		var ae agentExitError
+		if errors.As(err, &ae) {
+			os.Exit(ae.code)
 		}
-		fmt.Fprintln(os.Stderr, "error:", err)
+		ui.Failf("%v", err)
 		os.Exit(1)
 	}
 }
+
+// agentExitError carries the agent container's own non-zero exit code.
+type agentExitError struct{ code int }
+
+func (e agentExitError) Error() string { return fmt.Sprintf("agent exited with code %d", e.code) }
 
 func versionCmd() *cobra.Command {
 	return &cobra.Command{
@@ -175,6 +184,25 @@ func doRun(p runParams) error {
 		return err
 	}
 
+	// Declared-but-missing env: prompt (the DinD-prompt-style wizard) on a TTY,
+	// else warn — a skipped var keeps today's warn-and-continue behavior. Runs
+	// before provider detection so a prompted key feeds the broker + forwarding.
+	if missing := man.MissingEnv(os.Getenv); len(missing) > 0 && !p.printOnly {
+		if isStdinTTY() && wizardEnabled() {
+			for name, v := range promptEnv(p.target, missing, os.Stdin, os.Stderr, termSecret) {
+				os.Setenv(name, v)
+			}
+			missing = man.MissingEnv(os.Getenv)
+		}
+		for _, e := range missing {
+			msg := e.Name + " not set"
+			if e.Description != "" {
+				msg += " — " + e.Description
+			}
+			ui.Warnf("%s", msg)
+		}
+	}
+
 	// Monorepo scope: the repo root gives full git/workspace context.
 	start := orWD(p.input)
 	ws := workspace.Resolve(start)
@@ -195,7 +223,7 @@ func doRun(p runParams) error {
 		}
 	}
 	if subScope != "" {
-		fmt.Fprintf(os.Stderr, "📂 scope: %s\n", subScope)
+		ui.Iconf("📂", "scope: %s", subScope)
 	}
 
 	// Build the mount plan from the manifest's workspace model (embedded whole —
@@ -241,12 +269,21 @@ func doRun(p runParams) error {
 		modelsDir = ollamaModelsDir()
 	}
 
+	// Declared env vars that are present are forwarded as bare `-e NAME`:
+	// docker resolves the value from the client env, keeping secrets off the argv.
+	var envNames []string
+	for _, e := range man.Env {
+		if strings.TrimSpace(os.Getenv(e.Name)) != "" {
+			envNames = append(envNames, e.Name)
+		}
+	}
+
 	// Pure assembly of the topology + agent config from the resolved inputs — the
 	// unit-testable seam (D2); all I/O (scope resolve, picker, secret write) is above.
 	plan, agent, err := assemble(assembleInput{
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
 		modelsDir: modelsDir, provider: providerName, brokerFile: brokerFile,
-		mounts: mounts, workdir: workdir,
+		mounts: mounts, workdir: workdir, env: envNames,
 		providerDomains: os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"),
 		squidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		proxyImage:      os.Getenv("PROVEO_EGRESS_PROXY_IMAGE"),
@@ -260,6 +297,11 @@ func doRun(p runParams) error {
 		fmt.Print(plan.Render())
 		fmt.Printf("# agent\ndocker %s\n", strings.Join(runner.DockerRunArgs(agent), " "))
 		return nil
+	}
+	// Ready every image (sidecars + agent) before any network/container exists:
+	// pull public ones, offer to build missing proveo/* ones (see provision.go).
+	if err := preflightImages(plan, man, p.image); err != nil {
+		return err
 	}
 	warnMountedSecrets(wsSpec.InputDir, p.mode)
 	// Dispatch on whether the plan actually has sidecars/networks — not on the mode
@@ -295,6 +337,7 @@ type assembleInput struct {
 	modelsDir, provider, brokerFile     string
 	mounts                              []runner.Mount
 	workdir                             string
+	env                                 []string // declared env var names to forward (bare -e)
 	providerDomains                     string
 	squidImage, proxyImage, ollamaImage string
 }
@@ -321,6 +364,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 		Interactive: true, Remove: true, User: in.uid + ":" + in.gid,
 		Mounts:    in.mounts,
 		Workdir:   in.workdir,
+		Env:       in.env,
 		ExtraArgs: plan.AgentArgs, Image: in.params.image, Command: in.params.extra,
 	}
 	if in.params.dataDir != "" {
@@ -396,7 +440,12 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 func execAgent(agent runner.Config) error {
 	c := exec.Command("docker", runner.DockerRunArgs(agent)...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return c.Run()
+	err := c.Run()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return agentExitError{code: ee.ExitCode()}
+	}
+	return err
 }
 
 // ollamaModelsDir resolves the host Ollama model store: PROVEO_OLLAMA_MODELS_DIR
@@ -436,7 +485,8 @@ func projectsCmd() *cobra.Command {
 			root := workspace.Resolve(orWD("")).Root
 			projs := workspace.DiscoverProjects(root)
 			if len(projs) == 0 {
-				fmt.Println("no monorepo sub-projects found (not a monorepo, or no workspace members)")
+				// A note, not data: stdout stays empty so scripted callers see zero rows.
+				ui.Notef("no monorepo sub-projects found (not a monorepo, or no workspace members)")
 				return nil
 			}
 			for _, p := range projs {
@@ -474,16 +524,16 @@ func doSetup(printOnly bool) error {
 	line := sh.PathLine(binDir)
 
 	if !sh.Supported {
-		fmt.Printf("%s is not auto-configured. Add this to %s manually:\n  %s\n", sh.Name, rc, line)
+		ui.Notef("%s is not auto-configured. Add this to %s manually:\n  %s", sh.Name, rc, line)
 		return nil
 	}
 	if onPath(binDir) {
-		fmt.Printf("✓ %s is already on PATH\n", binDir)
+		ui.Okf("%s is already on PATH", binDir)
 		return nil
 	}
 	content, _ := os.ReadFile(rc) // missing rc is fine
 	if shell.AlreadyConfigured(string(content), binDir) {
-		fmt.Printf("✓ %s already configures PATH — restart your shell\n", rc)
+		ui.Okf("%s already configures PATH — restart your shell", rc)
 		return nil
 	}
 	if printOnly {
@@ -501,7 +551,7 @@ func doSetup(printOnly bool) error {
 	if _, err := f.WriteString(sh.Block(binDir)); err != nil {
 		return err
 	}
-	fmt.Printf("✓ added %s to PATH in %s — restart your shell or run: source %s\n", binDir, rc, rc)
+	ui.Okf("added %s to PATH in %s — restart your shell or run: source %s", binDir, rc, rc)
 	return nil
 }
 
@@ -514,9 +564,11 @@ func onPath(dir string) bool {
 	return false
 }
 
+// isStdinTTY gates every interactive prompt (scope picker, env wizard). A real
+// ioctl check, not a char-device stat: /dev/null is a character device too and
+// must not count as interactive.
 func isStdinTTY() bool {
-	fi, err := os.Stdin.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 // pickProject prints a numbered menu and returns the chosen sub-project path
@@ -571,7 +623,7 @@ func warnMountedSecrets(dir, mode string) {
 	if mode != "firewall" {
 		tail = "; use --egress-mode firewall so egress DLP blocks the key from leaving"
 	}
-	fmt.Fprintf(os.Stderr, "⚠️  %s/.env is mounted and a provider key is set — the agent can read it directly%s\n", dir, tail)
+	ui.Warnf("%s/.env is mounted and a provider key is set — the agent can read it directly%s", dir, tail)
 }
 
 func brokerEnabled() bool {

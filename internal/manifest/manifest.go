@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -36,6 +37,16 @@ type Workspace struct {
 	Mode string `yaml:"mode"`
 }
 
+// EnvVar declares an environment variable a harness reads at run time, so the
+// CLI can forward it into the container and — when it is missing — prompt for
+// it (interactive wizard) or warn (non-TTY). Secret values are prompted with
+// echo off and are only ever forwarded by name (`-e NAME`), never on an argv.
+type EnvVar struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Secret      bool   `yaml:"secret"`
+}
+
 // Manifest describes one harness definition.
 type Manifest struct {
 	Name        string            `yaml:"name"`
@@ -44,7 +55,20 @@ type Manifest struct {
 	Stability   string            `yaml:"stability"` // experimental | candidate | stable
 	Images      map[string]string `yaml:"images"`    // target name -> image ref
 	Workspace   Workspace         `yaml:"workspace"` // mount model
+	Env         []EnvVar          `yaml:"env"`       // env vars the harness reads
 	Dir         string            `yaml:"-"`         // def directory (set by Load)
+}
+
+// MissingEnv returns the declared env vars whose value is empty per getenv,
+// in declaration order.
+func (m Manifest) MissingEnv(getenv func(string) string) []EnvVar {
+	var out []EnvVar
+	for _, e := range m.Env {
+		if strings.TrimSpace(getenv(e.Name)) == "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // Validate reports whether a manifest is well-formed.
@@ -79,6 +103,16 @@ func (m Manifest) Validate() error {
 	case "", "rw", "ro":
 	default:
 		return fmt.Errorf("manifest %q: invalid workspace.mode %q", m.Name, m.Workspace.Mode)
+	}
+	seen := map[string]bool{}
+	for _, e := range m.Env {
+		if e.Name == "" {
+			return fmt.Errorf("manifest %q: env entry with empty name", m.Name)
+		}
+		if seen[e.Name] {
+			return fmt.Errorf("manifest %q: duplicate env entry %q", m.Name, e.Name)
+		}
+		seen[e.Name] = true
 	}
 	return nil
 }

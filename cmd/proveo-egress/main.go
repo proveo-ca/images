@@ -23,6 +23,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/egresspolicy"
 	"github.com/proveo-ca/proveo/internal/egressproxy"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func main() {
@@ -84,7 +85,7 @@ func serve() {
 			}
 		} else {
 			// Never echo secrets — only the (non-secret) provider name.
-			fmt.Fprintf(os.Stderr, "⚠️  proveo-egress: provider %q not broker-injectable; running inspect-only\n", name)
+			ui.Warnf("proveo-egress: provider %q not broker-injectable; running inspect-only", name)
 		}
 	}
 
@@ -196,10 +197,10 @@ func runProviderAllow() {
 	}
 	conf, matched, unknown := egress.ProviderAllowConf(providers, env("PROVEO_EGRESS_PROVIDER_DOMAINS", ""))
 	if len(unknown) > 0 {
-		fmt.Fprintf(os.Stderr, "⚠️  ignoring unknown provider(s): %s\n", strings.Join(unknown, " "))
+		ui.Warnf("ignoring unknown provider(s): %s", strings.Join(unknown, " "))
 	}
 	if len(providers) > 0 && len(matched) == 0 {
-		fmt.Fprintln(os.Stderr, "❌ no known egress provider(s); set PROVEO_EGRESS_PROVIDER_DOMAINS to pin custom endpoints")
+		ui.Failf("no known egress provider(s); set PROVEO_EGRESS_PROVIDER_DOMAINS to pin custom endpoints")
 		os.Exit(1)
 	}
 	fmt.Print(conf)

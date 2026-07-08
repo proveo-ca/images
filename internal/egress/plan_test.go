@@ -85,6 +85,34 @@ func TestModesAndValidMode(t *testing.T) {
 	}
 }
 
+// Plan.Images must name every sidecar image so the CLI preflight can ready
+// them (pull or build) before any network/container exists.
+func TestPlanImages(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		opts Options
+		want []string
+	}{
+		{name: "open has no sidecars", opts: baseOpts("open"), want: nil},
+		{name: "open with model needs ollama", opts: withModel(baseOpts("open"), "gemma4"), want: []string{"ollama/ollama:latest"}},
+		{name: "proxy needs squid", opts: baseOpts("proxy"), want: []string{"ubuntu/squid:latest"}},
+		{name: "firewall needs squid and the inspector", opts: baseOpts("firewall"), want: []string{"ubuntu/squid:latest", "proveo/egress-proxy:latest"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, err := BuildPlan(tc.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Join(p.Images, " "); got != strings.Join(tc.want, " ") {
+				t.Errorf("BuildPlan(%s).Images = %v, want %v", tc.opts.Mode, p.Images, tc.want)
+			}
+		})
+	}
+}
+
 // Security invariants — these assert properties, not exact strings.
 func TestBuildPlanInvariants(t *testing.T) {
 	t.Parallel()

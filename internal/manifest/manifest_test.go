@@ -35,6 +35,14 @@ func TestParse(t *testing.T) {
 			want: Manifest{Name: "cecli", Images: map[string]string{"cecli": "img"},
 				Workspace: Workspace{Layout: "app", ConfigDir: ".cecli", GitMode: "ro", Output: true, Mode: "ro"}, Dir: "dir"},
 		},
+		{
+			name: "env round-trip",
+			yaml: "name: cursor\nimages:\n  cursor: img\nenv:\n  - name: CURSOR_API_KEY\n    description: Cursor API key\n    secret: true\n",
+			want: Manifest{Name: "cursor", Images: map[string]string{"cursor": "img"},
+				Env: []EnvVar{{Name: "CURSOR_API_KEY", Description: "Cursor API key", Secret: true}}, Dir: "dir"},
+		},
+		{name: "env entry without a name", yaml: "name: x\nimages:\n  x: y\nenv:\n  - description: d\n", wantErr: true},
+		{name: "duplicate env entry", yaml: "name: x\nimages:\n  x: y\nenv:\n  - name: A\n  - name: A\n", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -89,6 +97,36 @@ func TestLoadAndTargets(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, targets); diff != "" {
 		t.Errorf("Targets mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestMissingEnv(t *testing.T) {
+	t.Parallel()
+	m := Manifest{Env: []EnvVar{
+		{Name: "CURSOR_API_KEY", Secret: true},
+		{Name: "CURSOR_TEAM_ID"},
+	}}
+	tests := []struct {
+		name string
+		env  map[string]string
+		want []string
+	}{
+		{name: "all missing", env: nil, want: []string{"CURSOR_API_KEY", "CURSOR_TEAM_ID"}},
+		{name: "one present", env: map[string]string{"CURSOR_API_KEY": "sk"}, want: []string{"CURSOR_TEAM_ID"}},
+		{name: "whitespace counts as missing", env: map[string]string{"CURSOR_API_KEY": "  ", "CURSOR_TEAM_ID": "t"}, want: []string{"CURSOR_API_KEY"}},
+		{name: "none missing", env: map[string]string{"CURSOR_API_KEY": "sk", "CURSOR_TEAM_ID": "t"}, want: nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var got []string
+			for _, e := range m.MissingEnv(func(k string) string { return tc.env[k] }) {
+				got = append(got, e.Name)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("MissingEnv(env=%v) mismatch (-want +got):\n%s", tc.env, diff)
+			}
+		})
 	}
 }
 

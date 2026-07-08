@@ -1,12 +1,16 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
@@ -150,12 +154,55 @@ func TestAssembleAndDispatch(t *testing.T) {
 		}
 	})
 
+	t.Run("declared env is forwarded by bare name, never as KEY=VALUE", func(t *testing.T) {
+		t.Parallel()
+		_, agent, err := assemble(assembleInput{
+			params: runParams{mode: "open", target: "cursor", image: "img"},
+			sid:    "s", egDir: "/st", uid: "1", gid: "1",
+			env: []string{"CURSOR_API_KEY"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		argv := strings.Join(runner.DockerRunArgs(agent), " ")
+		if !strings.Contains(argv, "-e CURSOR_API_KEY") {
+			t.Errorf("argv must forward the declared env by name: %s", argv)
+		}
+		if strings.Contains(argv, "CURSOR_API_KEY=") {
+			t.Errorf("argv must never contain the env value: %s", argv)
+		}
+	})
+
 	t.Run("unknown mode errors", func(t *testing.T) {
 		t.Parallel()
 		if _, _, err := assemble(assembleInput{params: runParams{mode: "nope"}, sid: "s", egDir: "/st"}); err == nil {
 			t.Error("assemble with an unknown mode must error")
 		}
 	})
+}
+
+// C6 regression: only the agent's own exit propagates as a bare exit code.
+// A failed helper subprocess (docker pull, build.sh) also wraps an
+// *exec.ExitError, and swallowing it would exit silently — it must NOT match
+// the agent-exit type.
+func TestAgentExitDiscrimination(t *testing.T) {
+	t.Parallel()
+	var ae agentExitError
+
+	if !errors.As(error(agentExitError{code: 42}), &ae) || ae.code != 42 {
+		t.Errorf("agentExitError must match itself and carry the code, got %+v", ae)
+	}
+
+	// A real wrapped ExitError, as a failed `docker pull` produces.
+	cmdErr := exec.Command("false").Run()
+	var ee *exec.ExitError
+	if !errors.As(cmdErr, &ee) {
+		t.Fatalf("exec false should produce an ExitError, got %v", cmdErr)
+	}
+	wrapped := fmt.Errorf("image unavailable: x (pull failed: %w)", cmdErr)
+	if errors.As(wrapped, &ae) {
+		t.Error("a wrapped helper ExitError must not be treated as the agent's exit")
+	}
 }
 
 // T2: writeBrokerEnv writes the injected key to a 0600 file in a 0700 dir, and
