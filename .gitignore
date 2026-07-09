@@ -76,3 +76,6 @@ samples/
 logs/
 *.log
 reports/
+# Go binaries built at repo root (use scratchpad / dist instead)
+/proveo
+/proveo-egress

@@ -1,0 +1,39 @@
+@startuml TestingLayer4Sequence
+' SPEC source: internal/tmux/e2e_test.go
+' Layer 4 — the promptful flow over time: drive -> prompt -> model -> side effect.
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam shadowing false
+
+title Layer 4 · Agent E2E — promptful flow (assert the side effect)
+
+actor "E2E test / CI" as Test
+participant "tmux (internal/tmux)" as Tmux
+participant "harness TUI (docker run -it)" as Harness
+participant "Ollama sidecar" as Ollama
+database "output mount" as FS
+
+Test -> Tmux : Start(proveo run <target> --local-model gemma4)
+Tmux -> Harness : launch in headless PTY
+note over Ollama : sidecar starts;\nmodel cold-loads on first call
+Harness --> Tmux : prints ready prompt
+Test -> Tmux : WaitFor("ready")
+Tmux --> Test : matched
+
+Test -> Tmux : SendText(task prompt) + Enter
+Tmux -> Harness : keystrokes -> stdin
+Harness -> Ollama : POST /v1/chat/completions (NO_PROXY)
+note right of Ollama : cold-load can take minutes\n(wait-for-serving + long timeout)
+Ollama --> Harness : reply (may include reasoning preamble)
+Harness -> FS : write DONE.txt (marker)
+
+loop poll until marker or timeout
+  Test -> FS : read DONE.txt
+end
+Test -> Test : assert contains marker
+Test -> Tmux : Kill (+ egress teardown)
+
+note over Test, FS
+Assert the **side effect** (DONE.txt), never the transcript — the model's prose
+is non-deterministic. Poll with timeout; never a fixed sleep.
+end note
+@enduml

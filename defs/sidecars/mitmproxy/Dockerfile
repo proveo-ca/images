@@ -1,7 +1,7 @@
 # Headless mitmproxy inspector for agent egress.
 # Replaces the Charles inspector: free (Apache-2.0), headless-native, and able
 # to decrypt HTTPS (method/path/body), which the previous Charles wiring could
-# not. Used as the first-hop inspection proxy in `inspected-firewall` egress
+# not. Used as the first-hop inspection proxy in `firewall` egress
 # mode, forwarding all traffic to Squid as its enforcement upstream.
 
 # Bump to the latest published mitmproxy/mitmproxy tag when upgrading.

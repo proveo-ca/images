@@ -59,7 +59,7 @@ EOF
   # under PROVEO_EGRESS_ROOT; point it at a scratch dir separate from --output-dir
   # so this test also proves the audit dir is not the agent's writable output.
   local egress_root="$capture_dir/state"
-  if [[ "$mode" == "inspected-firewall" ]]; then
+  if [[ "$mode" == "firewall" ]]; then
     # Pre-seed the mitmproxy CA so the CA-wait returns instantly under fake
     # docker (no real container generates it). Mirrors mitmproxy's own output.
     local mitm_confdir="$egress_root/egress/test-${mode}/mitmproxy/confdir"
@@ -306,12 +306,12 @@ assert_mode_contract() {
   fi
 
   case "$mode" in
-    open)
-      assert_file_not_contains "[open] allows arbitrary mock protocol egress by installing no proxy" "$args" "HTTP_PROXY="
-      assert_file_not_contains "[open] has no Squid enforcement proxy" "$args" "ENFORCEMENT_PROXY="
-      assert_file_not_contains "[open] has no mitmproxy inspection proxy" "$args" "INSPECT_PROXY="
-      assert_file_contains "[open] keeps the default bridge network contract" "$args" "--network=bridge"
-      assert_file_not_contains "[open] starts no sidecar networks" "$args" "network create"
+    broker)
+      assert_file_not_contains "[broker] allows arbitrary mock protocol egress by installing no proxy" "$args" "HTTP_PROXY="
+      assert_file_not_contains "[broker] has no Squid enforcement proxy" "$args" "ENFORCEMENT_PROXY="
+      assert_file_not_contains "[broker] has no mitmproxy inspection proxy" "$args" "INSPECT_PROXY="
+      assert_file_contains "[broker] keeps the default bridge network contract" "$args" "--network=bridge"
+      assert_file_not_contains "[broker] starts no sidecar networks" "$args" "network create"
       ;;
     proxy)
       assert_file_contains "[proxy] creates an internal agent-to-Squid network" "$args" "network create --label proveo.egress.session=test-proxy --internal test-proxy-claudecode-solo-squid-net"
@@ -325,23 +325,23 @@ assert_mode_contract() {
       assert_file_not_contains "[proxy] does not route through mitmproxy inspector" "$args" "INSPECT_PROXY="
       assert_file_not_contains "[proxy] agent is not attached to default bridge" "$args" "--network=bridge"
       ;;
-    inspected-firewall)
-      assert_file_contains "[inspected-firewall] creates agent-to-mitmproxy internal network" "$args" "network create --label proveo.egress.session=test-inspected-firewall --internal test-inspected-firewall-claudecode-solo-mitm-net"
-      assert_file_contains "[inspected-firewall] creates mitmproxy-to-Squid internal network" "$args" "network create --label proveo.egress.session=test-inspected-firewall --internal test-inspected-firewall-mitm-squid-net"
-      assert_file_contains "[inspected-firewall] starts Squid sidecar" "$args" "--name test-inspected-firewall-squid"
-      assert_file_contains "[inspected-firewall] starts Squid on internet-capable egress network" "$args" "--network test-inspected-firewall-squid-egress-net"
-      assert_file_contains "[inspected-firewall] connects Squid back to mitmproxy network with alias" "$args" "network connect --alias squid test-inspected-firewall-mitm-squid-net test-inspected-firewall-squid"
-      assert_file_contains "[inspected-firewall] starts mitmproxy sidecar first-hop alias" "$args" "--network-alias mitm"
-      assert_file_contains "[inspected-firewall] points mitmproxy at Squid upstream" "$args" "PROVEO_MITM_UPSTREAM=http://squid:3128"
-      assert_file_contains "[inspected-firewall] mounts mitmproxy confdir for CA generation" "$args" "/mitmproxy/confdir:/mitmproxy-confdir"
-      assert_file_contains "[inspected-firewall] mounts mitmproxy flows for analytics" "$args" "/mitmproxy/flows:/flows"
-      assert_file_contains "[inspected-firewall] connects mitmproxy to Squid network" "$args" "network connect test-inspected-firewall-mitm-squid-net test-inspected-firewall-mitm"
-      assert_file_contains "[inspected-firewall] blocks non-web protocols through Squid enforcement" "$args" "ENFORCEMENT_PROXY=http://squid:3128"
-      assert_file_contains "[inspected-firewall] routes first hop through mitmproxy for capture" "$args" "HTTP_PROXY=http://mitm:8888"
-      assert_file_contains "[inspected-firewall] exposes mitmproxy inspection proxy" "$args" "INSPECT_PROXY=http://mitm:8888"
-      assert_file_contains "[inspected-firewall] trusts the mitmproxy CA in the agent" "$args" "NODE_EXTRA_CA_CERTS=/etc/proveo/mitmproxy-ca-cert.pem"
-      assert_file_contains "[inspected-firewall] records egress log directory" "$output" "Egress logs:"
-      assert_file_not_contains "[inspected-firewall] agent is not attached to default bridge" "$args" "--network=bridge"
+    firewall)
+      assert_file_contains "[firewall] creates agent-to-mitmproxy internal network" "$args" "network create --label proveo.egress.session=test-firewall --internal test-firewall-claudecode-solo-mitm-net"
+      assert_file_contains "[firewall] creates mitmproxy-to-Squid internal network" "$args" "network create --label proveo.egress.session=test-firewall --internal test-firewall-mitm-squid-net"
+      assert_file_contains "[firewall] starts Squid sidecar" "$args" "--name test-firewall-squid"
+      assert_file_contains "[firewall] starts Squid on internet-capable egress network" "$args" "--network test-firewall-squid-egress-net"
+      assert_file_contains "[firewall] connects Squid back to mitmproxy network with alias" "$args" "network connect --alias squid test-firewall-mitm-squid-net test-firewall-squid"
+      assert_file_contains "[firewall] starts inspector first-hop alias" "$args" "--network-alias mitm"
+      assert_file_contains "[firewall] points the inspector at Squid upstream" "$args" "PROVEO_EGRESS_UPSTREAM=http://squid:3128"
+      assert_file_contains "[firewall] mounts inspector confdir for CA generation" "$args" "/mitmproxy/confdir:/confdir"
+      assert_file_contains "[firewall] mounts inspector flows for analytics" "$args" "/mitmproxy/flows:/flows"
+      assert_file_contains "[firewall] connects the inspector to the Squid network" "$args" "network connect test-firewall-mitm-squid-net test-firewall-egress"
+      assert_file_contains "[firewall] blocks non-web protocols through Squid enforcement" "$args" "ENFORCEMENT_PROXY=http://squid:3128"
+      assert_file_contains "[firewall] routes first hop through mitmproxy for capture" "$args" "HTTP_PROXY=http://mitm:8888"
+      assert_file_contains "[firewall] exposes mitmproxy inspection proxy" "$args" "INSPECT_PROXY=http://mitm:8888"
+      assert_file_contains "[firewall] trusts the mitmproxy CA in the agent" "$args" "NODE_EXTRA_CA_CERTS=/etc/proveo/mitmproxy-ca-cert.pem"
+      assert_file_contains "[firewall] records egress log directory" "$output" "Egress logs:"
+      assert_file_not_contains "[firewall] agent is not attached to default bridge" "$args" "--network=bridge"
       ;;
   esac
 
@@ -387,11 +387,11 @@ run_live_egress_integration() {
   TESTS_RUN=$((TESTS_RUN + 1))
   if docker run --rm --network bridge "$curl_image" -fsSL --max-time 20 https://example.com >/dev/null 2>&1; then
     TESTS_PASSED=$((TESTS_PASSED + 1))
-    printf "${GREEN}PASS${NC} [%d] [integration/open] direct HTTP(S) egress succeeds on bridge\n" "$TESTS_RUN"
+    printf "${GREEN}PASS${NC} [%d] [integration/broker] direct HTTP(S) egress succeeds on bridge\n" "$TESTS_RUN"
   else
     TESTS_FAILED=$((TESTS_FAILED + 1))
-    FAILURES+=("[integration/open] direct HTTP(S) egress succeeds on bridge")
-    printf "${RED}FAIL${NC} [%d] [integration/open] direct HTTP(S) egress failed\n" "$TESTS_RUN"
+    FAILURES+=("[integration/broker] direct HTTP(S) egress succeeds on bridge")
+    printf "${RED}FAIL${NC} [%d] [integration/broker] direct HTTP(S) egress failed\n" "$TESTS_RUN"
   fi
 
   unset PROVEO_EGRESS_SESSION_ID PROVEO_EGRESS_DIR
@@ -452,32 +452,32 @@ run_live_egress_integration() {
   # local-model integration below must still run when mitmproxy isn't built.
   local mitm_image="${PROVEO_MITMPROXY_IMAGE:-proveo/mitmproxy:latest}"
   if ! proveo_egress_image_present "$mitm_image"; then
-    skip_test "egress integration: inspected-firewall" "missing $mitm_image; run: defs/sidecars/mitmproxy/build.sh"
+    skip_test "egress integration: firewall" "missing $mitm_image; run: defs/sidecars/mitmproxy/build.sh"
   else
   unset PROVEO_EGRESS_SESSION_ID PROVEO_EGRESS_DIR
-  PROVEO_EGRESS_SESSION="integration-inspected-$$"
-  if proveo_egress_prepare inspected-firewall integration "$tmp/reports"; then
+  PROVEO_EGRESS_SESSION="integration-firewall-$$"
+  if proveo_egress_prepare firewall integration "$tmp/reports"; then
     TESTS_RUN=$((TESTS_RUN + 1))
     if docker run --rm "${PROVEO_EGRESS_AGENT_DOCKER_ARGS[@]}" "$curl_image" -fsSL --retry 25 --retry-connrefused --retry-delay 2 --max-time 30 https://example.com >/dev/null 2>&1; then
       TESTS_PASSED=$((TESTS_PASSED + 1))
-      printf "${GREEN}PASS${NC} [%d] [integration/inspected] HTTP(S) succeeds through mitmproxy then Squid (CA trusted)\n" "$TESTS_RUN"
+      printf "${GREEN}PASS${NC} [%d] [integration/firewall] HTTP(S) succeeds through mitmproxy then Squid (CA trusted)\n" "$TESTS_RUN"
     else
       TESTS_FAILED=$((TESTS_FAILED + 1))
-      FAILURES+=("[integration/inspected] HTTP(S) succeeds through mitmproxy then Squid")
-      printf "${RED}FAIL${NC} [%d] [integration/inspected] HTTP(S) chain failed\n" "$TESTS_RUN"
+      FAILURES+=("[integration/firewall] HTTP(S) succeeds through mitmproxy then Squid")
+      printf "${RED}FAIL${NC} [%d] [integration/firewall] HTTP(S) chain failed\n" "$TESTS_RUN"
     fi
 
     TESTS_RUN=$((TESTS_RUN + 1))
     if [[ -s "$PROVEO_EGRESS_DIR/mitmproxy/flows/flows.ndjson" ]]; then
       TESTS_PASSED=$((TESTS_PASSED + 1))
-      printf "${GREEN}PASS${NC} [%d] [integration/inspected] mitmproxy recorded a decrypted flow\n" "$TESTS_RUN"
+      printf "${GREEN}PASS${NC} [%d] [integration/firewall] mitmproxy recorded a decrypted flow\n" "$TESTS_RUN"
     else
       TESTS_FAILED=$((TESTS_FAILED + 1))
-      FAILURES+=("[integration/inspected] mitmproxy recorded a decrypted flow")
-      printf "${RED}FAIL${NC} [%d] [integration/inspected] missing mitmproxy flow export\n" "$TESTS_RUN"
+      FAILURES+=("[integration/firewall] mitmproxy recorded a decrypted flow")
+      printf "${RED}FAIL${NC} [%d] [integration/firewall] missing mitmproxy flow export\n" "$TESTS_RUN"
     fi
   else
-    egress_fail "[integration/inspected] prepare egress topology"
+    egress_fail "[integration/firewall] prepare egress topology"
   fi
   proveo_egress_cleanup
   fi
@@ -511,14 +511,14 @@ assert_file_not_contains "[policy] Pinecone docs are not hardcoded as a special 
 assert_file_not_contains "[policy] Google search is not hardcoded as a special case" "$SQUID_CONF" ".google.com"
 
 echo "Level 2: dry-run Docker topology contracts"
-assert_mode_contract open
+assert_mode_contract broker
 assert_mode_contract proxy
-assert_mode_contract inspected-firewall
+assert_mode_contract firewall
 
 echo "Level 2b: local-model sidecar contracts"
-assert_local_model_contract open
+assert_local_model_contract broker
 assert_local_model_contract proxy
-assert_local_model_contract inspected-firewall
+assert_local_model_contract firewall
 
 echo "Level 2c: post-run egress report"
 assert_egress_report_ranking
@@ -528,7 +528,17 @@ assert_provider_allowlist_contracts
 
 echo "Level 3: gated Docker integration contracts"
 if [[ "${PROVEO_EGRESS_INTEGRATION:-0}" != "1" ]]; then
-  skip_test "egress integration: open allows arbitrary mock protocol egress; proxy blocks non-web protocols; inspected captures decrypted HTTP(S) attempts in mitmproxy flows" "set PROVEO_EGRESS_INTEGRATION=1 to run Docker network integration tests"
+  skip_test "egress integration: broker allows arbitrary mock protocol egress; proxy blocks non-web protocols; firewall captures decrypted HTTP(S) attempts in mitmproxy flows" "set PROVEO_EGRESS_INTEGRATION=1 to run Docker network integration tests"
 else
   run_live_egress_integration
+fi
+
+# Propagate failures to the caller (the runner uses `set -e`). Without this a
+# stale assertion is printed but the script exits 0 and the failure is masked.
+echo
+printf 'egress contracts — failed: %d\n' "${TESTS_FAILED:-0}"
+if (( ${TESTS_FAILED:-0} > 0 )); then
+  printf 'Failed egress contracts:\n'
+  for _f in ${FAILURES[@]+"${FAILURES[@]}"}; do printf '  - %s\n' "$_f"; done
+  exit 1
 fi

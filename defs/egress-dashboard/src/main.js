@@ -6,20 +6,29 @@ async function loadEvents() {
   return response.json()
 }
 
+// esc HTML-escapes any value before it is interpolated into innerHTML. The
+// event fields come from parsed egress logs — an agent controls the hosts/paths
+// it requests, so those strings are untrusted and must never be rendered raw.
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ))
+}
+
 function render(events) {
   const rows = events
     .map((event) => `
-      <tr class="${event.decision}">
-        <td>${event.ts || ''}</td>
-        <td>${event.source}</td>
-        <td>${event.decision}</td>
-        <td>${event.protocol || ''}</td>
-        <td>${event.method || ''}</td>
-        <td>${event.host || ''}</td>
-        <td>${event.port || ''}</td>
-        <td>${event.status || ''}</td>
-        <td>${event.path || ''}</td>
-        <td>${event.reason || ''}</td>
+      <tr class="${esc(event.decision)}">
+        <td>${esc(event.ts)}</td>
+        <td>${esc(event.source)}</td>
+        <td>${esc(event.decision)}</td>
+        <td>${esc(event.protocol)}</td>
+        <td>${esc(event.method)}</td>
+        <td>${esc(event.host)}</td>
+        <td>${esc(event.port)}</td>
+        <td>${esc(event.status)}</td>
+        <td>${esc(event.path)}</td>
+        <td>${esc(event.reason)}</td>
       </tr>
     `)
     .join('')
@@ -51,5 +60,5 @@ function render(events) {
 }
 
 loadEvents().then(render).catch((error) => {
-  app.innerHTML = `<pre>${error.stack || error.message}</pre>`
+  app.innerHTML = `<pre>${esc(error.stack || error.message)}</pre>`
 })

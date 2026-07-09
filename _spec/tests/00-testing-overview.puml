@@ -1,0 +1,47 @@
+@startuml TestingOverview
+' SPEC source: defs/tests/run_contract_tests.sh
+' The four testing layers: fast + keyless at the base, gated + high-fidelity above.
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+title Testing Approach — Four Layers (speed vs fidelity)
+
+actor "Developer / CI" as Dev <<actor>>
+
+package "Layer 1 · Unit — always (go test -race)" as L1 {
+  component "internal/*/*_test.go\ntable-driven · go-cmp\nno Docker · no keys" as Unit <<app>>
+}
+package "Layer 2 · Contract — always (no Docker)" as L2 {
+  component "defs/tests/*\nstatic asserts + Bash<->Go parity\nbuilds proveo-egress" as Contract <<app>>
+}
+package "Layer 3 · Infra integration — PROVEO_EGRESS_INTEGRATION=1" as L3 {
+  component "internal/egress + test_egress.sh\nreal containers · NO model\ntopology · CA · isolation" as Infra <<container>>
+}
+package "Layer 4 · Agent E2E (promptful) — PROVEO_LLM_TEST=1" as L4 {
+  component "internal/tmux + echo-agent\nreal agent · local model\nasserts side-effects" as E2E <<container>>
+}
+
+Dev --> Unit    : run
+Dev --> Contract : run
+Dev ..> Infra   : opt-in (Docker)
+Dev ..> E2E     : opt-in (Docker + tmux + Ollama)
+
+note right of Unit    : deterministic\nmilliseconds
+note right of Contract : deterministic\nseconds
+note right of Infra   : deterministic\nDocker + internet, keyless
+note right of E2E     : NON-deterministic\nskip if tools/model absent
+
+note bottom of L4
+Higher layers cost more and are **gated** so the fast, keyless path (L1/L2)
+always runs. Only Layer 4 is non-deterministic — it asserts **side effects**,
+never model prose.
+end note
+
+' --- IGNORE: layout hints (do not edit) ---
+L1 -down[hidden]- L2
+L2 -down[hidden]- L3
+L3 -down[hidden]- L4
+' --- END IGNORE ---
+@enduml

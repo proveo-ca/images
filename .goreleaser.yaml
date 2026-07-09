@@ -1,0 +1,42 @@
+# Release config for the Go binaries (Plan 4 Phase 1). Produces multi-arch
+# static binaries + a sha256 checksums.txt so the installer can verify what it
+# downloads — replacing the unverified `curl | bash` pipeline.
+#   goreleaser check       # validate this file
+#   goreleaser release --snapshot --clean   # local dry-run build
+version: 2
+project_name: proveo
+
+builds:
+  - id: proveo
+    main: ./cmd/proveo
+    binary: proveo
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+  - id: proveo-egress
+    main: ./cmd/proveo-egress
+    binary: proveo-egress
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+
+archives:
+  - id: default
+    ids: [proveo, proveo-egress]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+release:
+  github:
+    owner: proveo-ca
+    name: images

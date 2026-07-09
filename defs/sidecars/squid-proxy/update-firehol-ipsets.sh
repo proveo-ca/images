@@ -2,7 +2,12 @@
 set -euo pipefail
 
 FIREHOL_IPSET="${FIREHOL_IPSET:-firehol_level1}"
-FIREHOL_SOURCE_URL="${FIREHOL_SOURCE_URL:-https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/${FIREHOL_IPSET}.netset}"
+# Fetch from a PINNABLE ref, not a moving branch. Set FIREHOL_REF to a commit SHA
+# (and FIREHOL_SHA256 to the netset's checksum) for a reproducible, verified
+# fetch; the `master` default is a mutable supply-chain risk and warns below.
+FIREHOL_REF="${FIREHOL_REF:-master}"
+FIREHOL_SOURCE_URL="${FIREHOL_SOURCE_URL:-https://raw.githubusercontent.com/firehol/blocklist-ipsets/${FIREHOL_REF}/${FIREHOL_IPSET}.netset}"
+FIREHOL_SHA256="${FIREHOL_SHA256:-}"
 OUTPUT_DIR="${1:-${FIREHOL_OUTPUT_DIR:-$(pwd)/config}}"
 OUTPUT_FILE="$OUTPUT_DIR/firehol-ipset.conf"
 
@@ -36,7 +41,23 @@ mkdir -p "$OUTPUT_DIR"
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
+if [[ "$FIREHOL_REF" == "master" && -z "$FIREHOL_SHA256" ]]; then
+  echo "⚠️  fetching FireHOL from a mutable 'master' ref with no checksum — set FIREHOL_REF=<commit> and FIREHOL_SHA256=<sum> for a reproducible, verified fetch." >&2
+fi
+
 curl -fsSL "$FIREHOL_SOURCE_URL" -o "$tmp"
+
+# Optional integrity check: refuse to proceed on a checksum mismatch.
+if [[ -n "$FIREHOL_SHA256" ]]; then
+  if command -v sha256sum >/dev/null 2>&1; then actual="$(sha256sum "$tmp" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then actual="$(shasum -a 256 "$tmp" | awk '{print $1}')"
+  else echo "❌ need sha256sum or shasum to verify FIREHOL_SHA256" >&2; exit 1
+  fi
+  if [[ "$actual" != "$FIREHOL_SHA256" ]]; then
+    echo "❌ FireHOL netset checksum mismatch (expected $FIREHOL_SHA256, got $actual); refusing." >&2
+    exit 1
+  fi
+fi
 
 {
   printf '# Generated from %s\n' "$FIREHOL_SOURCE_URL"

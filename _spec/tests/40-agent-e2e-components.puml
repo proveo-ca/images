@@ -1,0 +1,43 @@
+@startuml TestingLayer4Components
+' SPEC source: internal/tmux/e2e_test.go
+' Layer 4 — the promptful agent-E2E topology (headless tmux + local model).
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+title Layer 4 · Agent E2E (promptful) — components (PROVEO_LLM_TEST=1)
+
+actor "E2E test / CI" as Test <<actor>>
+
+node "Host" as Host <<node>> {
+  component "tmux session (headless PTY)\nnew-session -d · send-keys · capture-pane" as Tmux <<app>>
+  component "Ollama (host)\ngemma4:latest models" as HostOllama <<app>>
+  database "output bind mount\nDONE.txt (side effect)" as Out <<storage>>
+}
+
+node "Docker · per-session agent network" as Dnet <<node>> {
+  component "harness TUI (docker run -it)\nopencode / cecli / echo-agent fixture" as Harness <<container>>
+  component "Ollama sidecar\nserves host models (read-only)" as Sidecar <<container>>
+}
+
+Test --> Tmux : Start / SendText(prompt) / WaitFor
+Tmux --> Harness : drive via the -it PTY
+HostOllama ..> Sidecar : models mounted read-only
+Harness --> Sidecar : model call — NO_PROXY (/v1/chat/completions)
+Harness --> Out : writes DONE.txt
+Test --> Out : poll + assert marker
+
+note bottom of Dnet
+The `--local-model` bridge points the harness at the Ollama sidecar (keyless,
+offline, hermetic). Every other destination stays subject to the egress proxy;
+only the model call bypasses it via NO_PROXY. gemma4 is a thinking model reached
+over the OpenAI-compatible endpoint — so the test asserts the **side effect**.
+end note
+
+note right of Test
+Skips unless tmux + docker + Ollama(model) present.
+Real harnesses via PROVEO_TEST_TARGET; default is the
+defs/tests/echo-agent fixture (no vendor image needed).
+end note
+@enduml

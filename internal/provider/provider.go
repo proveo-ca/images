@@ -1,0 +1,179 @@
+// Package provider is the single source of truth about inference providers:
+// how each is auto-detected (which env vars imply it), its Squid write-pin ACL,
+// and — for the broker-injectable ones — the auth header/host used to inject a
+// credential. It replaces provider knowledge that was duplicated between
+// defs/lib/egress.sh (Bash) and the broker.
+//
+// Not every provider is broker-injectable: signed-request providers
+// (Bedrock/Azure/Vertex) are detectable and get a Squid ACL, but have no static
+// auth header to inject, so Resolve reports them as non-injectable.
+package provider
+
+import "strings"
+
+// AuthOption is one way to authenticate to a provider. The first option whose
+// EnvVar is present wins, so list the preferred scheme first.
+type AuthOption struct {
+	EnvVar string // env var holding the secret, e.g. "ANTHROPIC_API_KEY"
+	Header string // header to set, e.g. "x-api-key" or "authorization"
+	Query  string // query param to set instead of a header (e.g. Gemini "key")
+	Bearer bool   // prefix the value with "Bearer "
+}
+
+// Entry is a provider's full policy: detection, Squid ACL, and (optional) broker
+// injection. Entries are held in an ordered slice; detection order is preserved.
+type Entry struct {
+	Name   string
+	Detect []string     // env vars that imply this provider (any present => detected)
+	ACL    string       // Squid `provider_allow` ACL body (after "acl provider_allow ")
+	Hosts  []string     // broker inject/strip hosts (nil => not broker-injectable)
+	Auth   []AuthOption // broker auth options (nil => not broker-injectable)
+}
+
+// Resolved is the concrete broker inputs for a run.
+type Resolved struct {
+	Hosts  []string
+	Header string
+	Query  string
+	Value  string // empty => no injectable key present; strip + pass-through only
+}
+
+func bearer(envVar string) []AuthOption {
+	return []AuthOption{{EnvVar: envVar, Header: "authorization", Bearer: true}}
+}
+
+// entries is ordered to match defs/lib/egress.sh `proveo_egress_detect_providers`.
+var entries = []Entry{
+	{Name: "anthropic", Detect: []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
+		ACL: "dstdomain .anthropic.com", Hosts: []string{".anthropic.com"}, Auth: []AuthOption{
+			{EnvVar: "ANTHROPIC_API_KEY", Header: "x-api-key"},
+			{EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Header: "authorization", Bearer: true},
+		}},
+	{Name: "cursor", Detect: []string{"CURSOR_API_KEY"},
+		ACL: "dstdomain .cursor.sh .cursor.com", Hosts: []string{".cursor.sh", ".cursor.com"}, Auth: bearer("CURSOR_API_KEY")},
+	{Name: "openai", Detect: []string{"OPENAI_API_KEY"},
+		ACL: "dstdomain .openai.com .api.openai.com", Hosts: []string{".openai.com"}, Auth: bearer("OPENAI_API_KEY")},
+	{Name: "xai", Detect: []string{"XAI_API_KEY"},
+		ACL: "dstdomain .x.ai", Hosts: []string{".x.ai"}, Auth: bearer("XAI_API_KEY")},
+	{Name: "perplexity", Detect: []string{"PERPLEXITY_API_KEY"},
+		ACL: "dstdomain .perplexity.ai", Hosts: []string{".perplexity.ai"}, Auth: bearer("PERPLEXITY_API_KEY")},
+	{Name: "google", Detect: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
+		ACL: "dstdomain generativelanguage.googleapis.com", Hosts: []string{"generativelanguage.googleapis.com"}, Auth: []AuthOption{
+			{EnvVar: "GEMINI_API_KEY", Header: "x-goog-api-key"},
+			{EnvVar: "GOOGLE_API_KEY", Header: "x-goog-api-key"},
+		}},
+	{Name: "groq", Detect: []string{"GROQ_API_KEY"},
+		ACL: "dstdomain .groq.com", Hosts: []string{".groq.com"}, Auth: bearer("GROQ_API_KEY")},
+	{Name: "mistral", Detect: []string{"MISTRAL_API_KEY"},
+		ACL: "dstdomain .mistral.ai", Hosts: []string{".mistral.ai"}, Auth: bearer("MISTRAL_API_KEY")},
+	{Name: "cohere", Detect: []string{"COHERE_API_KEY"},
+		ACL: "dstdomain .cohere.com .cohere.ai", Hosts: []string{".cohere.com", ".cohere.ai"}, Auth: bearer("COHERE_API_KEY")},
+	{Name: "together", Detect: []string{"TOGETHER_API_KEY"},
+		ACL: "dstdomain .together.xyz .together.ai", Hosts: []string{".together.xyz", ".together.ai"}, Auth: bearer("TOGETHER_API_KEY")},
+	{Name: "fireworks", Detect: []string{"FIREWORKS_API_KEY"},
+		ACL: "dstdomain .fireworks.ai", Hosts: []string{".fireworks.ai"}, Auth: bearer("FIREWORKS_API_KEY")},
+	{Name: "gmi", Detect: []string{"GMI_API_KEY"},
+		ACL: "dstdomain .gmi-serving.com", Hosts: []string{".gmi-serving.com"}, Auth: bearer("GMI_API_KEY")},
+	{Name: "openrouter", Detect: []string{"OPENROUTER_API_KEY"},
+		ACL: "dstdomain openrouter.ai .openrouter.ai", Hosts: []string{"openrouter.ai", ".openrouter.ai"}, Auth: bearer("OPENROUTER_API_KEY")},
+	// Signed-request providers: detectable + Squid-pinned, but NOT broker-injectable.
+	{Name: "bedrock", Detect: []string{"AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"},
+		ACL: `dstdom_regex (^|\.)bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$`},
+	{Name: "azure", Detect: []string{"AZURE_API_KEY", "AZURE_OPENAI_API_KEY"},
+		ACL: "dstdomain .inference.ai.azure.com .services.ai.azure.com .openai.azure.com .cognitiveservices.azure.com"},
+	{Name: "vertex", Detect: []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+		ACL: `dstdom_regex (^|\.)([a-z0-9-]+-)?aiplatform\.googleapis\.com$`},
+}
+
+var byName = func() map[string]*Entry {
+	m := make(map[string]*Entry, len(entries))
+	for i := range entries {
+		m[entries[i].Name] = &entries[i]
+	}
+	return m
+}()
+
+// Names returns all provider names in registry (detection) order.
+func Names() []string {
+	out := make([]string, len(entries))
+	for i := range entries {
+		out[i] = entries[i].Name
+	}
+	return out
+}
+
+// Lookup returns the entry for a provider name.
+func Lookup(name string) (Entry, bool) {
+	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
+	if !ok {
+		return Entry{}, false
+	}
+	return *e, true
+}
+
+// Detect returns the providers implied by the present env vars, in registry
+// order. Mirrors defs/lib/egress.sh `proveo_egress_detect_providers`.
+func Detect(getenv func(string) string) []string {
+	var out []string
+	for i := range entries {
+		for _, v := range entries[i].Detect {
+			if strings.TrimSpace(getenv(v)) != "" {
+				out = append(out, entries[i].Name)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// ACLBody returns the Squid `provider_allow` ACL body for a provider.
+func ACLBody(name string) (string, bool) {
+	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
+	if !ok {
+		return "", false
+	}
+	return e.ACL, true
+}
+
+// KeyVars returns every broker secret env-var name (injectable providers only),
+// so the host side can dump exactly those into the broker's secret env-file.
+func KeyVars() []string {
+	seen := map[string]bool{}
+	var out []string
+	for i := range entries {
+		for _, a := range entries[i].Auth {
+			if !seen[a.EnvVar] {
+				seen[a.EnvVar] = true
+				out = append(out, a.EnvVar)
+			}
+		}
+	}
+	return out
+}
+
+// Resolve produces broker inputs for name using getenv. ok is false when the
+// provider is unknown OR not broker-injectable (no static auth header). When
+// known-injectable but no key is present, Hosts is still populated (for
+// strip-exclusion) and Value is empty (pass-through on the provider host).
+func Resolve(name string, getenv func(string) string) (Resolved, bool) {
+	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
+	if !ok || len(e.Auth) == 0 {
+		return Resolved{}, false
+	}
+	r := Resolved{Hosts: e.Hosts}
+	for _, a := range e.Auth {
+		v := strings.TrimSpace(getenv(a.EnvVar))
+		if v == "" {
+			continue
+		}
+		r.Header = a.Header
+		r.Query = a.Query
+		if a.Bearer {
+			r.Value = "Bearer " + v
+		} else {
+			r.Value = v
+		}
+		break
+	}
+	return r, true
+}

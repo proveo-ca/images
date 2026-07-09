@@ -39,6 +39,13 @@ build_target() {
             "$build_script" --variant solo --tag "$tag"
           fi
           ;;
+        claudecode-sol)
+          if [[ -n "$no_cache" ]]; then
+            "$build_script" --variant sol --tag "$tag" --no-cache
+          else
+            "$build_script" --variant sol --tag "$tag"
+          fi
+          ;;
         *)
           if [[ -n "$no_cache" ]]; then
             "$build_script" --no-cache

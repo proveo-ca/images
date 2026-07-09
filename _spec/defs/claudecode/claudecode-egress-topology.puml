@@ -7,12 +7,12 @@ skinparam linetype ortho
 
 left to right direction
 
-title Claude Code Egress Topology — mitmproxy-First Inspected Firewall
+title Claude Code Egress Topology — Go-Inspector Broker + Credential Broker
 
 actor "Human" as Human
 actor "Claude Code" as Claude
 
-package "Mode: open" as OpenMode {
+package "Mode: broker" as BrokerModeDirect {
   component "claudecode\n--dangerously-skip-permissions" as OpenClaude <<container>>
   component "default bridge\ndirect internet" as OpenBridge <<network>>
 }
@@ -23,10 +23,11 @@ package "Mode: proxy" as ProxyMode {
   component "egress network" as ProxyEgress <<network>>
 }
 
-package "Mode: inspected-firewall" as InspectedMode {
-  component "claudecode\ninternal only" as InspectedClaude <<container>>
+package "Mode: firewall" as FirewallMode {
+  component "claudecode\ninternal only" as FirewallClaude <<container>>
   component "agent-inspect-net\ninternal" as AgentInspectNet <<network>>
-  component "mitmproxy:8888\nTLS intercept + record" as Mitm <<container>>
+  component "proveo-egress:8888\nGo MITM: record + broker\n(mitmproxy = legacy fallback)" as Mitm <<container>>
+  component "broker secret env-file\n0600, outside agent mounts" as CredFile <<storage>>
   component "inspect-enforce-net\ninternal" as InspectEnforceNet <<network>>
   component "squid:3128\nupstream policy proxy" as Squid <<container>>
   component "egress-net\ninternet capable" as EgressNet <<network>>
@@ -48,7 +49,7 @@ package "Internet" as Internet {
   component "Blocked non-web protocols\nFTP, SSH, DB, mail, raw TCP/UDP" as BlockedProtocols <<external>>
 }
 
-Claude --> OpenClaude : open mode
+Claude --> OpenClaude : broker mode
 OpenClaude --> OpenBridge : unrestricted egress
 OpenBridge --> Internet : direct
 
@@ -59,11 +60,14 @@ ProxyEgress --> Providers : allowed exceptions
 ProxyEgress --> ReadWeb : allowed HTTP(S) reads
 ProxySquid -[#red]-> BlockedWrites : deny where observable
 
-Claude --> InspectedClaude : inspected-firewall mode
-InspectedClaude ..> Ollama : NO_PROXY direct (local model, no egress)
-InspectedClaude --> AgentInspectNet : HTTP_PROXY / HTTPS_PROXY + trusts mitm CA
+Claude --> FirewallClaude : broker mode
+FirewallClaude ..> Ollama : NO_PROXY direct (local model, no egress)
+FirewallClaude --> AgentInspectNet : HTTP_PROXY / HTTPS_PROXY + trusts mitm CA
 AgentInspectNet --> Mitm : first hop decrypts HTTP(S)
-Mitm --> MitmFlows : record / export NDJSON
+CredFile ..> Mitm : real provider secret (sidecar only)
+Mitm --> MitmFlows : record / export NDJSON (no query string)
+Mitm -[#005F7F,bold]-> Providers : inject real credential (pinned host only)
+Mitm -[#6E1100,bold]-> BlockedWrites : strip credential headers (all other hosts)
 Mitm --> InspectEnforceNet : upstream proxy only
 InspectEnforceNet --> Squid : enforce policy
 Squid --> SquidLogs : allow / deny log
@@ -71,7 +75,7 @@ Squid --> EgressNet : only real internet egress
 EgressNet --> Providers : allowed exceptions
 EgressNet --> ReadWeb : allowed HTTP(S) reads
 Squid -[#red]-> BlockedWrites : deny where observable
-InspectedClaude -[#red]-> GuardLogs : direct non-web bypass attempts
+FirewallClaude -[#red]-> GuardLogs : direct non-web bypass attempts
 GuardLogs -[#red]-> BlockedProtocols : deny + log
 
 MitmFlows --> Dashboard
@@ -82,14 +86,23 @@ Human --> Dashboard : inspect agent egress timeline
 Human ..> Report : top allowed / denied egress
 
 note right of Mitm
-mitmproxy is the first-hop inspector.
-HTTPS interception is on: it decrypts and
-records each request (method / path / host)
-and exports flows as NDJSON.
-The agent trusts mitmproxy's generated CA via
-standard CA env vars, so all its TLS terminates
-here. mitmproxy uses Squid as upstream proxy
-and has no direct internet egress.
+""proveo-egress"" (Go, martian) is the first-hop
+inspector. HTTPS interception is on: it decrypts
+and records each request (method / path / host,
+**no query string**) as NDJSON. The agent trusts
+its generated CA via standard CA env vars, so all
+its TLS terminates here; it uses Squid as upstream
+proxy and has no direct internet egress. Runs as
+the invoking host uid, not root.
+**Credential broker** (firewall only):
+the real provider secret lives ONLY in this
+sidecar (0600 env-file, outside agent mounts). It
+**injects** the auth header on the pinned-provider
+host and **strips** credential headers everywhere
+else, so a key the agent read from a mounted
+""\.env"" is useless for exfiltration.
+(""PROVEO_EGRESS_INSPECTOR=mitmproxy"" selects the
+legacy Python sidecar, without the broker.)
 end note
 
 note right of Squid
@@ -108,7 +121,7 @@ Squid sees only CONNECT host:port for HTTPS;
 mitmproxy provides the decrypted method/path view.
 end note
 
-note bottom of InspectedMode
+note bottom of FirewallMode
 Docker network invariant:
 claudecode only reaches mitmproxy.
 mitmproxy only reaches Squid.
@@ -138,7 +151,7 @@ works while all internet egress stays policed.
 end note
 
 note right of Providers
-**Provider egress allowlist** (proxy + inspected).
+**Provider egress allowlist** (proxy + firewall).
 Auto-detected from the present API key: inference
 WRITES (POST/...) are pinned to the chosen provider
 endpoint only; web READS (docs/search/scraping)

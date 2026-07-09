@@ -12,7 +12,7 @@ trap proveo_egress_cleanup EXIT
 
 VARIANT="mcp"
 IMAGE=""
-EGRESS_MODE="open"
+EGRESS_MODE="firewall"
 INPUT_DIR="$(pwd)"
 OUTPUT_DIR="$(pwd)/reports"
 DATA_DIR=""
@@ -27,7 +27,7 @@ Usage:
 Runs the claudecode harness. The default variant is mcp.
 
 Network Security Levels (Egress Modes):
-  open
+  broker
       No proxy enforcement. The container uses the default Docker bridge
       network with direct internet access. Suitable for local development
       where no network isolation is required.
@@ -39,13 +39,14 @@ Network Security Levels (Egress Modes):
       NOTE: without TLS interception Squid sees only "CONNECT host:443" for
       HTTPS, so it enforces destination host/port but NOT the request method.
       Writes/exfiltration over HTTPS to arbitrary hosts are therefore NOT
-      blocked in this mode — use inspected-firewall for enforced write-pinning.
+      blocked in this mode — use firewall for enforced write-pinning.
 
-  inspected-firewall (recommended for production/auditing)
-      HTTP/HTTPS traffic is first routed through a mitmproxy inspection proxy
-      that decrypts and records each request (method/path/host), then through
-      Squid for enforcement. Non-web protocols are blocked. This provides
-      complete, decrypted audit trails of all outbound web requests.
+  firewall (default; recommended for production/auditing)
+      HTTP/HTTPS traffic is first routed through proveo-egress (TLS MITM +
+      credential broker) that decrypts and records each request
+      (method/path/host), then through Squid for enforcement. Non-web
+      protocols are blocked. This provides complete, decrypted audit trails
+      of all outbound web requests.
 
 Options:
   --input-dir PATH     Directory to mount as input (default: current directory)
@@ -58,7 +59,7 @@ Options:
                        egress stays policed. Also honored via PROVEO_LOCAL_MODEL.
   --shell              Open bash in the container instead of launching Claude
 
-Provider egress allowlist (proxy / inspected-firewall modes):
+Provider egress allowlist (proxy / firewall modes):
   The provider is auto-detected from whichever API key is present (current env
   or the project .env) — ANTHROPIC_API_KEY→anthropic, OPENAI_API_KEY→openai,
   GMI_API_KEY→gmi, AWS creds→bedrock, etc. Inference writes are then pinned to
@@ -66,18 +67,18 @@ Provider egress allowlist (proxy / inspected-firewall modes):
   needed — the key you already have is the intent. (Custom/self-hosted
   endpoints, if ever needed: PROVEO_EGRESS_PROVIDER_DOMAINS=".host".)
   IMPORTANT: write-pinning to "any other host is denied" is fully enforced only
-  in inspected-firewall mode (TLS is decrypted). In proxy mode the pin applies
+  in firewall mode (TLS is decrypted). In proxy mode the pin applies
   to cleartext HTTP only; HTTPS writes to non-provider hosts are not blocked.
 
 Examples:
-  # Default (open mode)
+  # Default (firewall mode: full inspection + enforcement, provider auto-detected)
   proveo run claudecode
 
   # Enforced proxy; egress auto-pinned to the provider of your present API key
   proveo run claudecode --egress-mode proxy
 
-  # Full inspection + enforcement (provider still auto-detected)
-  proveo run claudecode --egress-mode inspected-firewall
+  # No egress enforcement (development only)
+  proveo run claudecode --egress-mode broker
 EOF
 }
 
@@ -96,7 +97,7 @@ while [[ $# -gt 0 ]]; do
     --egress-mode)
       [[ $# -ge 2 ]] || { echo "--egress-mode requires a value" >&2; exit 1; }
       case "$2" in
-        open|proxy|inspected-firewall)
+        broker|proxy|firewall)
           EGRESS_MODE="$2"
           ;;
         *)
@@ -187,11 +188,16 @@ DOCKER_ARGS=(
   "--security-opt=no-new-privileges:true"
   "--tmpfs" "/tmp:noexec,nosuid,size=100m"
   "--tmpfs" "/workspace/temp:noexec,nosuid,size=2g"
-  "--pids-limit=100"
+  "--pids-limit=512"
   "-v" "${INPUT_DIR}:/workspace/input:ro"
   "-v" "${OUTPUT_DIR}:/workspace/output:rw"
-  "-e" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}"
 )
+
+# Pass the raw token to the agent ONLY in broker mode. In proxy/broker the
+# credential is withheld from the agent (firewall mode injects at the proxy).
+if [[ "$EGRESS_MODE" == "broker" ]]; then
+  DOCKER_ARGS+=("-e" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}")
+fi
 
 # Forward the developer's git identity (host git config or GIT_* env) so the
 # agent's commits are attributed to them; see defs/lib/git-identity.sh.

@@ -1,0 +1,40 @@
+@startuml TestingLayer2Contract
+' SPEC source: defs/tests/test_harness_contracts.sh
+' Layer 2 — cross-language contracts + Bash<->Go parity. No Docker.
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+title Layer 2 · Contract — components (no Docker; builds the Go binary)
+
+actor "run_contract_tests.sh" as Runner <<actor>>
+
+component "go build ./cmd/proveo-egress\n-> PROVEO_EGRESS_BIN" as Build <<app>>
+cloud "proveo-egress (Go binary)\ndetect · provider-allow · providers" as Bin <<external>>
+
+package "Contract suites" as Suites {
+  component "test_harness_contracts.sh\nstatic asserts on run.sh / Dockerfiles /\nmanifests / provider.go / egress.go" as Harness <<app>>
+  component "test_egress.sh\ndetection + allowlist via the binary;\nfake-docker mode contracts" as EgressC <<app>>
+}
+
+package "Assertion targets (source of truth)" as Targets {
+  component "defs/*/run.sh\ndefs/*/harness.manifest" as Defs <<app>>
+  component "internal/provider · internal/egress\n(Go single source)" as GoSrc <<app>>
+}
+
+Runner --> Build : first
+Build --> Bin
+Runner --> Harness
+Runner --> EgressC
+EgressC --> Bin : delegate detect / provider-allow (live)
+Harness ..> Defs : grep invariants
+Harness ..> GoSrc : grep invariants
+EgressC ..> GoSrc : parity via the binary
+
+note bottom of Suites
+Delegation makes the contracts exercise the **real Go source** (single source of
+truth), not a Bash duplicate. The runner exits non-zero on any failure (fixed
+masking bug). Deterministic; no Docker for the core (fake docker for mode args).
+end note
+@enduml

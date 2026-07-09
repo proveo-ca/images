@@ -4,6 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/git-identity.sh
 source "$SCRIPT_DIR/../lib/git-identity.sh"
+# shellcheck source=../lib/env-mount.sh
+source "$SCRIPT_DIR/../lib/env-mount.sh"
+# shellcheck source=../lib/egress.sh
+source "$SCRIPT_DIR/../lib/egress.sh"
+trap proveo_egress_cleanup EXIT
 
 IMAGE_NAME="${CECLI_IMAGE:-proveo/cecli-node:latest}"
 INPUT_DIR="${CECLI_INPUT_DIR:-$(pwd)}"
@@ -11,6 +16,8 @@ OUTPUT_DIR="${CECLI_OUTPUT_DIR:-$(pwd)/reports}"
 REPO_ROOT=""
 INSTALL_NODE_DEPS="${CECLI_INSTALL_NODE_DEPS:-0}"
 READ_ONLY=0
+EGRESS_MODE="firewall"
+SHELL_MODE=0
 CECLI_ARGS=()
 
 usage() {
@@ -86,6 +93,23 @@ while [[ $# -gt 0 ]]; do
       READ_ONLY=1
       shift
       ;;
+    --egress-mode)
+      require_value "$1" "${2:-}"
+      case "$2" in
+        broker|proxy|firewall) EGRESS_MODE="$2" ;;
+        *) echo "Invalid egress-mode: $2" >&2; exit 1 ;;
+      esac
+      shift 2
+      ;;
+    --local-model)
+      require_value "$1" "${2:-}"
+      export PROVEO_LOCAL_MODEL="$2"
+      shift 2
+      ;;
+    --shell)
+      SHELL_MODE=1
+      shift
+      ;;
     --)
       shift
       CECLI_ARGS+=("$@")
@@ -121,7 +145,7 @@ DOCKER_ARGS=(
   # Capability/privilege hardening baseline, matching the claudecode runner.
   "--cap-drop=ALL"
   "--security-opt=no-new-privileges:true"
-  "--pids-limit=100"
+  "--pids-limit=512"
   "-e" "CECLI_HOME=$CECLI_HOME_VALUE"
   "-e" "CECLI_INSTALL_NODE_DEPS=$INSTALL_NODE_DEPS"
 )
@@ -135,6 +159,7 @@ if [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT" ]]; then
   CONTAINER_NAME="$(basename "$REPO_ROOT")-cecli"
   DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$REPO_ROOT:/app:$APP_MOUNT_MODE" -w /app)
+  proveo_append_env_mount_args DOCKER_ARGS "$INPUT_DIR" "$REPO_ROOT" "$EGRESS_MODE"
 elif [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT/"* ]]; then
   RELATIVE_SCOPE="${INPUT_DIR#$REPO_ROOT/}"
   CONTAINER_NAME="$(basename "$REPO_ROOT")-${RELATIVE_SCOPE//\//-}-cecli"
@@ -148,11 +173,7 @@ elif [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT/"* ]]; then
   if [[ -d "$REPO_ROOT/.cecli" && ! -e "$INPUT_DIR/.cecli" ]]; then
     DOCKER_ARGS+=(-v "$REPO_ROOT/.cecli:/app/.cecli:$APP_MOUNT_MODE")
   fi
-  if [[ -f "$INPUT_DIR/.env" ]]; then
-    DOCKER_ARGS+=(-v "$INPUT_DIR/.env:/app/.env:ro")
-  elif [[ -f "$REPO_ROOT/.env" ]]; then
-    DOCKER_ARGS+=(-v "$REPO_ROOT/.env:/app/.env:ro")
-  fi
+  proveo_append_env_mount_args DOCKER_ARGS "$INPUT_DIR" "$REPO_ROOT" "$EGRESS_MODE" "$RELATIVE_SCOPE"
   for scoped_file in .cecli.config.yml .cecli.config.yaml .cecli.conf.yml .cecli.conf.yaml .cecliignore; do
     if [[ -e "$INPUT_DIR/$scoped_file" && ! -e "$REPO_ROOT/$scoped_file" ]]; then
       DOCKER_ARGS+=(-v "$INPUT_DIR/$scoped_file:/app/$scoped_file:ro")
@@ -162,11 +183,26 @@ else
   CONTAINER_NAME="$(basename "$INPUT_DIR")-cecli"
   DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$INPUT_DIR:/app:$APP_MOUNT_MODE" -w /app)
+  proveo_append_env_mount_args DOCKER_ARGS "$INPUT_DIR" "" "$EGRESS_MODE"
 fi
 
-docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
-
 DOCKER_ARGS+=(-v "$OUTPUT_DIR:/app/output:rw")
+
+if [[ "$SHELL_MODE" == "1" ]]; then
+  DOCKER_ARGS+=("--entrypoint" "bash")
+fi
+
+# Wrap the agent in the network egress boundary (broker|proxy|firewall),
+# same lifecycle as claudecode/cursor. Egress artifacts stay in a host state dir
+# outside the agent mounts; override the base with PROVEO_EGRESS_ROOT.
+EGRESS_STATE_ROOT="${PROVEO_EGRESS_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/proveo}"
+if ! proveo_egress_prepare "$EGRESS_MODE" "cecli" "$EGRESS_STATE_ROOT"; then
+  echo "❌ egress preflight failed; aborting before launch" >&2
+  exit 1
+fi
+proveo_egress_append_agent_args DOCKER_ARGS
+
+docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
 echo "🚀 Starting Cecli..."
 echo "Image:              $IMAGE_NAME"

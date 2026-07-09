@@ -1,4 +1,5 @@
-FROM node:22-slim
+ARG BASE_IMAGE=proveo/base:latest
+FROM ${BASE_IMAGE}
 
 ARG USER_ID=1000
 ARG USER_NAME=cecli
@@ -18,29 +19,21 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONDONTWRITEBYTECODE=1 \
+# cecli-specific env; the common floor lives in proveo/base
+ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    CECLI_HOME=/app/.cecli \
-    NPM_CONFIG_AUDIT=false \
-    NPM_CONFIG_FUND=false \
-    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+    CECLI_HOME=/app/.cecli
 
+# Harness extras on top of proveo/base (git/gh/curl/python3/dumb-init/pnpm and
+# the hardening pass live there); re-run the harden pass after installing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
     python3-pip \
     python3-venv \
-    git \
-    gh \
-    curl \
-    ca-certificates \
     build-essential \
     less \
-    dumb-init \
-  && rm -rf /var/lib/apt/lists/*
-
-RUN npm install -g pnpm@10.33.0
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+  && /usr/local/sbin/proveo-harden
 
 RUN python3 -m venv /opt/cecli \
   && /opt/cecli/bin/pip install --upgrade pip setuptools wheel \
