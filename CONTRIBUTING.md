@@ -31,6 +31,63 @@ forward the developer's identity with `proveo_git_identity_env_args`
 (`defs/lib/git-identity.sh`) in the wrapper, and bridge it file-free with
 `bridge_git_identity` + `report_git_context` in the entrypoint.
 
+## Secrets and `.env` mounts (required)
+
+**Do not bind-mount a project `.env` that contains provider API keys into the agent
+container** when documenting or implementing a security-sensitive path. Mounted secrets
+are readable by an autonomous agent regardless of in-tool deny rules; entrypoints that
+`source` `.env` also export those values into the agent process.
+
+Contributors should treat `.env` handling as follows:
+
+- **Target posture:** keys live in the host environment (or `docker run -e`); in
+  `firewall` egress mode the credential broker injects on the pinned provider host from a
+  secret file mounted **outside** every agent bind mount (see
+  [`plans/01-security-credential-broker.md`](plans/01-security-credential-broker.md)).
+- **Pragmatic mounts today:** in `broker` mode, `proveo_append_env_mount_args`
+  (`defs/lib/env-mount.sh`) overlays a **symlink-resolved** file at `/app/.env`.
+  In `proxy`/`firewall`, the same helper **masks** `.env` with `/dev/null` so a
+  whole-tree bind cannot expose secrets; the broker reads the host-side file
+  instead. Document the caveat in harness READMEs when `.env` autoload is
+  mentioned.
+- **Warnings:** the Go CLI's `warnMountedSecrets` applies to `broker` mounts;
+  broker-mode egress DLP still mitigates **egress** exfiltration if a secret leaks
+  into the agent another way.
+
+When adding or changing `run.sh` / `runners.sh` mount logic, prefer host-env forwarding
+plus broker injection over new `.env` bind mounts unless the change is explicitly scoped
+to symlink resolution or smoke-test fixtures.
+
+### Credential broker (firewall mode only)
+
+The credential broker is a property of **`firewall` egress mode only**. It runs on the
+Go MITM sidecar (`proveo-egress`), the only hop where TLS is decrypted. `proxy` and
+`broker`/`proxy` modes cannot inject or strip auth headers on HTTPS traffic; they keep the
+key-in-agent behavior with the existing honest warnings (see `_spec/paradigms.md`,
+Credential Boundary).
+
+**Firewall gaps contributors should not worsen**
+
+| Gap | Where | Status |
+| --- | --- | --- |
+| `.env` mounted into agent | `defs/lib/env-mount.sh`, `internal/workspace/mount.go` | **Closed** — masked with `/dev/null` in `proxy`/`firewall` |
+| `load_env` always runs | `packages/lib/entrypoint-lib.sh` | **Closed** — skips when `PROVEO_EGRESS_MODE` is `proxy`/`firewall` |
+| Go CLI forwards secrets in all modes | `cmd/proveo/main.go` | **Closed** — secret env only in `broker` |
+| Distributable CLI forwards `CURSOR_API_KEY` | `apps/cli/public/cli/lib/runners.sh` | Firewall-only path (consumer CLI has no broker/proxy topology) |
+| Broker reads host env only | `proveo_egress_prepare_broker_secrets`, `writeBrokerEnv` | **Closed** — host `.env` / `PROVEO_EGRESS_ENV_FILE` ingested into `broker.env` |
+| Sentinel not shipped | entrypoint (Plan 4 Ph3) | Still open — defense in depth |
+
+### Wrapper surface inconsistencies
+
+These surfaces should stay aligned on credential forwarding:
+
+| Surface | `firewall` / `proxy` intent | Current behavior |
+| --- | --- | --- |
+| `defs/cursor/run.sh` | No `CURSOR_API_KEY` in agent | Passes key only in `broker` |
+| `defs/claudecode/run.sh` | No `CLAUDE_CODE_OAUTH_TOKEN` in agent | Passes token only in `broker` |
+| `cmd/proveo run` | Match bash wrappers | Secret manifest env forwarded only in `broker` |
+| `apps/cli` `run_cursor` | broker egress only | Always `-e CURSOR_API_KEY` (no broker/proxy topology) |
+
 ## Enforcement
 
 The boundary is asserted per definition in `defs/tests/test_harness_contracts.sh` (no Docker

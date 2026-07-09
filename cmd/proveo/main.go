@@ -155,7 +155,7 @@ func runCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&egressMode, "egress-mode", "firewall", strings.Join(egress.Modes(), "|")+" (default firewall: enforced egress)")
+	cmd.Flags().StringVar(&egressMode, "egress-mode", "firewall", strings.Join(egress.Modes(), "|")+" (default firewall: enforced egress + credential broker)")
 	cmd.Flags().StringVar(&localModel, "local-model", "", "Ollama model to serve locally")
 	cmd.Flags().StringVar(&input, "input", "", "input dir to mount read-only (default: cwd)")
 	cmd.Flags().StringVar(&output, "output", "", "output dir to mount read-write (default: <input>/reports)")
@@ -228,7 +228,7 @@ func doRun(p runParams) error {
 
 	// Build the mount plan from the manifest's workspace model (embedded whole —
 	// no field-by-field copy to keep in sync).
-	wsSpec := workspace.MountSpec{Workspace: man.Workspace, OutputDir: p.output}
+	wsSpec := workspace.MountSpec{Workspace: man.Workspace, OutputDir: p.output, EgressMode: p.mode}
 	var workdir string
 	if wsSpec.Layout == "input-output" {
 		wsSpec.InputDir = repoRoot // whole repo mounted read-only
@@ -250,14 +250,22 @@ func doRun(p runParams) error {
 		workdir = planWorkdir
 	}
 
+	// Host-side .env for broker ingestion (never mounted into the agent in
+	// proxy/firewall). Explicit PROVEO_EGRESS_ENV_FILE wins.
+	hostEnvFile := strings.TrimSpace(os.Getenv("PROVEO_EGRESS_ENV_FILE"))
+	if hostEnvFile == "" {
+		hostEnvFile = workspace.EnvFileSource(wsSpec.InputDir, wsSpec.RepoRoot)
+	}
+	lookup := providerLookup(hostEnvFile)
+
 	// Credential broker: gated by brokerProvider (firewall + exactly one provider +
 	// not disabled). Write the secret file up front on real runs.
-	providerName := brokerProvider(p.mode, provider.Detect(os.Getenv), brokerEnabled())
+	providerName := brokerProvider(p.mode, provider.Detect(lookup), brokerEnabled())
 	var brokerFile string
 	if providerName != "" {
 		if p.printOnly {
 			brokerFile = filepath.Join(egDir, "inject", "broker.env") // path only in dry-run
-		} else if f, err := writeBrokerEnv(filepath.Join(egDir, "inject")); err == nil {
+		} else if f, err := writeBrokerEnv(filepath.Join(egDir, "inject"), lookup); err == nil {
 			brokerFile = f
 		}
 	}
@@ -271,11 +279,17 @@ func doRun(p runParams) error {
 
 	// Declared env vars that are present are forwarded as bare `-e NAME`:
 	// docker resolves the value from the client env, keeping secrets off the argv.
+	// Secret vars are forwarded only in broker mode — in proxy/firewall the broker
+	// (firewall) or withheld-key posture (proxy) keeps them out of the agent.
 	var envNames []string
 	for _, e := range man.Env {
-		if strings.TrimSpace(os.Getenv(e.Name)) != "" {
-			envNames = append(envNames, e.Name)
+		if strings.TrimSpace(os.Getenv(e.Name)) == "" {
+			continue
 		}
+		if e.Secret && p.mode != "broker" {
+			continue
+		}
+		envNames = append(envNames, e.Name)
 	}
 
 	// Pure assembly of the topology + agent config from the resolved inputs — the
@@ -305,12 +319,12 @@ func doRun(p runParams) error {
 	}
 	warnMountedSecrets(wsSpec.InputDir, p.mode)
 	// Dispatch on whether the plan actually has sidecars/networks — not on the mode
-	// name. Pure open mode runs the agent directly; anything with a sidecar/network
-	// (proxy, firewall, open + --local-model) goes through the lifecycle.
+	// name. Pure broker mode runs the agent directly; anything with a sidecar/network
+	// (proxy, broker, firewall + --local-model) goes through the lifecycle.
 	if !needsLifecycle(plan) {
 		return execAgent(agent)
 	}
-	return execWithEgress(plan, agent, egDir, provider.Detect(os.Getenv))
+	return execWithEgress(plan, agent, egDir, provider.Detect(lookup))
 }
 
 // brokerProvider returns the provider to broker for this run, or "" for none:
@@ -607,10 +621,13 @@ func orWD(p string) string {
 
 // warnMountedSecrets warns when the mounted workspace contains a .env while a
 // provider key is present — the agent reads it directly, which the broker cannot
-// prevent (S4). In firewall mode the egress DLP still blocks it from leaving; in
-// open/proxy mode nothing does.
+// prevent (S4). Skipped when proxy/broker mask the file out of the agent.
 func warnMountedSecrets(dir, mode string) {
 	if dir == "" {
+		return
+	}
+	switch strings.ToLower(mode) {
+	case "proxy", "firewall":
 		return
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
@@ -619,11 +636,7 @@ func warnMountedSecrets(dir, mode string) {
 	if len(provider.Detect(os.Getenv)) == 0 {
 		return
 	}
-	tail := " (egress DLP will block it from leaving)"
-	if mode != "firewall" {
-		tail = "; use --egress-mode firewall so egress DLP blocks the key from leaving"
-	}
-	ui.Warnf("%s/.env is mounted and a provider key is set — the agent can read it directly%s", dir, tail)
+	ui.Warnf("%s/.env is mounted and a provider key is set — the agent can read it directly; use --egress-mode firewall so egress DLP blocks the key from leaving", dir)
 }
 
 func brokerEnabled() bool {
@@ -644,16 +657,60 @@ func stateDir() string {
 	return filepath.Join(os.Getenv("HOME"), ".local", "state", "proveo")
 }
 
-// writeBrokerEnv writes the present provider keys to a 0600 file the egress
-// proxy mounts. Mirrors defs/lib/egress.sh `proveo_egress_prepare_broker_secrets`.
-func writeBrokerEnv(dir string) (string, error) {
+// providerLookup prefers the process env, then a host-side KEY=VALUE file
+// (project .env / PROVEO_EGRESS_ENV_FILE) for detection and broker.env writing.
+func providerLookup(envFile string) func(string) string {
+	fileVals := parseEnvFile(envFile)
+	return func(k string) string {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+		return fileVals[k]
+	}
+}
+
+// parseEnvFile reads a KEY=VALUE env file (project .env shape). Missing => empty.
+func parseEnvFile(path string) map[string]string {
+	out := map[string]string{}
+	if path == "" {
+		return out
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	for _, raw := range strings.Split(string(b), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "export ") {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'')) {
+			v = v[1 : len(v)-1]
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// writeBrokerEnv writes present provider keys to a 0600 file the egress proxy
+// mounts. lookup may include host-side .env values not in the process env.
+func writeBrokerEnv(dir string, lookup func(string) string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	path := filepath.Join(dir, "broker.env")
 	var b strings.Builder
 	for _, name := range provider.KeyVars() {
-		if v, ok := os.LookupEnv(name); ok && v != "" {
+		if v := strings.TrimSpace(lookup(name)); v != "" {
 			b.WriteString(name + "=" + v + "\n")
 		}
 	}

@@ -24,6 +24,69 @@ proveo_git_identity_env_args() {
   fi
 }
 
+# Standalone mirror of defs/lib/env-mount.sh — resolves symlinked .env on the
+# host for broker mode; masks .env in proxy/firewall so secrets stay off the agent.
+proveo_resolve_env_mount_source() {
+  local input_dir="${1:?input_dir required}"
+  local repo_root="${2:-}"
+  local candidate resolved
+
+  for candidate in "$input_dir/.env" ${repo_root:+"$repo_root/.env"}; do
+    [[ -e "$candidate" ]] || continue
+    resolved="$(python3 - "$candidate" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+try:
+    path = os.path.realpath(path)
+except OSError:
+    sys.exit(1)
+if os.path.isfile(path):
+    print(path)
+PY
+)" || continue
+    [[ -n "$resolved" ]] || continue
+    printf '%s\n' "$resolved"
+    return 0
+  done
+  return 1
+}
+
+proveo_append_env_mount_args() {
+  local -n _out_arr=$1
+  local input_dir="${2:?input_dir required}"
+  local repo_root="${3:-}"
+  local mode="${4:-broker}"
+  local relative_scope="${5:-}"
+  local resolved masked=0
+
+  case "$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')" in
+    proxy|firewall)
+      if [[ -n "$relative_scope" ]]; then
+        if [[ -e "$input_dir/.env" ]]; then
+          _out_arr+=(-v "/dev/null:/app/${relative_scope}/.env:ro")
+          masked=1
+        fi
+        if [[ -n "$repo_root" && -e "$repo_root/.env" ]]; then
+          _out_arr+=(-v "/dev/null:/app/.env:ro")
+          masked=1
+        fi
+      elif [[ -e "$input_dir/.env" || ( -n "$repo_root" && -e "$repo_root/.env" ) ]]; then
+        _out_arr+=(-v "/dev/null:/app/.env:ro")
+        masked=1
+      fi
+      if (( masked )); then
+        echo "🔒 Masking .env in agent (egress mode $mode — secrets stay on host / broker)" >&2
+      fi
+      return 0
+      ;;
+  esac
+
+  resolved="$(proveo_resolve_env_mount_source "$input_dir" "$repo_root")" || return 0
+  _out_arr+=(-v "$resolved:/app/.env:ro")
+}
+
 image_name() {
   local target="$1"
   case "$target" in
@@ -211,6 +274,7 @@ run_opencode() {
     container_name="$(basename "$CURRENT_REPO_ROOT")-opencode"
     docker_args+=(--name "$container_name")
     docker_args+=(-v "$CURRENT_REPO_ROOT:/app" -w /app)
+    proveo_append_env_mount_args docker_args "$scope_dir" "$CURRENT_REPO_ROOT" "broker"
   elif [[ "$scope_dir" == "$CURRENT_REPO_ROOT/"* ]]; then
     local relative_scope
     relative_scope="${scope_dir#$CURRENT_REPO_ROOT/}"
@@ -219,7 +283,7 @@ run_opencode() {
     docker_args+=(--name "$container_name")
     docker_args+=(-v "$scope_dir:/app/$relative_scope" -v "$CURRENT_REPO_ROOT/.git:/app/.git" -w /app)
 
-    for root_file in .env AGENTS.md CONVENTIONS.md CLAUDE.md opencode.json opencode.jsonc package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
+    for root_file in AGENTS.md CONVENTIONS.md CLAUDE.md opencode.json opencode.jsonc package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
       if [[ -e "$CURRENT_REPO_ROOT/$root_file" && ! -e "$scope_dir/$root_file" ]]; then
         docker_args+=(-v "$CURRENT_REPO_ROOT/$root_file:/app/$root_file:ro")
       fi
@@ -229,13 +293,12 @@ run_opencode() {
       docker_args+=(-v "$CURRENT_REPO_ROOT/.opencode:/app/.opencode:ro")
     fi
 
-    if [[ -f "$scope_dir/.env" && ! -e "$CURRENT_REPO_ROOT/.env" ]]; then
-      docker_args+=(-v "$scope_dir/.env:/app/.env:ro")
-    fi
+    proveo_append_env_mount_args docker_args "$scope_dir" "$CURRENT_REPO_ROOT" "broker" "$relative_scope"
   else
     container_name="$(basename "$scope_dir")-opencode"
     docker_args+=(--name "$container_name")
     docker_args+=(-v "$scope_dir:/app" -w /app)
+    proveo_append_env_mount_args docker_args "$scope_dir" "" "broker"
   fi
 
   docker rm -f "$container_name" >/dev/null 2>&1 || true
@@ -287,6 +350,7 @@ run_cursor() {
     container_name="$(basename "$CURRENT_REPO_ROOT")-cursor"
     docker_args+=(--name "$container_name")
     docker_args+=(-v "$CURRENT_REPO_ROOT:/app" -w /app)
+    proveo_append_env_mount_args docker_args "$scope_dir" "$CURRENT_REPO_ROOT" "broker"
   elif [[ "$scope_dir" == "$CURRENT_REPO_ROOT/"* ]]; then
     local relative_scope
     relative_scope="${scope_dir#$CURRENT_REPO_ROOT/}"
@@ -295,7 +359,7 @@ run_cursor() {
     docker_args+=(--name "$container_name")
     docker_args+=(-v "$scope_dir:/app/$relative_scope" -v "$CURRENT_REPO_ROOT/.git:/app/.git" -w /app)
 
-    for root_file in .env AGENTS.md CONVENTIONS.md CLAUDE.md .cursorrules package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
+    for root_file in AGENTS.md CONVENTIONS.md CLAUDE.md .cursorrules package.json pnpm-workspace.yaml pnpm-lock.yaml package-lock.json yarn.lock turbo.json nx.json; do
       if [[ -e "$CURRENT_REPO_ROOT/$root_file" && ! -e "$scope_dir/$root_file" ]]; then
         docker_args+=(-v "$CURRENT_REPO_ROOT/$root_file:/app/$root_file:ro")
       fi
@@ -305,13 +369,12 @@ run_cursor() {
       docker_args+=(-v "$CURRENT_REPO_ROOT/.cursor:/app/.cursor:ro")
     fi
 
-    if [[ -f "$scope_dir/.env" && ! -e "$CURRENT_REPO_ROOT/.env" ]]; then
-      docker_args+=(-v "$scope_dir/.env:/app/.env:ro")
-    fi
+    proveo_append_env_mount_args docker_args "$scope_dir" "$CURRENT_REPO_ROOT" "broker" "$relative_scope"
   else
     container_name="$(basename "$scope_dir")-cursor"
     docker_args+=(--name "$container_name")
     docker_args+=(-v "$scope_dir:/app" -w /app)
+    proveo_append_env_mount_args docker_args "$scope_dir" "" "broker"
   fi
 
   docker rm -f "$container_name" >/dev/null 2>&1 || true
@@ -384,7 +447,7 @@ run_target() {
   # the harness runner, defs/claudecode/run.sh). Intercept --egress-mode here so
   # a request for network enforcement FAILS CLOSED rather than being silently
   # forwarded to the harness as an unknown flag while the container runs with
-  # full open egress — silently downgrading to open is a false sense of security.
+  # full broker egress — silently downgrading to broker is a false sense of security.
   local egress_mode=""
   local -a passthrough_args=()
   local ea_i=0
@@ -407,8 +470,8 @@ run_target() {
   extra_args=(${passthrough_args[@]+"${passthrough_args[@]}"})
 
   case "$egress_mode" in
-    ""|open)
-      : # open egress is the only mode the installed CLI can honor
+    ""|broker)
+      : # broker egress is the only mode the installed CLI can honor
       ;;
     proxy|firewall)
       print_error "--egress-mode '$egress_mode' is not available in the installed proveo CLI."
@@ -417,7 +480,7 @@ run_target() {
       exit 1
       ;;
     *)
-      print_error "Unknown --egress-mode '$egress_mode' (expected: open, proxy, firewall)."
+      print_error "Unknown --egress-mode '$egress_mode' (expected: broker, proxy, firewall)."
       exit 1
       ;;
   esac

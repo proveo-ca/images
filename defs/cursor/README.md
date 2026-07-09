@@ -10,7 +10,7 @@ Custom Docker image for the [Cursor CLI](https://cursor.com/docs/cli) (`agent`, 
 - CLI installed under a root-owned prefix (`/opt/cursor-dist`) — the agent cannot tamper with
   or self-update the binary; updating the CLI means rebuilding the image
 - `.env` autoloading, git identity bridging, monorepo-friendly mounts
-- Reusable network egress modes (`open | proxy | firewall`)
+- Reusable network egress modes (`broker|proxy|firewall`)
 
 Paradigm: **policy-gated autonomous loop** — see
 [`_spec/defs/cursor/cursor.paradigm.md`](../../_spec/defs/cursor/cursor.paradigm.md).
@@ -91,7 +91,7 @@ run. Re-run with `-e CURSOR_RESEED=1` to force a refresh. The launch posture is 
 
 | Layer | File | What it does |
 | ----- | ---- | ------------ |
-| Deny rules | `~/.cursor/cli-config.json` | Denies `sudo`/`su`, host power commands, `nc`/`netcat`, and credential reads (`.env*`, `.ssh`, AWS creds). Deny beats allow — even under `--force`. |
+| Deny rules | `~/.cursor/cli-config.json` | Denies `sudo`/`su`, host power commands, `nc`/`netcat`, and credential reads (`.env*`, `.ssh`, AWS creds). Deny beats allow — even under `--force`. **Caveat:** if `.env` is bind-mounted or sourced by the entrypoint (`load_env`), the agent already holds those values in process memory and can read the file directly — deny rules are policy guidance, not isolation. See [Credential isolation](../../README.md#credential-isolation-by-egress-mode) and [`plans/01-security-credential-broker.md`](../../plans/01-security-credential-broker.md). |
 | Enterprise hook | `/etc/cursor/hooks.json` (root-owned) | Audits every `beforeShellExecution` to `~/.cursor/audit-shell.ndjson` (override: `PROVEO_CURSOR_AUDIT_LOG`). Highest hooks precedence; the run-as uid cannot edit or out-rank it. Audit-only and fail-open — enforcement lives in deny rules + egress. |
 | Readonly subagents | `~/.cursor/agents/*.md` | `adversarial-reviewer` and `security-reviewer` review gates with the native `readonly: true` bit. |
 

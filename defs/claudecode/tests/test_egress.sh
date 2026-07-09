@@ -306,12 +306,12 @@ assert_mode_contract() {
   fi
 
   case "$mode" in
-    open)
-      assert_file_not_contains "[open] allows arbitrary mock protocol egress by installing no proxy" "$args" "HTTP_PROXY="
-      assert_file_not_contains "[open] has no Squid enforcement proxy" "$args" "ENFORCEMENT_PROXY="
-      assert_file_not_contains "[open] has no mitmproxy inspection proxy" "$args" "INSPECT_PROXY="
-      assert_file_contains "[open] keeps the default bridge network contract" "$args" "--network=bridge"
-      assert_file_not_contains "[open] starts no sidecar networks" "$args" "network create"
+    broker)
+      assert_file_not_contains "[broker] allows arbitrary mock protocol egress by installing no proxy" "$args" "HTTP_PROXY="
+      assert_file_not_contains "[broker] has no Squid enforcement proxy" "$args" "ENFORCEMENT_PROXY="
+      assert_file_not_contains "[broker] has no mitmproxy inspection proxy" "$args" "INSPECT_PROXY="
+      assert_file_contains "[broker] keeps the default bridge network contract" "$args" "--network=bridge"
+      assert_file_not_contains "[broker] starts no sidecar networks" "$args" "network create"
       ;;
     proxy)
       assert_file_contains "[proxy] creates an internal agent-to-Squid network" "$args" "network create --label proveo.egress.session=test-proxy --internal test-proxy-claudecode-solo-squid-net"
@@ -387,11 +387,11 @@ run_live_egress_integration() {
   TESTS_RUN=$((TESTS_RUN + 1))
   if docker run --rm --network bridge "$curl_image" -fsSL --max-time 20 https://example.com >/dev/null 2>&1; then
     TESTS_PASSED=$((TESTS_PASSED + 1))
-    printf "${GREEN}PASS${NC} [%d] [integration/open] direct HTTP(S) egress succeeds on bridge\n" "$TESTS_RUN"
+    printf "${GREEN}PASS${NC} [%d] [integration/broker] direct HTTP(S) egress succeeds on bridge\n" "$TESTS_RUN"
   else
     TESTS_FAILED=$((TESTS_FAILED + 1))
-    FAILURES+=("[integration/open] direct HTTP(S) egress succeeds on bridge")
-    printf "${RED}FAIL${NC} [%d] [integration/open] direct HTTP(S) egress failed\n" "$TESTS_RUN"
+    FAILURES+=("[integration/broker] direct HTTP(S) egress succeeds on bridge")
+    printf "${RED}FAIL${NC} [%d] [integration/broker] direct HTTP(S) egress failed\n" "$TESTS_RUN"
   fi
 
   unset PROVEO_EGRESS_SESSION_ID PROVEO_EGRESS_DIR
@@ -511,12 +511,12 @@ assert_file_not_contains "[policy] Pinecone docs are not hardcoded as a special 
 assert_file_not_contains "[policy] Google search is not hardcoded as a special case" "$SQUID_CONF" ".google.com"
 
 echo "Level 2: dry-run Docker topology contracts"
-assert_mode_contract open
+assert_mode_contract broker
 assert_mode_contract proxy
 assert_mode_contract firewall
 
 echo "Level 2b: local-model sidecar contracts"
-assert_local_model_contract open
+assert_local_model_contract broker
 assert_local_model_contract proxy
 assert_local_model_contract firewall
 
@@ -528,7 +528,7 @@ assert_provider_allowlist_contracts
 
 echo "Level 3: gated Docker integration contracts"
 if [[ "${PROVEO_EGRESS_INTEGRATION:-0}" != "1" ]]; then
-  skip_test "egress integration: open allows arbitrary mock protocol egress; proxy blocks non-web protocols; firewall captures decrypted HTTP(S) attempts in mitmproxy flows" "set PROVEO_EGRESS_INTEGRATION=1 to run Docker network integration tests"
+  skip_test "egress integration: broker allows arbitrary mock protocol egress; proxy blocks non-web protocols; firewall captures decrypted HTTP(S) attempts in mitmproxy flows" "set PROVEO_EGRESS_INTEGRATION=1 to run Docker network integration tests"
 else
   run_live_egress_integration
 fi

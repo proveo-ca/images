@@ -2,14 +2,14 @@
 # SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml
 # Shared Docker egress lifecycle for agent harnesses.
 # Modes:
-#   open                direct bridge egress
+#   broker              direct bridge egress (container boundary only; ex-open)
 #   proxy               agent -> Squid -> internet
-#   firewall  agent -> mitmproxy -> Squid -> internet
+#   firewall (default)  agent -> proveo-egress (TLS MITM + credential broker) -> Squid -> internet
 #
-# In firewall mode mitmproxy is the first-hop inspector. It decrypts
-# HTTPS (records method/path/host) and forwards everything to Squid, which stays
-# the enforcement + egress boundary. The agent trusts mitmproxy's generated CA
-# via standard CA env vars, so all of its TLS terminates at mitmproxy.
+# In firewall mode the Go egress proxy (or legacy mitmproxy) is the first-hop
+# inspector. It decrypts HTTPS (records method/path/host), brokers credentials,
+# and forwards everything to Squid, which stays the enforcement + egress
+# boundary. The agent trusts the inspector CA via standard CA env vars.
 
 PROVEO_EGRESS_AGENT_DOCKER_ARGS=()
 PROVEO_EGRESS_CLEANUP_CONTAINERS=()
@@ -18,7 +18,7 @@ PROVEO_EGRESS_SESSION_ID=""
 PROVEO_EGRESS_DIR=""
 PROVEO_EGRESS_MODE=""
 PROVEO_EGRESS_PROVIDER_RESOLVED=""
-# Credential broker (firewall + Go inspector): the single resolved
+# Credential broker (firewall mode + Go inspector): the single resolved
 # provider and the host path to the 0600 secret env-file mounted into the proxy.
 # See _spec/paradigms.md (Credential Boundary) and plans/01, plans/04.
 PROVEO_EGRESS_BROKER_PROVIDER=""
@@ -267,11 +267,11 @@ proveo_egress_broker_key_names() {
 
 # Prepare the credential broker for the Go inspector: when exactly one provider
 # is resolved and the broker is not disabled, write the provider keys present in
-# the host env to a 0600 file OUTSIDE every agent mount, and record the provider
-# name. The Go proxy resolves which key/header to inject via its provider
-# registry; keys only in a mounted .env (not the host env) are not written here,
-# so the broker degrades to strip + pass-through (documented — provision keys in
-# the host env for full isolation). Sets PROVEO_EGRESS_BROKER_{PROVIDER,ENVFILE_HOST}.
+# the host env (and, if set, PROVEO_EGRESS_ENV_FILE / a project .env on the host)
+# to a 0600 file OUTSIDE every agent mount, and record the provider name. The Go
+# proxy resolves which key/header to inject via its provider registry. Keys are
+# never mounted into the agent in firewall mode. Sets
+# PROVEO_EGRESS_BROKER_{PROVIDER,ENVFILE_HOST}.
 proveo_egress_prepare_broker_secrets() {
   case "$(printf '%s' "${PROVEO_CREDENTIAL_BROKER:-on}" | tr '[:upper:]' '[:lower:]')" in
     off|0|no|false|disable|disabled) return 0 ;;
@@ -289,12 +289,55 @@ proveo_egress_prepare_broker_secrets() {
   local envfile="$inject_dir/broker.env"
   mkdir -p "$inject_dir"
   chmod 700 "$inject_dir" 2>/dev/null || true
+
+  # Host-side .env for keys not exported into the shell (never mounted into agent).
+  local host_env_file="${PROVEO_EGRESS_ENV_FILE:-}"
+  if [[ -z "$host_env_file" ]]; then
+    if [[ -f "${PWD}/.env" ]]; then
+      host_env_file="${PWD}/.env"
+    elif [[ -f "${PROVEO_INPUT_DIR:-}/.env" ]]; then
+      host_env_file="${PROVEO_INPUT_DIR}/.env"
+    fi
+  fi
+
   local name val wrote=0
   (
     umask 077
     : >"$envfile"
     while IFS= read -r name; do
       val="${!name:-}"
+      if [[ -z "$val" && -n "$host_env_file" ]]; then
+        # Prefer defs/lib/env-mount.sh helper when sourced; else inline python.
+        if command -v proveo_env_file_get >/dev/null 2>&1; then
+          val="$(proveo_env_file_get "$name" "$host_env_file" 2>/dev/null || true)"
+        else
+          val="$(python3 - "$name" "$host_env_file" <<'PY' 2>/dev/null || true
+import sys
+key, path = sys.argv[1], sys.argv[2]
+try:
+    with open(path, encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].lstrip()
+            if "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            if k.strip() != key:
+                continue
+            v = v.strip()
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                v = v[1:-1]
+            print(v)
+            raise SystemExit(0)
+except OSError:
+    pass
+PY
+)"
+        fi
+      fi
       [[ -n "$val" ]] && printf '%s=%s\n' "$name" "$val" >>"$envfile"
     done < <(proveo_egress_broker_key_names)
     true  # a `while read` loop ends non-zero at EOF; keep the subshell exit 0
@@ -308,7 +351,7 @@ proveo_egress_prepare_broker_secrets() {
     echo "🔑 Credential broker: provider '${PROVEO_EGRESS_BROKER_PROVIDER}' — injecting at the proxy, stripping credentials off-provider" >&2
   else
     rm -f "$envfile" 2>/dev/null || true
-    echo "🔒 Credential broker: provider '${PROVEO_EGRESS_BROKER_PROVIDER}' has no host-env key to inject; stripping off-provider + provider pass-through (put the key in your host env for full isolation)" >&2
+    echo "🔒 Credential broker: provider '${PROVEO_EGRESS_BROKER_PROVIDER}' has no host-env key to inject; stripping off-provider + provider pass-through (put the key in your host env or PROVEO_EGRESS_ENV_FILE for full isolation)" >&2
   fi
 }
 
@@ -444,19 +487,27 @@ proveo_egress_prepare() {
   local_model="${PROVEO_LOCAL_MODEL:-}"
 
   # Resolve which provider(s) egress will be pinned to: an explicit override if
-  # set, else auto-detected from the API keys present. The detected credential is
-  # the intent — no extra flag required.
+  # set, else auto-detected from the API keys present. Prefer an explicit
+  # PROVEO_EGRESS_ENV_FILE; otherwise a host-side project .env (never mounted
+  # into the agent in firewall) so keys not exported into the shell still count.
+  if [[ -z "${PROVEO_EGRESS_ENV_FILE:-}" ]]; then
+    if [[ -f "${PWD}/.env" ]]; then
+      export PROVEO_EGRESS_ENV_FILE="${PWD}/.env"
+    elif [[ -f "${PROVEO_INPUT_DIR:-}/.env" ]]; then
+      export PROVEO_EGRESS_ENV_FILE="${PROVEO_INPUT_DIR}/.env"
+    fi
+  fi
   PROVEO_EGRESS_PROVIDER_RESOLVED="${PROVEO_EGRESS_PROVIDER:-}"
   if [[ -z "$PROVEO_EGRESS_PROVIDER_RESOLVED" || "$PROVEO_EGRESS_PROVIDER_RESOLVED" == none ]]; then
     PROVEO_EGRESS_PROVIDER_RESOLVED="$(proveo_egress_detect_providers)"
   fi
 
-  # A pinned provider is enforced by Squid, which only exists in proxy/firewall
-  # modes. An EXPLICIT provider in open mode is a misconfig (nothing enforces the
+  # A pinned provider is enforced by Squid, which only exists in proxy/broker
+  # modes. An EXPLICIT provider in broker mode is a misconfig (nothing enforces the
   # allowlist) — refuse rather than imply containment. Auto-detection stays quiet
-  # in open mode (no proxy to apply it to).
-  if [[ -n "${PROVEO_EGRESS_PROVIDER:-}" && "${PROVEO_EGRESS_PROVIDER}" != "none" && "$mode" == "open" ]]; then
-    echo "❌ PROVEO_EGRESS_PROVIDER requires --egress-mode proxy or firewall (open has no enforcement proxy)" >&2
+  # in broker mode (no enforcement proxy to apply it to).
+  if [[ -n "${PROVEO_EGRESS_PROVIDER:-}" && "${PROVEO_EGRESS_PROVIDER}" != "none" && "$mode" == "broker" ]]; then
+    echo "❌ PROVEO_EGRESS_PROVIDER requires --egress-mode proxy or firewall (broker has no enforcement proxy)" >&2
     return 1
   fi
 
@@ -468,12 +519,12 @@ proveo_egress_prepare() {
   fi
 
   case "$mode" in
-    open)
+    broker)
       if [[ -n "$local_model" ]]; then
         # Name-based DNS is needed to reach the Ollama sidecar, which the default
         # bridge lacks. Use a user-defined bridge (still internet-capable) so the
         # agent keeps open egress and can resolve the sidecar by alias.
-        agent_network="${PROVEO_EGRESS_SESSION_ID}-${safe_agent}-open-net"
+        agent_network="${PROVEO_EGRESS_SESSION_ID}-${safe_agent}-broker-net"
         proveo_egress_network_create "$agent_network" ""
         proveo_egress_start_ollama "$agent_network" || return 1
         PROVEO_EGRESS_AGENT_DOCKER_ARGS+=("--network" "$agent_network")
@@ -659,7 +710,7 @@ proveo_egress_cleanup() {
   fi
 
   # `+`-guard both loops: on bash < 4.4 (macOS ships 3.2) expanding an empty
-  # array under `set -u` raises "unbound variable", which fires in open mode
+  # array under `set -u` raises "unbound variable", which fires in broker mode
   # where nothing was ever registered for cleanup.
   local item
   for item in ${PROVEO_EGRESS_CLEANUP_CONTAINERS[@]+"${PROVEO_EGRESS_CLEANUP_CONTAINERS[@]}"}; do

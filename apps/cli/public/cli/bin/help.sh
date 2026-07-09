@@ -51,12 +51,12 @@ done
 printf '\n'
 
 printf '  %s%sNetwork Security — egress modes (claudecode)%s\n' "$BOLD" "$YELLOW" "$RESET"
-printf '    %-34s %s\n' "--egress-mode open" "Direct internet on the default bridge (default)"
+printf '    %-34s %s\n' "--egress-mode broker" "Direct internet on the default bridge (container boundary only)"
 printf '    %-34s %s\n' "--egress-mode proxy" "Squid enforcement; HTTP/HTTPS only, non-web blocked"
-printf '    %-34s %s\n' "--egress-mode firewall" "mitmproxy HTTPS inspection upstream of Squid"
+printf '    %-34s %s\n' "--egress-mode firewall" "TLS inspection + credential broker upstream of Squid (default)"
 printf '    %s%s%s\n' "$DIM" "    proxy / firewall are enforced only by the harness runner" "$RESET"
 printf '    %s%s%s\n' "$DIM" "    (proveo repo: defs/claudecode/run.sh). The installed CLI honors only" "$RESET"
-printf '    %s%s%s\n' "$DIM" "    'open' and rejects the others instead of silently running unenforced." "$RESET"
+printf '    %s%s%s\n' "$DIM" "    'broker' and rejects the others instead of silently running unenforced." "$RESET"
 printf '\n'
 
 printf '  %s%sRun options (claudecode)%s\n' "$BOLD" "$YELLOW" "$RESET"

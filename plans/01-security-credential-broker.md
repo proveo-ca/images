@@ -40,7 +40,7 @@ and credential-level enforcement can happen. Make it the credential broker:
   still readable as a file — documented; recommend host-env provisioning for full isolation.
 
 Broker is a property of **firewall** mode only (the only mode that decrypts). Default
-on there; disable with `PROVEO_CREDENTIAL_BROKER=off`. proxy/open modes keep today's behavior with
+on there; disable with `PROVEO_CREDENTIAL_BROKER=off`. proxy/firewall modes keep today's behavior with
 the existing honest warnings.
 
 ## Implementation — in Go, not a Python mitmproxy addon

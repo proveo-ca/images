@@ -465,7 +465,7 @@ main() {
   assert_run_target_forwards_args opencode "$run_dir" "$docker_log"
 
   # Egress enforcement modes are not shipped in the installed CLI; requesting one
-  # must FAIL CLOSED (exit non-zero) rather than silently run with open egress.
+  # must FAIL CLOSED (exit non-zero) rather than silently run with broker egress.
   : > "$docker_log"
   assert_failure "proveo run claudecode --egress-mode proxy fails closed" \
     run_cli_in_temp_dir "$run_dir" run claudecode --egress-mode proxy
@@ -478,11 +478,11 @@ main() {
   else
     record_fail "egress-mode rejection is explained"
   fi
-  # open mode is accepted and must not leak the flag into the container args.
+  # broker mode is accepted and must not leak the flag into the container args.
   : > "$docker_log"
-  assert_success "proveo run claudecode --egress-mode open is accepted" \
-    run_cli_in_temp_dir "$run_dir" run claudecode --egress-mode open
-  assert_file_contains "claudecode still launches its image under open egress" "$docker_log" "proveo/claudecode"
+  assert_success "proveo run claudecode --egress-mode broker is accepted" \
+    run_cli_in_temp_dir "$run_dir" run claudecode --egress-mode broker
+  assert_file_contains "claudecode still launches its image under broker egress" "$docker_log" "proveo/claudecode"
 
   local install_home="$TEMP_ROOT/home"
   local install_root="$TEMP_ROOT/install-root"

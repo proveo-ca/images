@@ -69,6 +69,16 @@ find_env_file() {
 }
 
 load_env() {
+  # In proxy/firewall the wrapper masks /app/.env and keeps secrets on the host
+  # / broker. Skip sourcing so a leaked or unmasked file cannot re-export keys
+  # into the agent process. Non-secret harness flags should be passed via -e.
+  case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
+    proxy|firewall)
+      echo "🔒 Skipping .env load (egress mode ${PROVEO_EGRESS_MODE} — secrets stay on host / broker)"
+      return 0
+      ;;
+  esac
+
   local env_path; env_path="$(find_env_file || true)"
   if [[ -n "$env_path" ]]; then
     echo "✅ Found .env at $env_path"

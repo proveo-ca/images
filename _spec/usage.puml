@@ -36,7 +36,7 @@ package "Monorepo Discovery" as Monorepo {
 }
 
 package "Egress Layer (claudecode run/debug)\ndefs/lib/egress.sh" as Egress {
-  component "modes\nopen | proxy | firewall" as EgressModes <<logic>>
+  component "modes\nbroker|proxy|firewall" as EgressModes <<logic>>
   component "--local-model NAME\n(Ollama sidecar)" as EgressLocal <<logic>>
   component "provider allowlist\nauto-detected from API key" as EgressProvider <<logic>>
   component "Squid + mitmproxy + ollama sidecars\nreports/egress/<session>/report" as EgressSidecars <<runtime>>

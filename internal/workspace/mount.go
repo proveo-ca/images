@@ -28,6 +28,10 @@ type MountSpec struct {
 	RepoRoot           string // git root; "" when not in a repo
 	InputDir           string // invocation dir (absolute) — the monorepo scope when a subdir
 	OutputDir          string
+	// EgressMode controls whether a project .env is bind-mounted into the agent.
+	// broker (default/empty when unset): mount resolved .env at /app/.env:ro when present.
+	// proxy|firewall: never mount secrets; mask .env paths with /dev/null.
+	EgressMode string
 }
 
 // Plan returns the bind mounts and container workdir for the spec, reproducing
@@ -46,6 +50,7 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string) {
 	switch {
 	case w.RepoRoot != "" && sameDir(w.InputDir, w.RepoRoot):
 		mounts = append(mounts, runner.Mount{Host: w.RepoRoot, Container: "/app", ReadOnly: ro})
+		mounts = append(mounts, w.envMounts("")...)
 	case w.RepoRoot != "" && underDir(w.InputDir, w.RepoRoot):
 		rel := relSlash(w.RepoRoot, w.InputDir)
 		mounts = append(mounts,
@@ -60,11 +65,10 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string) {
 		if w.ConfigDir != "" && exists(filepath.Join(w.RepoRoot, w.ConfigDir)) && !exists(filepath.Join(w.InputDir, w.ConfigDir)) {
 			mounts = append(mounts, runner.Mount{Host: filepath.Join(w.RepoRoot, w.ConfigDir), Container: "/app/" + w.ConfigDir, ReadOnly: true})
 		}
-		if env := firstExisting(filepath.Join(w.InputDir, ".env"), filepath.Join(w.RepoRoot, ".env")); env != "" {
-			mounts = append(mounts, runner.Mount{Host: env, Container: "/app/.env", ReadOnly: true})
-		}
+		mounts = append(mounts, w.envMounts(rel)...)
 	default: // not a repo
 		mounts = append(mounts, runner.Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
+		mounts = append(mounts, w.envMounts("")...)
 	}
 	if w.Output && w.OutputDir != "" {
 		mounts = append(mounts, runner.Mount{Host: w.OutputDir, Container: "/app/output"})
@@ -89,11 +93,77 @@ func relSlash(root, path string) string {
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-func firstExisting(paths ...string) string {
-	for _, p := range paths {
-		if exists(p) {
-			return p
+func (w MountSpec) isolateEnv() bool {
+	switch strings.ToLower(strings.TrimSpace(w.EgressMode)) {
+	case "proxy", "firewall":
+		return true
+	}
+	return false
+}
+
+// envMounts returns .env-related mounts. In broker mode, overlay the resolved
+// host file at /app/.env. In proxy/firewall, mask any .env that a bind would
+// expose so secrets stay on the host / broker sidecar.
+func (w MountSpec) envMounts(relativeScope string) []runner.Mount {
+	if w.isolateEnv() {
+		var out []runner.Mount
+		if relativeScope != "" {
+			if exists(filepath.Join(w.InputDir, ".env")) {
+				out = append(out, runner.Mount{Host: "/dev/null", Container: "/app/" + relativeScope + "/.env", ReadOnly: true})
+			}
+			if w.RepoRoot != "" && exists(filepath.Join(w.RepoRoot, ".env")) {
+				out = append(out, runner.Mount{Host: "/dev/null", Container: "/app/.env", ReadOnly: true})
+			}
+			return out
+		}
+		if exists(filepath.Join(w.InputDir, ".env")) || (w.RepoRoot != "" && exists(filepath.Join(w.RepoRoot, ".env"))) {
+			out = append(out, runner.Mount{Host: "/dev/null", Container: "/app/.env", ReadOnly: true})
+		}
+		return out
+	}
+	if env := envMountSource(w.InputDir, w.RepoRoot); env != "" {
+		return []runner.Mount{{Host: env, Container: "/app/.env", ReadOnly: true}}
+	}
+	return nil
+}
+
+func envMountSource(inputDir, repoRoot string) string {
+	candidates := []string{filepath.Join(inputDir, ".env")}
+	if repoRoot != "" {
+		candidates = append(candidates, filepath.Join(repoRoot, ".env"))
+	}
+	for _, candidate := range candidates {
+		if resolved := resolveRegularFile(candidate); resolved != "" {
+			return resolved
 		}
 	}
 	return ""
+}
+
+// resolveRegularFile returns the absolute path of a regular file, following
+// symlinks on the host. Used for .env overlays when the project symlink points
+// outside the bind-mounted tree.
+func resolveRegularFile(path string) string {
+	if _, err := os.Lstat(path); err != nil {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return ""
+	}
+	fi, err := os.Stat(resolved)
+	if err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	abs, err := filepath.Abs(resolved)
+	if err != nil {
+		return resolved
+	}
+	return abs
+}
+
+// EnvFileSource returns a host-side .env path for broker ingestion (never for
+// agent mounts in proxy/firewall). Prefers inputDir, then repoRoot.
+func EnvFileSource(inputDir, repoRoot string) string {
+	return envMountSource(inputDir, repoRoot)
 }

@@ -7,12 +7,12 @@ skinparam linetype ortho
 
 left to right direction
 
-title Claude Code Egress Topology — Go-Inspector Firewall + Credential Broker
+title Claude Code Egress Topology — Go-Inspector Broker + Credential Broker
 
 actor "Human" as Human
 actor "Claude Code" as Claude
 
-package "Mode: open" as OpenMode {
+package "Mode: broker" as BrokerModeDirect {
   component "claudecode\n--dangerously-skip-permissions" as OpenClaude <<container>>
   component "default bridge\ndirect internet" as OpenBridge <<network>>
 }
@@ -49,7 +49,7 @@ package "Internet" as Internet {
   component "Blocked non-web protocols\nFTP, SSH, DB, mail, raw TCP/UDP" as BlockedProtocols <<external>>
 }
 
-Claude --> OpenClaude : open mode
+Claude --> OpenClaude : broker mode
 OpenClaude --> OpenBridge : unrestricted egress
 OpenBridge --> Internet : direct
 
@@ -60,7 +60,7 @@ ProxyEgress --> Providers : allowed exceptions
 ProxyEgress --> ReadWeb : allowed HTTP(S) reads
 ProxySquid -[#red]-> BlockedWrites : deny where observable
 
-Claude --> FirewallClaude : firewall mode
+Claude --> FirewallClaude : broker mode
 FirewallClaude ..> Ollama : NO_PROXY direct (local model, no egress)
 FirewallClaude --> AgentInspectNet : HTTP_PROXY / HTTPS_PROXY + trusts mitm CA
 AgentInspectNet --> Mitm : first hop decrypts HTTP(S)

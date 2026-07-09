@@ -25,11 +25,11 @@ func TestBuildPlanGolden(t *testing.T) {
 		name string
 		opts Options
 	}{
-		{name: "open", opts: baseOpts("open")},
-		{name: "open_local_model", opts: withModel(baseOpts("open"), "gemma4")},
+		{name: "broker", opts: baseOpts("broker")},
+		{name: "broker_local_model", opts: withModel(baseOpts("broker"), "gemma4")},
 		{name: "proxy", opts: baseOpts("proxy")},
 		{name: "firewall", opts: baseOpts("firewall")},
-		{name: "firewall_broker", opts: withBroker(baseOpts("firewall"), "anthropic", "/state/inject/broker.env")},
+		{name: "firewall_inject", opts: withBroker(baseOpts("firewall"), "anthropic", "/state/inject/broker.env")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -72,8 +72,8 @@ func TestBuildPlanUnknownMode(t *testing.T) {
 
 func TestModesAndValidMode(t *testing.T) {
 	t.Parallel()
-	if got := Modes(); len(got) != 3 || got[0] != "open" || got[1] != "proxy" || got[2] != "firewall" {
-		t.Errorf("Modes() = %v, want [open proxy firewall]", got)
+	if got := Modes(); len(got) != 3 || got[0] != "broker" || got[1] != "proxy" || got[2] != "firewall" {
+		t.Errorf("Modes() = %v, want [broker proxy firewall]", got)
 	}
 	for _, m := range Modes() {
 		if !ValidMode(m) {
@@ -94,8 +94,8 @@ func TestPlanImages(t *testing.T) {
 		opts Options
 		want []string
 	}{
-		{name: "open has no sidecars", opts: baseOpts("open"), want: nil},
-		{name: "open with model needs ollama", opts: withModel(baseOpts("open"), "gemma4"), want: []string{"ollama/ollama:latest"}},
+		{name: "broker has no sidecars", opts: baseOpts("broker"), want: nil},
+		{name: "broker with model needs ollama", opts: withModel(baseOpts("broker"), "gemma4"), want: []string{"ollama/ollama:latest"}},
 		{name: "proxy needs squid", opts: baseOpts("proxy"), want: []string{"ubuntu/squid:latest"}},
 		{name: "firewall needs squid and the inspector", opts: baseOpts("firewall"), want: []string{"ubuntu/squid:latest", "proveo/egress-proxy:latest"}},
 	}
@@ -117,14 +117,14 @@ func TestPlanImages(t *testing.T) {
 func TestBuildPlanInvariants(t *testing.T) {
 	t.Parallel()
 
-	t.Run("open mode adds no proxy env and no internal network", func(t *testing.T) {
+	t.Run("broker mode adds no proxy env and no internal network", func(t *testing.T) {
 		t.Parallel()
-		p, _ := BuildPlan(baseOpts("open"))
+		p, _ := BuildPlan(baseOpts("broker"))
 		if joined := strings.Join(p.AgentArgs, " "); strings.Contains(joined, "HTTP_PROXY") {
-			t.Errorf("open AgentArgs should not set a proxy, got %q", joined)
+			t.Errorf("broker AgentArgs should not set a proxy, got %q", joined)
 		}
 		if len(p.Networks) != 0 {
-			t.Errorf("open (no model) should create no networks, got %v", p.Networks)
+			t.Errorf("broker (no model) should create no networks, got %v", p.Networks)
 		}
 	})
 
@@ -160,7 +160,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 		}
 	})
 
-	t.Run("broker wires provider + env-file into the proxy sidecar", func(t *testing.T) {
+	t.Run("firewall wires provider + env-file into the proxy sidecar", func(t *testing.T) {
 		t.Parallel()
 		p, _ := BuildPlan(withBroker(baseOpts("firewall"), "anthropic", "/state/inject/broker.env"))
 		var proxy string
@@ -185,10 +185,10 @@ func TestBuildPlanInvariants(t *testing.T) {
 				t.Errorf("%s: agent must blackhole external DNS (--dns 0.0.0.0); got %q", mode, j)
 			}
 		}
-		// open mode must NOT blackhole DNS (it has no proxy to resolve for it).
-		p, _ := BuildPlan(baseOpts("open"))
+		// broker mode must NOT blackhole DNS (it has no proxy to resolve for it).
+		p, _ := BuildPlan(baseOpts("broker"))
 		if strings.Contains(strings.Join(p.AgentArgs, " "), "--dns") {
-			t.Error("open mode must not set --dns")
+			t.Error("broker mode must not set --dns")
 		}
 	})
 
@@ -202,7 +202,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 
 	t.Run("local model mounts host models read-only and sets the readiness wait", func(t *testing.T) {
 		t.Parallel()
-		p, _ := BuildPlan(withModel(baseOpts("open"), "gemma4"))
+		p, _ := BuildPlan(withModel(baseOpts("broker"), "gemma4"))
 		var ollama string
 		for _, c := range p.Sidecars {
 			if strings.Contains(strings.Join(c, " "), "--network-alias ollama") {
@@ -219,7 +219,7 @@ func TestBuildPlanInvariants(t *testing.T) {
 
 	t.Run("no ModelsDir means no mount", func(t *testing.T) {
 		t.Parallel()
-		o := withModel(baseOpts("open"), "gemma4")
+		o := withModel(baseOpts("broker"), "gemma4")
 		o.ModelsDir = ""
 		p, _ := BuildPlan(o)
 		if j := strings.Join(p.Sidecars[0], " "); strings.Contains(j, ":/models:ro") {

@@ -71,7 +71,7 @@ Each phase ships a working product; Bash is deleted only after its Go replacemen
       newline (malformed Squid config that the substring-based contract tests never caught).
 - [x] Ported the docker-exec orchestration into `internal/egress` as a pure `BuildPlan` (networks,
       sidecars, connects, agent args, cleanup) + an injectable `Runner`/`ExecRunner`. Golden-tested
-      per mode (open/proxy/firewall ± local-model ± broker) with security-invariant assertions
+      per mode (broker|proxy|firewall_SLASH ± local-model ± broker) with security-invariant assertions
       (agent nets `--internal`, only Squid on the egress net, CA trust in firewall). The CLI's
       `run` executes it.
 - [x] `egress.sh` now delegates **both** detection and `provider-allow` to the Go binary when

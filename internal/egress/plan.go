@@ -27,19 +27,19 @@ type Plan struct {
 // Options parameterizes a Plan. Zero values are sensible: images default to the
 // proveo/* names, GID falls back to UID.
 type Options struct {
-	Mode       string // "open" | "proxy" | "firewall"
+	Mode       string // "broker" | "proxy" | "firewall"
 	SessionID  string
 	AgentName  string // e.g. "claudecode-mcp" (sanitized into network names)
 	UID, GID   string
 	LocalModel string // optional Ollama model
 	ModelsDir  string // host Ollama model store, mounted read-only at /models
-	// Broker (firewall): a single resolved provider + host env-file.
+	// Broker (firewall mode): a single resolved provider + host env-file.
 	Provider      string
 	BrokerEnvFile string
 	// ProviderDomains are extra write-allowlisted domains (space/comma separated),
 	// passed to the proxy's egress policy (PROVEO_EGRESS_PROVIDER_DOMAINS).
 	ProviderDomains string
-	// Host paths for the firewall inspector.
+	// Host paths for the firewall-mode inspector.
 	ConfDir  string // holds the generated CA cert
 	FlowsDir string // holds flows.ndjson
 	// Host paths for Squid (proxy + firewall).
@@ -81,7 +81,7 @@ var modeBuilders = []struct {
 	name  string
 	build func(Options) Plan
 }{
-	{"open", buildOpen},
+	{"broker", buildBroker},
 	{"proxy", buildProxy},
 	{"firewall", buildFirewall},
 }
@@ -158,14 +158,14 @@ func (b *builder) done() Plan {
 	return b.p
 }
 
-func buildOpen(o Options) Plan {
-	// Open egress. Only a user-defined bridge (still internet-capable) is needed,
+func buildBroker(o Options) Plan {
+	// Broker egress (direct bridge; ex-open). Only a user-defined bridge (still internet-capable) is needed,
 	// and only when a local model sidecar must be resolvable by name.
 	if o.LocalModel == "" {
 		return Plan{AgentArgs: []string{"--network=bridge", "--add-host=host.docker.internal:127.0.0.1"}}
 	}
 	b := newBuilder(o)
-	net := o.SessionID + "-" + o.safeAgent() + "-open-net"
+	net := o.SessionID + "-" + o.safeAgent() + "-broker-net"
 	b.network(net, false)
 	b.p.AgentArgs = []string{"--network", net}
 	b.attachLocalModel(net)

@@ -21,7 +21,7 @@ Nothing currently enforces `docs/go-testing-standards.md` — `staticcheck` /
 
 ## 4. Egress validation matrix (folded from the retired PLAN.md)
 Extend the gated Layer-3 job to the full matrix, so every mode's invariants are pinned:
-- [ ] **open** — direct HTTP(S) and arbitrary protocol egress succeed.
+- [ ] **firewall** — direct HTTP(S) and arbitrary protocol egress succeed.
 - [ ] **proxy** — HTTP(S) via Squid succeeds; direct bypass and non-web protocols fail; RFC1918 + cloud-metadata (`169.254.169.254`) + write methods denied; only read-oriented public HTTP(S) passes.
 - [ ] **firewall** — MITM decrypt + policy block/allow + CA trust + decrypted flow recorded; raw-bypass attempts rejected/logged. *(Core cases already covered live; broaden the matrix.)*
 - [ ] **local model** — `ollama:11434` reachable on the agent network while all the above denies hold.

@@ -56,7 +56,7 @@ func TestBrokerProvider(t *testing.T) {
 		want     string
 	}{
 		{"firewall + 1 provider + on", "firewall", []string{"anthropic"}, true, "anthropic"},
-		{"open mode never brokers", "open", []string{"anthropic"}, true, ""},
+		{"broker mode never brokers", "broker", []string{"anthropic"}, true, ""},
 		{"proxy mode never brokers", "proxy", []string{"anthropic"}, true, ""},
 		{"two providers → ambiguous, skip", "firewall", []string{"anthropic", "openai"}, true, ""},
 		{"zero providers", "firewall", nil, true, ""},
@@ -75,17 +75,17 @@ func TestBrokerProvider(t *testing.T) {
 func TestAssembleAndDispatch(t *testing.T) {
 	t.Parallel()
 
-	t.Run("open mode: no lifecycle, bare agent", func(t *testing.T) {
+	t.Run("broker mode: no lifecycle, bare agent", func(t *testing.T) {
 		t.Parallel()
 		plan, agent, err := assemble(assembleInput{
-			params: runParams{mode: "open", target: "opencode", image: "img"},
+			params: runParams{mode: "broker", target: "opencode", image: "img"},
 			sid:    "s", egDir: "/st", uid: "1000", gid: "1000",
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if needsLifecycle(plan) {
-			t.Error("open (no model) must not need the lifecycle")
+			t.Error("firewall (no model) must not need the lifecycle")
 		}
 		if agent.Image != "img" || agent.User != "1000:1000" || !agent.Interactive {
 			t.Errorf("agent config wrong: %+v", agent)
@@ -113,10 +113,10 @@ func TestAssembleAndDispatch(t *testing.T) {
 		}
 	})
 
-	t.Run("open + local model: lifecycle via the ollama sidecar", func(t *testing.T) {
+	t.Run("firewall + local model: lifecycle via the ollama sidecar", func(t *testing.T) {
 		t.Parallel()
 		plan, _, err := assemble(assembleInput{
-			params: runParams{mode: "open", target: "opencode", image: "img", localModel: "gemma4"},
+			params: runParams{mode: "broker", target: "opencode", image: "img", localModel: "gemma4"},
 			sid:    "s", egDir: "/st", uid: "1000", gid: "1000",
 			modelsDir: "/models",
 		})
@@ -124,7 +124,7 @@ func TestAssembleAndDispatch(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !needsLifecycle(plan) {
-			t.Error("open + --local-model must need the lifecycle (ollama sidecar)")
+			t.Error("firewall + --local-model must need the lifecycle (ollama sidecar)")
 		}
 		if plan.OllamaContainer == "" {
 			t.Error("local-model plan must set OllamaContainer")
@@ -134,7 +134,7 @@ func TestAssembleAndDispatch(t *testing.T) {
 	t.Run("shell + data-dir affect the agent config", func(t *testing.T) {
 		t.Parallel()
 		_, agent, err := assemble(assembleInput{
-			params: runParams{mode: "open", target: "opencode", image: "img", shell: true, dataDir: "/data"},
+			params: runParams{mode: "broker", target: "opencode", image: "img", shell: true, dataDir: "/data"},
 			sid:    "s", egDir: "/st", uid: "1", gid: "1",
 		})
 		if err != nil {
@@ -157,7 +157,7 @@ func TestAssembleAndDispatch(t *testing.T) {
 	t.Run("declared env is forwarded by bare name, never as KEY=VALUE", func(t *testing.T) {
 		t.Parallel()
 		_, agent, err := assemble(assembleInput{
-			params: runParams{mode: "open", target: "cursor", image: "img"},
+			params: runParams{mode: "broker", target: "cursor", image: "img"},
 			sid:    "s", egDir: "/st", uid: "1", gid: "1",
 			env: []string{"CURSOR_API_KEY"},
 		})
@@ -213,13 +213,14 @@ func TestWriteBrokerEnv(t *testing.T) {
 		t.Setenv(k, "")
 	}
 
-	if _, err := writeBrokerEnv(filepath.Join(t.TempDir(), "inject")); err == nil {
+	emptyLookup := func(string) string { return "" }
+	if _, err := writeBrokerEnv(filepath.Join(t.TempDir(), "inject"), emptyLookup); err == nil {
 		t.Error("writeBrokerEnv with no provider key must error, not write an empty file")
 	}
 
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test-value")
 	dir := filepath.Join(t.TempDir(), "inject")
-	path, err := writeBrokerEnv(dir)
+	path, err := writeBrokerEnv(dir, os.Getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,5 +241,26 @@ func TestWriteBrokerEnv(t *testing.T) {
 	b, _ := os.ReadFile(path)
 	if !strings.Contains(string(b), "ANTHROPIC_API_KEY=sk-ant-test-value") {
 		t.Errorf("broker.env content = %q, want the key=value line", b)
+	}
+}
+
+func TestWriteBrokerEnvFromHostFile(t *testing.T) {
+	for _, k := range provider.KeyVars() {
+		t.Setenv(k, "")
+	}
+	envPath := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envPath, []byte("CURSOR_API_KEY=from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path, err := writeBrokerEnv(filepath.Join(t.TempDir(), "inject"), providerLookup(envPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "CURSOR_API_KEY=from-file") {
+		t.Errorf("broker.env should include host-file key, got %q", b)
 	}
 }

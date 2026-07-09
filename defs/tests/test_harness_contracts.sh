@@ -98,6 +98,12 @@ done
 assert_file_contains "claudecode wrapper runs container as invoking host user" "$ROOT/defs/claudecode/run.sh" '"--user" "$(id -u):$(id -g)"'
 assert_file_contains "opencode wrapper runs container as invoking host user" "$ROOT/defs/opencode/run.sh" '"--user" "$(id -u):$(id -g)"'
 assert_file_contains "cursor wrapper runs container as invoking host user" "$ROOT/defs/cursor/run.sh" '"--user" "$(id -u):$(id -g)"'
+assert_file_contains "cursor wrapper overlays resolved .env for symlinked secrets" "$ROOT/defs/cursor/run.sh" "proveo_append_env_mount_args"
+assert_file_contains "env mount helper resolves symlinks on the host" "$ROOT/defs/lib/env-mount.sh" "os.path.realpath"
+assert_file_contains "env mount helper masks .env in proxy/firewall" "$ROOT/defs/lib/env-mount.sh" "/dev/null"
+assert_file_contains "entrypoint skips .env load under firewall" "$ROOT/packages/lib/entrypoint-lib.sh" "Skipping .env load"
+assert_file_contains "Go CLI withholds secret env outside broker mode" "$ROOT/cmd/proveo/main.go" 'e.Secret && p.mode != "broker"'
+assert_file_contains "broker can ingest host-side .env without agent mount" "$ROOT/defs/lib/egress.sh" "PROVEO_EGRESS_ENV_FILE"
 assert_file_contains "cecli wrapper runs container as invoking host user" "$ROOT/defs/cecli/run.sh" '"--user" "$(id -u):$(id -g)"'
 assert_file_contains "distributable CLI runs containers as invoking host user" "$ROOT/apps/cli/public/cli/lib/runners.sh" '--user "$(id -u):$(id -g)"'
 assert_file_not_contains "cecli wrapper no longer passes LOCAL_UID" "$ROOT/defs/cecli/run.sh" "LOCAL_UID"
@@ -153,8 +159,8 @@ for variant_entrypoint in "$ROOT/defs/claudecode/mcp/entrypoint.sh" "$ROOT/defs/
 done
 assert_file_contains "shared entrypoint lib implements smoke mode" "$ROOT/packages/lib/entrypoint-lib.sh" "PROVEO_SMOKE_READY"
 assert_file_contains "claudecode default prompt encodes verification loop" "$ROOT/defs/claudecode/defaults/CLAUDE.md" "Verification Commands"
-assert_file_contains "claudecode run supports open egress mode" "$ROOT/defs/claudecode/run.sh" "open|proxy|firewall"
-# Secure-by-default: every run wrapper starts in firewall mode; open is opt-in.
+assert_file_contains "claudecode run supports broker|proxy|firewall egress modes" "$ROOT/defs/claudecode/run.sh" "broker|proxy|firewall"
+# Secure-by-default: every run wrapper starts in firewall mode; broker is opt-in.
 for runner_wrapper in claudecode cursor opencode cecli; do
   assert_file_contains "$runner_wrapper run defaults to firewall egress" "$ROOT/defs/$runner_wrapper/run.sh" 'EGRESS_MODE="firewall"'
 done
@@ -249,7 +255,7 @@ assert_executable "cursor audit hook is executable" "$ROOT/defs/cursor/defaults/
 assert_file_contains "cursor reviewer subagents are structurally readonly" "$ROOT/defs/cursor/defaults/agents/adversarial-reviewer.md" "readonly: true"
 assert_file_contains "cursor loop rule encodes the verification loop" "$ROOT/defs/cursor/defaults/rules/proveo-loop.mdc" "Verification Commands"
 assert_file_contains "cursor run wrapper sources shared egress lifecycle" "$ROOT/defs/cursor/run.sh" 'source "$DEFS_DIR/lib/egress.sh"'
-assert_file_contains "cursor run supports the three egress modes" "$ROOT/defs/cursor/run.sh" "open|proxy|firewall"
+assert_file_contains "cursor run supports the three egress modes" "$ROOT/defs/cursor/run.sh" "broker|proxy|firewall"
 assert_file_contains "cursor run rejects local models (vendor-pinned inference)" "$ROOT/defs/cursor/run.sh" "no local-model path"
 assert_file_not_contains "cursor run has no --local-model flag" "$ROOT/defs/cursor/run.sh" '--local-model)'
 assert_file_contains "cursor entrypoint handles proxied HTTP/2 fallback" "$ROOT/defs/cursor/entrypoint.sh" "useHttp1ForAgent"

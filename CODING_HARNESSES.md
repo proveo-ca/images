@@ -112,8 +112,15 @@ Expected behavior:
   - lockfiles: `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `poetry.lock`;
   - shared config: `tsconfig*.json`, `.npmrc`, `.yarnrc.yml`, `.tool-versions`;
   - agent instructions: `AGENTS.md`, `CONVENTIONS.md`, `CLAUDE.md`;
-  - runtime env files: root `.env` for provider keys, model aliases, and harness flags;
   - tool config: `.cecli.config.yml`, `.cecliignore`, `opencode.json`.
+
+For **`.env`**: do not treat it as a file to preserve into the agent mount set when
+credential isolation matters. In `firewall` mode the target posture is host-exported keys
+(or host-side resolution into `broker.env` on the egress sidecar only — see
+[`plans/01-security-credential-broker.md`](plans/01-security-credential-broker.md)). Wrappers
+may overlay a symlink-resolved `.env` at `/app/.env` for entrypoint autoload convenience
+(`defs/lib/env-mount.sh`); that is not a security control. In `broker` mode, prefer host
+`export` / `docker run -e` over bind-mounting `.env` when minimizing file exposure.
 
 - Make the chosen scope visible in the container name or startup preamble so parallel harness sessions are distinguishable.
 
@@ -139,6 +146,18 @@ Harness images should:
 - source secrets only at runtime from mounted files or `docker run -e` values;
 - keep auth persistence opt-in via documented host mounts;
 - avoid logging secret values while still reporting whether required keys were detected.
+
+**Credential isolation by egress mode** (see [`README.md`](README.md) and
+[`_spec/paradigms.md`](_spec/paradigms.md)):
+
+| Mode | Secret confinement |
+| --- | --- |
+| `firewall` | Real secrets only in `broker.env` on the egress sidecar. Agent `.env` is masked; `load_env` skips; secret `-e` withheld. Sentinel (Plan 4 Ph3) still pending. |
+| `proxy` | No TLS inspection — broker-style inject/strip is impossible. Squid limits destinations; agent holds credentials in-process (or withholds them, requiring another auth path). |
+| `broker` | No egress boundary — dev-only; `.env` may be mounted for convenience; accept in-process secrets. |
+
+The credential broker is **firewall-mode only**. Do not document or implement broker injection
+for `proxy`/`broker` without an explicit topology change (adding TLS MITM to those modes).
 
 ## Observability and Debuggability
 

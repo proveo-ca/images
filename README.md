@@ -142,9 +142,51 @@ The practical safety boundary is therefore:
 1. the Docker runtime configuration,
 2. the mounted directories and their read/write mode,
 3. the container user and Linux capabilities,
-4. the agent/tool permission model inside the container.
+4. the agent/tool permission model inside the container,
+5. the egress layer (`--egress-mode firewall`) and credential broker when provider keys are in play.
 
 Do not treat a permissive agent running in a container as inherently safe. Mount only the directories the agent should see, prefer read-only input mounts where possible, and review each harness's `run.sh` before use.
+
+### `.env` and provider secrets (do not mount)
+
+**Security requirement:** a project `.env` that holds provider API keys must **not** be bind-mounted into the agent container when you want credential isolation. An autonomous agent with workspace access can read any mounted file; tool deny rules (for example Cursor's `Read(.env*)`) do not protect secrets that the entrypoint has already sourced into the process environment.
+
+Preferred pattern:
+
+- export provider keys in the **host** shell (or pass them with `docker run -e VAR`, never on argv);
+- run with **`--egress-mode firewall`** so the credential broker holds the real secret in a `0600` file **outside** every agent mount and injects it only on the pinned provider host;
+- keep `.env` on the host for local tooling (`proveo init`, editors, etc.) but treat it as **out of scope** for the container mount set.
+
+**Current pragmatic behavior (not isolation):** when the whole repo is bind-mounted at `/app`, `.env` at the repo root is visible inside the container unless you exclude it. Wrappers may also overlay a **symlink-resolved** `.env` at `/app/.env` so entrypoint autoload works when the project symlink points outside the mount — that overlay is a **functional** convenience, not a security control. `proveo run` warns when a mounted `.env` and a detected provider key coincide.
+
+See [`plans/01-security-credential-broker.md`](plans/01-security-credential-broker.md) for the broker design and honest limits (mounted files remain readable; the broker prevents **egress** exfiltration, not in-container reads).
+
+### Credential isolation by egress mode
+
+| Mode | Bare-minimum credential mounts (target) | Achievable today? | Notes |
+| --- | --- | --- | --- |
+| **firewall** | Real secrets only in `broker.env` on the egress sidecar (`proveo-egress`); agent gets no secret file and no real secret env | **Yes** (sentinel still pending) | `.env` masked; `load_env` skipped; secret `-e` withheld; host `.env` → `broker.env` |
+| **proxy** | Same broker-style isolation | **No** (without topology change) | Squid sees `CONNECT host:443` only; it cannot decrypt TLS or inject auth headers. Agent must hold credentials in-process for HTTPS APIs |
+| **broker** | Same broker-style isolation | **No** (by design) | Direct bridge; container boundary only. Dev-oriented path with in-process secret exposure. You can still avoid mounting `.env` as a file |
+
+**Firewall mode — what works today**
+
+- `broker.env` (`0600`) is written under the host egress state dir and mounted into `proveo-egress` at `/broker:ro` only — never into the agent.
+- Bash wrappers (`defs/cursor/run.sh`, `defs/claudecode/run.sh`) withhold raw provider secrets from the agent in `proxy`/`firewall` (they pass `CURSOR_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` only in `broker`).
+- The broker injects auth on the pinned provider host and strips credential headers off-provider.
+
+**Firewall mode — known gaps (incremental; partially closed)**
+
+1. ~~**`.env` bind-mounted into the agent**~~ — **closed:** wrappers and `MountSpec` mask `/app/.env` with `/dev/null` in `proxy`/`firewall`; broker mode still overlays a resolved file.
+2. ~~**Entrypoint always sources `.env`**~~ — **closed:** `load_env` skips when `PROVEO_EGRESS_MODE` is `proxy` or `firewall`.
+3. ~~**Go CLI forwards secrets in all modes**~~ — **closed:** manifest `secret: true` vars are forwarded as `-e` only in `broker`.
+4. ~~**Broker reads host env only**~~ — **closed:** host-side project `.env` / `PROVEO_EGRESS_ENV_FILE` feeds `broker.env` without mounting into the agent.
+5. **Sentinel replacement not shipped** — brokered keys forwarded via `-e` are not yet rewritten to a sentinel inside the agent after `.env` load (Plan 4 Ph3). Remaining defense-in-depth item.
+
+**Proxy and broker modes**
+
+- **Proxy** can limit destinations (Squid ACL) but cannot confine secrets to a sidecar without adding TLS inspection (i.e. making proxy ≈ firewall). Stopping `.env` file mounts is possible; the agent still needs credentials in-process.
+- **Broker** has no interception point. Minimize exposure by not bind-mounting `.env` and using host `export` / `docker run -e`; treat as development-only.
 
 ## Roadmap Direction
 

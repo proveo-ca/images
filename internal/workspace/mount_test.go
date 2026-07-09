@@ -38,13 +38,56 @@ func TestMountPlanInputOutput(t *testing.T) {
 
 func TestMountPlanAppWholeRepo(t *testing.T) {
 	t.Parallel()
-	got, wd := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: "/repo", InputDir: "/repo"}.Plan()
-	want := []runner.Mount{{Host: "/repo", Container: "/app"}}
+	root := t.TempDir()
+	touch(t, filepath.Join(root, ".env"))
+	got, wd := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "broker"}.Plan()
+	want := []runner.Mount{
+		{Host: root, Container: "/app"},
+		{Host: filepath.Join(root, ".env"), Container: "/app/.env", ReadOnly: true},
+	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("app whole-repo mounts mismatch (-want +got):\n%s", diff)
 	}
 	if wd != "/app" {
 		t.Errorf("workdir = %q, want /app", wd)
+	}
+}
+
+func TestMountPlanAppWholeRepoFirewallMasksEnv(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, ".env"))
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "firewall"}.Plan()
+	byContainer := map[string]runner.Mount{}
+	for _, m := range got {
+		byContainer[m.Container] = m
+	}
+	m, ok := byContainer["/app/.env"]
+	if !ok || m.Host != "/dev/null" || !m.ReadOnly {
+		t.Fatalf("firewall should mask .env with /dev/null: %+v (ok=%v)", m, ok)
+	}
+}
+
+func TestMountPlanAppWholeRepoSymlinkEnv(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	secrets := filepath.Join(t.TempDir(), "secrets.env")
+	touch(t, secrets)
+	if err := os.Symlink(secrets, filepath.Join(root, ".env")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "broker"}.Plan()
+	byContainer := map[string]runner.Mount{}
+	for _, m := range got {
+		byContainer[m.Container] = m
+	}
+	m, ok := byContainer["/app/.env"]
+	if !ok || !m.ReadOnly {
+		t.Fatalf(".env overlay missing or not ro: %+v (ok=%v)", m, ok)
+	}
+	if m.Host != secrets {
+		t.Errorf(".env host = %q, want resolved target %q", m.Host, secrets)
 	}
 }
 
@@ -59,8 +102,9 @@ func TestMountPlanAppSubdir(t *testing.T) {
 	touch(t, filepath.Join(scope, "package.json")) // scope has its own package.json
 
 	got, wd := MountSpec{
-		Workspace: manifest.Workspace{Layout: "app", ConfigDir: ".cursor", GitMode: "rw"},
-		RepoRoot:  root, InputDir: scope,
+		Workspace:  manifest.Workspace{Layout: "app", ConfigDir: ".cursor", GitMode: "rw"},
+		RepoRoot:   root, InputDir: scope,
+		EgressMode: "broker",
 	}.Plan()
 
 	if wd != "/app" {

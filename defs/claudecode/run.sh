@@ -27,7 +27,7 @@ Usage:
 Runs the claudecode harness. The default variant is mcp.
 
 Network Security Levels (Egress Modes):
-  open
+  broker
       No proxy enforcement. The container uses the default Docker bridge
       network with direct internet access. Suitable for local development
       where no network isolation is required.
@@ -42,10 +42,11 @@ Network Security Levels (Egress Modes):
       blocked in this mode — use firewall for enforced write-pinning.
 
   firewall (default; recommended for production/auditing)
-      HTTP/HTTPS traffic is first routed through a mitmproxy inspection proxy
-      that decrypts and records each request (method/path/host), then through
-      Squid for enforcement. Non-web protocols are blocked. This provides
-      complete, decrypted audit trails of all outbound web requests.
+      HTTP/HTTPS traffic is first routed through proveo-egress (TLS MITM +
+      credential broker) that decrypts and records each request
+      (method/path/host), then through Squid for enforcement. Non-web
+      protocols are blocked. This provides complete, decrypted audit trails
+      of all outbound web requests.
 
 Options:
   --input-dir PATH     Directory to mount as input (default: current directory)
@@ -77,7 +78,7 @@ Examples:
   proveo run claudecode --egress-mode proxy
 
   # No egress enforcement (development only)
-  proveo run claudecode --egress-mode open
+  proveo run claudecode --egress-mode broker
 EOF
 }
 
@@ -96,7 +97,7 @@ while [[ $# -gt 0 ]]; do
     --egress-mode)
       [[ $# -ge 2 ]] || { echo "--egress-mode requires a value" >&2; exit 1; }
       case "$2" in
-        open|proxy|firewall)
+        broker|proxy|firewall)
           EGRESS_MODE="$2"
           ;;
         *)
@@ -192,10 +193,9 @@ DOCKER_ARGS=(
   "-v" "${OUTPUT_DIR}:/workspace/output:rw"
 )
 
-# Pass the raw token to the agent ONLY in open mode. In proxy/firewall the egress
-# broker injects it at the proxy, so the agent process never sees the credential
-# (it cannot then be exfiltrated by a compromised/prompt-injected agent).
-if [[ "$EGRESS_MODE" == "open" ]]; then
+# Pass the raw token to the agent ONLY in broker mode. In proxy/broker the
+# credential is withheld from the agent (firewall mode injects at the proxy).
+if [[ "$EGRESS_MODE" == "broker" ]]; then
   DOCKER_ARGS+=("-e" "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}")
 fi
 

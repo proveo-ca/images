@@ -8,6 +8,8 @@ DEFS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$DEFS_DIR/lib/egress.sh"
 # shellcheck source=../lib/git-identity.sh
 source "$DEFS_DIR/lib/git-identity.sh"
+# shellcheck source=../lib/env-mount.sh
+source "$DEFS_DIR/lib/env-mount.sh"
 trap proveo_egress_cleanup EXIT
 
 IMAGE_NAME="${PROVEO_CURSOR_IMAGE:-proveo/cursor:latest}"
@@ -28,11 +30,11 @@ a git repository, the wrapper preserves the monorepo path under /app and mounts
 root .git for repo-aware tools.
 
 Network Security Levels (Egress Modes):
-  open                No proxy enforcement (plain Docker bridge network).
+  broker              No proxy enforcement (plain Docker bridge network).
   proxy               HTTP/HTTPS via Squid enforcement proxy; non-web protocols
                       blocked by Docker network topology.
-  firewall (default)  mitmproxy (TLS-decrypting recorder) → Squid → internet;
-                      complete decrypted audit trail of outbound web requests.
+  firewall (default)  proveo-egress (TLS MITM + credential broker) → Squid →
+                      internet; decrypted audit trail of outbound web requests.
 
 Options:
   --shell             Open bash in the container instead of launching the agent
@@ -52,7 +54,7 @@ Examples:
     -p "Fix the failing tests" --output-format stream-json
 
   # No egress enforcement (development only)
-  ./run.sh --egress-mode open
+  ./run.sh --egress-mode broker
 EOF
 }
 
@@ -76,7 +78,7 @@ while [[ $# -gt 0 ]]; do
     --egress-mode)
       [[ $# -ge 2 ]] || { echo "--egress-mode requires a value" >&2; exit 1; }
       case "$2" in
-        open|proxy|firewall)
+        broker|proxy|firewall)
           EGRESS_MODE="$2"
           ;;
         *)
@@ -131,10 +133,10 @@ DOCKER_ARGS=("run" "-it" "--rm")
 DOCKER_ARGS+=("--user" "$(id -u):$(id -g)")
 # Capability/privilege hardening baseline, matching the claudecode runner.
 DOCKER_ARGS+=("--cap-drop=ALL" "--security-opt=no-new-privileges:true" "--pids-limit=512")
-# Pass the raw key to the agent ONLY in open mode. In proxy/firewall the egress
-# broker injects it at the proxy, so the agent process never sees the credential
-# (it cannot then be exfiltrated by a compromised/prompt-injected agent).
-if [[ "$EGRESS_MODE" == "open" ]]; then
+# Pass the raw key to the agent ONLY in broker mode. In proxy/firewall the key is withheld from the agent
+# (firewall mode injects it at the proxy);
+# so the agent process never sees the credential.
+if [[ "$EGRESS_MODE" == "broker" ]]; then
   DOCKER_ARGS+=("-e" "CURSOR_API_KEY=${CURSOR_API_KEY:-}")
 fi
 # Forward the developer's git identity (host git config or GIT_* env) so the
@@ -146,6 +148,7 @@ if [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT" ]]; then
   CONTAINER_NAME="$(basename "$REPO_ROOT")-cursor"
   DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$REPO_ROOT:/app" -w /app)
+  proveo_append_env_mount_args DOCKER_ARGS "$INPUT_DIR" "$REPO_ROOT" "$EGRESS_MODE"
 elif [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT/"* ]]; then
   RELATIVE_SCOPE="${INPUT_DIR#$REPO_ROOT/}"
   CONTAINER_NAME="$(basename "$REPO_ROOT")-${RELATIVE_SCOPE//\//-}-cursor"
@@ -159,20 +162,17 @@ elif [[ -n "$REPO_ROOT" && "$INPUT_DIR" == "$REPO_ROOT/"* ]]; then
   if [[ -d "$REPO_ROOT/.cursor" && ! -e "$INPUT_DIR/.cursor" ]]; then
     DOCKER_ARGS+=(-v "$REPO_ROOT/.cursor:/app/.cursor:ro")
   fi
-  if [[ -f "$INPUT_DIR/.env" ]]; then
-    DOCKER_ARGS+=(-v "$INPUT_DIR/.env:/app/.env:ro")
-  elif [[ -f "$REPO_ROOT/.env" ]]; then
-    DOCKER_ARGS+=(-v "$REPO_ROOT/.env:/app/.env:ro")
-  fi
+  proveo_append_env_mount_args DOCKER_ARGS "$INPUT_DIR" "$REPO_ROOT" "$EGRESS_MODE" "$RELATIVE_SCOPE"
 else
   CONTAINER_NAME="$(basename "$INPUT_DIR")-cursor"
   DOCKER_ARGS+=(--name "$CONTAINER_NAME")
   DOCKER_ARGS+=(-v "$INPUT_DIR:/app" -w /app)
+  proveo_append_env_mount_args DOCKER_ARGS "$INPUT_DIR" "" "$EGRESS_MODE"
 fi
 
 # The host ~/.cursor holds Cursor credentials and session history. Do NOT
 # expose it to the sandboxed agent by default: an autonomous agent running
-# --force could read and (given open/proxy egress) exfiltrate it. Opt in
+# --force could read and (given firewall/proxy egress) exfiltrate it. Opt in
 # explicitly to inherit your personal config.
 if [[ "${PROVEO_MOUNT_HOME_CURSOR:-0}" =~ ^(1|true|yes|on)$ && -d "${HOME:-}/.cursor" ]]; then
   DOCKER_ARGS+=(-v "${HOME}/.cursor:/home/cursor/.cursor:ro")

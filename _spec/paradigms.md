@@ -38,9 +38,9 @@ Every harness image bakes `git` and `gh`. Containers ship no `~/.gitconfig` and 
 
 The dangerous in-container posture (especially Claude Code's `--dangerously-skip-permissions`) is made acceptable by a network egress layer, not just the container. It is a reusable lifecycle (`defs/lib/egress.sh`, wired into `claudecode` run/debug today) with three modes:
 
-- **open** — direct bridge egress (default).
+- **broker** — direct bridge egress (container boundary only; ex-open).
 - **proxy** — agent → Squid enforcement proxy; HTTP/HTTPS only, non-web protocols blocked by Docker network topology.
-- **firewall** — agent → mitmproxy (TLS-decrypting recorder) → Squid → internet, with the agent trusting mitmproxy's CA.
+- **firewall** — agent → proveo-egress (TLS MITM + credential broker) → Squid → internet, with the agent trusting the inspector CA (default).
 
 It serves two purposes:
 
@@ -59,7 +59,7 @@ Pinning *where* inference may go is only half the guarantee; the other half is *
 - **Strip** — credential headers (`authorization`, `x-api-key`, `x-goog-api-key`, `api-key`, `proxy-authorization`) are removed from requests to every other host, so a key the agent read from a mounted `.env` is useless for exfiltration at the network layer.
 - **Sentinel** *(planned, Plan 4 Ph3)* — for credentials the wrapper forwards via `-e` (e.g. the Claude OAuth token, `CURSOR_API_KEY`), the real value goes to the broker and the agent receives a sentinel, so the agent process never holds the real key. A key committed to a *mounted* `.env` is still readable as a file — provision provider keys via host env for full isolation.
 
-The broker is a property of `firewall` mode; `open`/`proxy` modes cannot decrypt TLS, so they keep the key-in-env behavior with the existing honest warnings. **Implementation:** the inspector is `proveo-egress`, a Go MITM proxy (`cmd/proveo-egress`, `internal/{egressproxy,broker,provider}`) built on martian that records flows and brokers credentials — not a Python mitmproxy addon. It is the default inspector; `PROVEO_EGRESS_INSPECTOR=mitmproxy` selects the legacy Python sidecar (without the broker). The enforcement layer carries no static broad provider allowlist (`defs/sidecars/squid-proxy/squid.conf`), so the tight per-provider pin generated in `defs/lib/egress.sh` is the sole write-allow. See `plans/01-security-credential-broker.md` and `plans/04-bash-to-go-migration.md`.
+The broker is a property of `firewall` mode; `broker`/`proxy` modes cannot decrypt TLS, so they keep the key-in-env behavior with the existing honest warnings. **Implementation:** the inspector is `proveo-egress`, a Go MITM proxy (`cmd/proveo-egress`, `internal/{egressproxy,broker,provider}`) built on martian that records flows and brokers credentials — not a Python mitmproxy addon. It is the default inspector; `PROVEO_EGRESS_INSPECTOR=mitmproxy` selects the legacy Python sidecar (without the broker). The enforcement layer carries no static broad provider allowlist (`defs/sidecars/squid-proxy/squid.conf`), so the tight per-provider pin generated in `defs/lib/egress.sh` is the sole write-allow. See `plans/01-security-credential-broker.md` and `plans/04-bash-to-go-migration.md`.
 
 ## Usage
 

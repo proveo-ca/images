@@ -54,10 +54,10 @@ func TestPromptfulE2E(t *testing.T) {
 	sess := tmux.New(fmt.Sprintf("proveo-e2e-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
-	// Open mode + --local-model: the agent reaches gemma4 via the Ollama sidecar
+	// Broker mode + --local-model: the agent reaches gemma4 via the Ollama sidecar
 	// (NO_PROXY), no cloud key. tmux gives the -it TUI a headless PTY.
 	if err := sess.Start(200, 50, proveoBin, "run", target,
-		"--egress-mode", "open", "--local-model", model, "--input", work); err != nil {
+		"--egress-mode", "broker", "--local-model", model, "--input", work); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
 
