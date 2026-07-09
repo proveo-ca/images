@@ -143,7 +143,7 @@ DOCKER_ARGS=(
   # Capability/privilege hardening baseline, matching the claudecode runner.
   "--cap-drop=ALL"
   "--security-opt=no-new-privileges:true"
-  "--pids-limit=100"
+  "--pids-limit=512"
   "-e" "CECLI_HOME=$CECLI_HOME_VALUE"
   "-e" "CECLI_INSTALL_NODE_DEPS=$INSTALL_NODE_DEPS"
 )

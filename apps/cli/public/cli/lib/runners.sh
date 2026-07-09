@@ -147,7 +147,7 @@ run_claude_container() {
     --security-opt=no-new-privileges:true
     --tmpfs /tmp:noexec,nosuid,size=100m
     --tmpfs /workspace/temp:noexec,nosuid,size=2g
-    --pids-limit=100
+    --pids-limit=512
     --network=bridge
     --add-host=host.docker.internal:127.0.0.1
     -v "$scope_dir:/workspace/input:ro"
@@ -199,7 +199,7 @@ run_opencode() {
     --user "$(id -u):$(id -g)"
     --cap-drop=ALL
     --security-opt=no-new-privileges:true
-    --pids-limit=100
+    --pids-limit=512
   )
 
   # Forward the developer's git identity for commit attribution
@@ -269,7 +269,7 @@ run_cursor() {
     --user "$(id -u):$(id -g)"
     --cap-drop=ALL
     --security-opt=no-new-privileges:true
-    --pids-limit=100
+    --pids-limit=512
   )
 
   # Forward the API key by NAME only — docker reads the value from this shell's
@@ -349,7 +349,7 @@ run_cecli() {
     # Capability/privilege hardening baseline, matching the claudecode runner.
     --cap-drop=ALL
     --security-opt=no-new-privileges:true
-    --pids-limit=100
+    --pids-limit=512
     -e "CECLI_HOME=/app/.cecli"
   )
 

@@ -397,7 +397,7 @@ main() {
     "--user $(id -u):$(id -g)" \
     "--cap-drop=ALL" \
     "--security-opt=no-new-privileges:true" \
-    "--pids-limit=100" \
+    "--pids-limit=512" \
     "CECLI_HOME=/app/.cecli" \
     "CECLI_INSTALL_NODE_DEPS=0" \
     "$run_dir:/app" \
@@ -410,7 +410,7 @@ main() {
     "--user $(id -u):$(id -g)" \
     "--cap-drop=ALL" \
     "--security-opt=no-new-privileges:true" \
-    "--pids-limit=100" \
+    "--pids-limit=512" \
     "CECLI_HOME=/app/.cecli" \
     "CECLI_INSTALL_NODE_DEPS=0" \
     "$run_dir:/app" \
@@ -440,7 +440,7 @@ main() {
     "--user $(id -u):$(id -g)" \
     "--cap-drop=ALL" \
     "--security-opt=no-new-privileges:true" \
-    "--pids-limit=100" \
+    "--pids-limit=512" \
     "$run_dir:/workspace/input:ro" \
     "$run_dir/reports:/workspace/output:rw"
   assert_run_target_forwards_args claudecode "$run_dir" "$docker_log"
@@ -449,7 +449,7 @@ main() {
     "--user $(id -u):$(id -g)" \
     "--cap-drop=ALL" \
     "--security-opt=no-new-privileges:true" \
-    "--pids-limit=100" \
+    "--pids-limit=512" \
     "$run_dir:/workspace/input:ro" \
     "$run_dir/reports:/workspace/output:rw"
   assert_run_target_forwards_args claudecode-solo "$run_dir" "$docker_log"
@@ -458,7 +458,7 @@ main() {
     "--user $(id -u):$(id -g)" \
     "--cap-drop=ALL" \
     "--security-opt=no-new-privileges:true" \
-    "--pids-limit=100" \
+    "--pids-limit=512" \
     "$run_dir:/app" \
     "-w" \
     "/app"

@@ -187,7 +187,7 @@ DOCKER_ARGS=(
   "--security-opt=no-new-privileges:true"
   "--tmpfs" "/tmp:noexec,nosuid,size=100m"
   "--tmpfs" "/workspace/temp:noexec,nosuid,size=2g"
-  "--pids-limit=100"
+  "--pids-limit=512"
   "-v" "${INPUT_DIR}:/workspace/input:ro"
   "-v" "${OUTPUT_DIR}:/workspace/output:rw"
 )

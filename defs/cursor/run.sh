@@ -130,7 +130,7 @@ DOCKER_ARGS=("run" "-it" "--rm")
 # workspace come back owned by the developer, for any uid — not just 1000.
 DOCKER_ARGS+=("--user" "$(id -u):$(id -g)")
 # Capability/privilege hardening baseline, matching the claudecode runner.
-DOCKER_ARGS+=("--cap-drop=ALL" "--security-opt=no-new-privileges:true" "--pids-limit=100")
+DOCKER_ARGS+=("--cap-drop=ALL" "--security-opt=no-new-privileges:true" "--pids-limit=512")
 # Pass the raw key to the agent ONLY in open mode. In proxy/firewall the egress
 # broker injects it at the proxy, so the agent process never sees the credential
 # (it cannot then be exfiltrated by a compromised/prompt-injected agent).

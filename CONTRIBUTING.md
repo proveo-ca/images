@@ -14,7 +14,7 @@ Every harness container runs as the invoking host user, never root
 - **Wrappers** (`defs/*/run.sh`, the distributable CLI runners) launch with
   `docker run --user $(id -u):$(id -g)`, so files written to bind mounts come back owned by
   the developer — for any host uid, not just the image's baked default. Pair it with the
-  hardening baseline: `--cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=100`.
+  hardening baseline: `--cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=512`.
 - **Images** bake a non-root default user (uid 1000) and set `USER`, so even a bare
   `docker run` without the wrapper is never root. Use the shared create-or-rename block
   (`ARG USER_ID=1000` / `ARG USER_NAME=<harness>`; see any existing `defs/*/Dockerfile`) so
