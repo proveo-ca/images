@@ -1,5 +1,5 @@
 // Package broker is the credential broker for the firewall egress
-// mode (Plan 1). It imports omnigent's credential_proxy principle — "inject
+// mode. It imports omnigent's credential_proxy principle — "inject
 // keys, never expose" — adapted to the fact that the *vendor CLI*, not this
 // harness, makes the model call. The real provider secret is confined to the
 // egress proxy (this process); on the pinned-provider host it injects the auth

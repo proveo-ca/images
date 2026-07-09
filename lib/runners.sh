@@ -1,44 +1,74 @@
 #!/usr/bin/env bash
-# Maintainer runners for proveo CLI
+# Maintainer runners — targets/images from harness.manifest; run/debug → proveo.
 
-# Maintainer-only image targets around the consumer TARGETS the mise tasks
-# already sourced from bin/proveo: the shared harness base FIRST (every
-# Node-based harness builds FROM it, so `all` must build it before them) and
-# the sidecar dependency images after. Everything with a defs/**/build.sh must
-# ship through `mise build` / `mise deploy` so consumers can pull it from
-# Docker Hub — the harness contract test derives that invariant from the
-# filesystem.
-TARGETS=("base" "${TARGETS[@]}" "egress-proxy" "mitmproxy")
+# shellcheck source=manifest-enum.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/manifest-enum.sh"
+
+# Build TARGETS: base first, then every image key from manifests, then sidecars.
+_proveo_build_maintainer_targets() {
+  local -a harness=()
+  local t
+  if proveo_load_manifest_targets 2>/dev/null; then
+    harness=("${MANIFEST_TARGETS[@]}")
+  else
+    harness=(cecli cecli-node opencode claudecode claudecode-solo claudecode-sol cursor)
+  fi
+  TARGETS=("base")
+  for t in "${harness[@]}"; do
+    TARGETS+=("$t")
+  done
+  TARGETS+=("egress-proxy" "mitmproxy")
+}
+_proveo_build_maintainer_targets
+
+image_name() {
+  local target="$1"
+  local img
+  case "$target" in
+    base) echo "proveo/base"; return 0 ;;
+    egress-proxy) echo "proveo/egress-proxy"; return 0 ;;
+    mitmproxy) echo "proveo/mitmproxy"; return 0 ;;
+  esac
+  if img="$(proveo_manifest_image "$target" 2>/dev/null)" && [[ -n "$img" ]]; then
+    # Strip :tag for org/name used by build
+    printf '%s\n' "${img%%:*}"
+    return 0
+  fi
+  print_error "No image mapping for target: $target"
+  exit 1
+}
+
+proveo_bin() {
+  if [[ -n "${PROVEO_BIN:-}" ]]; then
+    printf '%s\n' "$PROVEO_BIN"
+    return 0
+  fi
+  if command -v proveo >/dev/null 2>&1; then
+    command -v proveo
+    return 0
+  fi
+  local candidate="${REPO_ROOT:-}/bin/proveo"
+  if [[ -x "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  printf 'proveo\n'
+}
 
 target_dir() {
   local target="$1"
+  local d
   case "$target" in
-    base)
-      echo "$REPO_ROOT/defs/base"
-      ;;
-    cecli|cecli-node)
-      echo "$REPO_ROOT/defs/cecli"
-      ;;
-    opencode)
-      echo "$REPO_ROOT/defs/opencode"
-      ;;
-    claudecode|claudecode-solo|claudecode-sol)
-      echo "$REPO_ROOT/defs/claudecode"
-      ;;
-    cursor)
-      echo "$REPO_ROOT/defs/cursor"
-      ;;
-    egress-proxy)
-      echo "$REPO_ROOT/defs/sidecars/egress-proxy"
-      ;;
-    mitmproxy)
-      echo "$REPO_ROOT/defs/sidecars/mitmproxy"
-      ;;
-    *)
-      print_error "No directory mapping for target: $target"
-      exit 1
-      ;;
+    base) echo "${REPO_ROOT}/defs/base"; return 0 ;;
+    egress-proxy) echo "${REPO_ROOT}/defs/sidecars/egress-proxy"; return 0 ;;
+    mitmproxy) echo "${REPO_ROOT}/defs/sidecars/mitmproxy"; return 0 ;;
   esac
+  if d="$(proveo_manifest_dir "$target" 2>/dev/null)" && [[ -n "$d" ]]; then
+    printf '%s\n' "$d"
+    return 0
+  fi
+  print_error "No directory mapping for target: $target"
+  exit 1
 }
 
 run_target() {
@@ -46,36 +76,24 @@ run_target() {
   local tag="$2"
   shift 2
   local -a extra_args=("$@")
-  local scope_dir
+  local bin run_t
+  bin="$(proveo_bin)"
+  run_t="$target"
+  [[ "$target" == "claudecode-sol" ]] && run_t="claudecode-solo"
 
-  case "$target" in
-    cecli)
-      scope_dir="$(choose_scope "$target")"
-      "$(target_dir cecli)/run.sh" --image "$(image_name cecli):$tag" --input-dir "$scope_dir" --repo-root "$REPO_ROOT" -- ${extra_args[@]+"${extra_args[@]}"}
-      ;;
-    cecli-node)
-      scope_dir="$(choose_scope "$target")"
-      "$(target_dir cecli)/run.sh" --image "$(image_name cecli-node):$tag" --input-dir "$scope_dir" --repo-root "$REPO_ROOT" -- ${extra_args[@]+"${extra_args[@]}"}
-      ;;
-    claudecode)
-      scope_dir="$(choose_scope "$target")"
-      # No leading `--`: egress flags (--egress-mode/--local-model/...) must reach
-      # run.sh's own option parser, not be forwarded straight to the harness.
-      "$(target_dir claudecode)/run.sh" --variant mcp --image "$(image_name claudecode):$tag" --input-dir "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
-      ;;
-    claudecode-solo)
-      scope_dir="$(choose_scope "$target")"
-      "$(target_dir claudecode)/run.sh" --variant solo --image "$(image_name claudecode-solo):$tag" --input-dir "$scope_dir" ${extra_args[@]+"${extra_args[@]}"}
-      ;;
-    opencode)
-      scope_dir="$(choose_scope "$target")"
-      "$(target_dir opencode)/run.sh" --image "$(image_name opencode):$tag" --input-dir "$scope_dir" -- ${extra_args[@]+"${extra_args[@]}"}
-      ;;
-    *)
+  if ! proveo_manifest_image "$run_t" >/dev/null 2>&1 && [[ "$run_t" != "claudecode-solo" ]]; then
+    # claudecode-sol is a build target; run uses claudecode-solo image name from manifest
+    if ! proveo_manifest_image "$target" >/dev/null 2>&1; then
       print_error "Unsupported run target: $target"
       exit 1
-      ;;
-  esac
+    fi
+  fi
+
+  local -a args=(run "$run_t")
+  if [[ -n "$tag" && "$tag" != "latest" ]]; then
+    args+=(--image "$(image_name "$run_t"):$tag")
+  fi
+  "$bin" "${args[@]}" ${extra_args[@]+"${extra_args[@]}"}
 }
 
 debug_target() {
@@ -83,21 +101,14 @@ debug_target() {
   local tag="$2"
   shift 2
   local -a extra_args=("$@")
-  local scope_dir
+  local bin run_t
+  bin="$(proveo_bin)"
+  run_t="$target"
+  [[ "$target" == "claudecode-sol" ]] && run_t="claudecode-solo"
 
-  case "$target" in
-    claudecode)
-      scope_dir="$(choose_scope "$target")"
-      # Egress consolidated per-variant debug.sh into `run.sh --shell`.
-      "$(target_dir claudecode)/run.sh" --variant mcp --image "$(image_name claudecode):$tag" --input-dir "$scope_dir" --output-dir "$(default_claude_output_dir "$scope_dir")" --shell -- ${extra_args[@]+"${extra_args[@]}"}
-      ;;
-    claudecode-solo)
-      scope_dir="$(choose_scope "$target")"
-      "$(target_dir claudecode)/run.sh" --variant solo --image "$(image_name claudecode-solo):$tag" --input-dir "$scope_dir" --output-dir "$(default_claude_output_dir "$scope_dir")" --shell -- ${extra_args[@]+"${extra_args[@]}"}
-      ;;
-    *)
-      print_error "Unsupported debug target: $target"
-      exit 1
-      ;;
-  esac
+  local -a args=(run "$run_t" --shell)
+  if [[ -n "$tag" && "$tag" != "latest" ]]; then
+    args+=(--image "$(image_name "$run_t"):$tag")
+  fi
+  "$bin" "${args[@]}" ${extra_args[@]+"${extra_args[@]}"}
 }

@@ -3,12 +3,12 @@
 Custom Docker image for the [Cursor CLI](https://cursor.com/docs/cli) (`agent`, legacy alias
 `cursor-agent`) with:
 
-- `node:22-slim` base (has `node`, `npm`, `corepack` + `pnpm` for project tooling — the CLI
-  itself is a self-contained binary)
+- `proveo/base` (MCR `playwright` noble floor: Node, Chromium + OS deps, `pnpm` — the CLI
+ itself is a self-contained binary)
 - Root-free runtime: baked non-root user `cursor` (uid 1000); the run wrapper launches as the
-  invoking host uid via `--user $(id -u):$(id -g)`
+ invoking host uid via `--user $(id -u):$(id -g)`
 - CLI installed under a root-owned prefix (`/opt/cursor-dist`) — the agent cannot tamper with
-  or self-update the binary; updating the CLI means rebuilding the image
+ or self-update the binary; updating the CLI means rebuilding the image
 - `.env` autoloading, git identity bridging, monorepo-friendly mounts
 - Reusable network egress modes (`broker|proxy|firewall`)
 
@@ -38,12 +38,12 @@ This definition follows the shared [coding harness container contract](../../COD
 - Build override: `PROVEO_CURSOR_IMAGE=example/cursor:tag ./build.sh`
 - Run override: `./run.sh --image example/cursor:tag`
 - Workspace mount: input directory mounted at `/app` (monorepo scope preserved under
-  `/app/<relative-scope>` with root `.git` mounted alongside)
+ `/app/<relative-scope>` with root `.git` mounted alongside)
 
 ## Build
 
 ```bash
-./build.sh              # or: ./build.sh --tag local
+./build.sh # or: ./build.sh --tag local
 ```
 
 The build runs the official installer (`https://cursor.com/install`), which resolves the
@@ -53,9 +53,9 @@ tarball from `downloads.cursor.com` and pass `--build-arg CURSOR_INSTALL_URL=<mi
 ## Run
 
 ```bash
-./run.sh                                  # interactive TUI in the current repo
+./run.sh # interactive TUI in the current repo
 ./run.sh --egress-mode firewall # fully audited egress
-./run.sh --shell                          # debug shell with the same mounts/env
+./run.sh --shell # debug shell with the same mounts/env
 ```
 
 ### Headless (CI shape)
@@ -93,7 +93,7 @@ run. Re-run with `-e CURSOR_RESEED=1` to force a refresh. The launch posture is 
 
 | Layer | File | What it does |
 | ----- | ---- | ------------ |
-| Deny rules | `~/.cursor/cli-config.json` | Denies `sudo`/`su`, host power commands, `nc`/`netcat`, and credential reads (`.env*`, `.ssh`, AWS creds). Deny beats allow — even under `--force`. **Caveat:** if `.env` is bind-mounted or sourced by the entrypoint (`load_env`), the agent already holds those values in process memory and can read the file directly — deny rules are policy guidance, not isolation. See [Credential isolation](../../README.md#credential-isolation-by-egress-mode) and [`plans/01-security-credential-broker.md`](../../plans/01-security-credential-broker.md). |
+| Deny rules | `~/.cursor/cli-config.json` | Denies `sudo`/`su`, host power commands, `nc`/`netcat`, and credential reads (`.env*`, `.ssh`, AWS creds). Deny beats allow — even under `--force`. **Caveat:** if `.env` is bind-mounted or sourced by the entrypoint (`load_env`), the agent already holds those values in process memory and can read the file directly — deny rules are policy guidance, not isolation. See [Credential isolation](../../README.md#credential-isolation-by-egress-mode) and . |
 | Enterprise hook | `/etc/cursor/hooks.json` (root-owned) | Audits every `beforeShellExecution` to `~/.cursor/audit-shell.ndjson` (override: `PROVEO_CURSOR_AUDIT_LOG`). Highest hooks precedence; the run-as uid cannot edit or out-rank it. Audit-only and fail-open — enforcement lives in deny rules + egress. |
 | Readonly subagents | `~/.cursor/agents/*.md` | `adversarial-reviewer` and `security-reviewer` review gates with the native `readonly: true` bit. |
 
@@ -108,7 +108,7 @@ writes into your workspace on its own. To seed the baked verification-loop rule
 (`proveo-loop.mdc`, `alwaysApply: true`) into `.cursor/rules/`, opt in:
 
 ```bash
-./run.sh ... -e CURSOR_SEED_RULES=1   # via docker args, or export in .env
+./run.sh ... -e CURSOR_SEED_RULES=1 # via docker args, or export in .env
 ```
 
 ### Overriding the defaults
@@ -125,13 +125,13 @@ Project deny rules extend (and can only tighten alongside) the seeded baseline; 
 (`defs/lib/egress.sh`). Cursor specifics:
 
 - Provider pinning auto-detects `CURSOR_API_KEY` and pins inference writes to
-  `.cursor.sh`/`.cursor.com` (agent traffic: `api5.cursor.sh`; API/auth: `api2.cursor.sh`).
-  Web reads (docs/search) stay open, as for every harness.
+ `.cursor.sh`/`.cursor.com` (agent traffic: `api5.cursor.sh`; API/auth: `api2.cursor.sh`).
+ Web reads (docs/search) stay open, as for every harness.
 - The entrypoint detects proxy env and sets `useHttp1ForAgent: true` in the seeded config —
-  Cursor's HTTP/2 streaming does not survive every proxy chain. The CLI honors
-  `NODE_EXTRA_CA_CERTS`, which the firewall mode points at the mitmproxy CA.
+ Cursor's HTTP/2 streaming does not survive every proxy chain. The CLI honors
+ `NODE_EXTRA_CA_CERTS`, which the firewall mode points at the mitmproxy CA.
 - If the network cannot reach the Cursor backend, there is no inference, full stop — this
-  harness has no offline/local-model fallback.
+ harness has no offline/local-model fallback.
 
 ## MCP servers
 
@@ -139,12 +139,12 @@ Declare MCP servers in project `.cursor/mcp.json` (stdio or remote):
 
 ```jsonc
 {
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app"]
-    }
-  }
+ "mcpServers": {
+ "filesystem": {
+ "command": "npx",
+ "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app"]
+ }
+ }
 }
 ```
 

@@ -1,5 +1,19 @@
-FROM python:3.12-slim
+# Python cecli variant: Microsoft's official Playwright Python image already
+# ships Chromium + OS deps. Pin PLAYWRIGHT_IMAGE / PLAYWRIGHT_VERSION together.
+# Python MCR/PyPI lag the Node image: no v1.61.1 tag yet (Node base uses 1.61.1).
+ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright/python:v1.61.0-noble
 
+# Plan 4 Ph3: shared in-container prelude
+FROM golang:1.26-bookworm AS proveo-entrypoint-builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
+
+FROM ${PLAYWRIGHT_IMAGE}
+
+ARG PLAYWRIGHT_VERSION=1.61.0
 ARG USER_ID=1000
 ARG USER_NAME=cecli
 
@@ -33,19 +47,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
   && rm -rf /var/lib/apt/lists/*
 
+# Match the MCR image tag so the pip package finds the baked browsers; do not
+# re-run install --with-deps (OS libs already come from the official image).
 RUN pip install --upgrade pip setuptools wheel \
-  && pip install cecli-dev boto3 botocore playwright \
-  && playwright install --with-deps chromium \
+  && pip install cecli-dev boto3 botocore "playwright==${PLAYWRIGHT_VERSION}" \
   && chmod -R a+rX /ms-playwright \
-  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+  && rm -rf /tmp/* /var/tmp/*
 
 WORKDIR /app
 
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
+COPY --from=proveo-entrypoint-builder /out/proveo-entrypoint /usr/local/bin/proveo-entrypoint
 COPY defs/cecli/entrypoint.sh /usr/local/bin/cecli-entrypoint
 COPY defs/cecli/defaults/ /opt/cecli/defaults/
 COPY defs/cecli/proveo-lib/ /opt/proveo/lib/
-RUN chmod +x /usr/local/bin/cecli-entrypoint \
+RUN chmod +x /usr/local/bin/cecli-entrypoint /usr/local/bin/proveo-entrypoint \
   && chown "${USER_NAME}:${USER_NAME}" /app
 
 # Default to the non-root build user; the wrapper overrides the runtime uid with

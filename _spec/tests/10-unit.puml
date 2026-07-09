@@ -7,34 +7,41 @@ skinparam shadowing false
 skinparam packageStyle rectangle
 left to right direction
 
-title Layer 1 · Unit — components under test (go test -race)
+title Layer 1 · Unit — components under test (go test -race -cover)
 
-actor "go test -race" as GoTest <<actor>>
+actor "go test -race\n-test.gocoverdir=cov/unit" as GoTest <<actor>>
 
 package "Go packages (internal/*) + *_test.go" as Pkgs {
-  component "broker\ninject / strip logic" as Broker <<app>>
-  component "provider\nregistry · detection · ACL" as Provider <<app>>
-  component "egress\nBuildPlan · ProviderAllowConf" as Egress <<app>>
-  component "runner\nhardened docker argv · mounts" as Runner <<app>>
-  component "manifest\nharness.manifest loader" as Manifest <<app>>
-  component "workspace\ngit scope · DiscoverProjects" as Workspace <<app>>
-  component "shell\nPATH install per shell" as Shell <<app>>
-  component "tmux\nheadless driver (fake runner)" as Tmux <<app>>
+ component "broker\ninject / strip logic" as Broker <<app>>
+ component "provider\nregistry · detection · ACL" as Provider <<app>>
+ component "egress\nBuildPlan · ProviderAllowConf\n(no //go:build integration)" as Egress <<app>>
+ component "runner\nhardened docker argv" as Runner <<app>>
+ component "manifest\nharness.manifest loader" as Manifest <<app>>
+ component "workspace\nscope · mount plan · EnvFileSource" as Workspace <<app>>
+ component "dind\nsibling sidecar decide/start" as Dind <<app>>
+ component "gitidentity\nGIT_* env forwarding" as GitId <<app>>
+ component "entrypoint\nsentinel · bridges · .env" as Entrypoint <<app>>
+ component "shell\nPATH install per shell" as Shell <<app>>
+ component "tmux\nheadless driver (fake runner)" as Tmux <<app>>
+ component "egressproxy\nin-process martian + broker" as ProxyUT <<app>>
 }
 
 cloud "github.com/google/go-cmp\n(diff assertions)" as Cmp <<external>>
+database "cov/unit\n(GOCOVERDIR binary format)" as CovDir <<storage>>
 
-GoTest --> Pkgs : run all, -race
+GoTest --> Pkgs : run all, -race (default tags only)
 Pkgs ..> Cmp : cmp.Diff
+GoTest --> CovDir : write counters
 
 note bottom of Pkgs
 Conventions (docs/go-testing-standards.md): table-driven + t.Run subtests,
 t.Parallel, go-cmp with got/want+input messages, golden files, no assert libs.
 Injectable runners (tmux, workspace git, egress Runner) keep I/O out of unit tests.
+Docker Layer 3/4 files use build tags and are **excluded** from this lane.
 end note
 
 note right of GoTest
 Always runs. No Docker, no network, no API keys.
-Deterministic; milliseconds.
+Deterministic; milliseconds. Feeds coverage merge.
 end note
 @enduml

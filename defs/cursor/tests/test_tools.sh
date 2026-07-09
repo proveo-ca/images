@@ -26,4 +26,7 @@ assert_success "docker client is installed (DinD sidecar)" "$IMAGE" "docker --ve
 assert_success "playwright is installed" "$IMAGE" "playwright --version"
 assert_success "playwright chromium browsers are baked" "$IMAGE" \
   'test -n "$PLAYWRIGHT_BROWSERS_PATH" && test -d "$PLAYWRIGHT_BROWSERS_PATH" && ls "$PLAYWRIGHT_BROWSERS_PATH" | grep -q chromium'
-assert_success "shared verification lib is baked" "$IMAGE" "test -f /opt/proveo/lib/detect-verify.sh"
+assert_success "playwright OS deps include libglib" "$IMAGE" \
+  'ldconfig -p | grep -q "libglib-2.0.so.0"'
+assert_success "shared verification lib is baked" "$IMAGE" \
+  'command -v proveo-entrypoint >/dev/null || test -f /opt/proveo/lib/detect-verify.sh'

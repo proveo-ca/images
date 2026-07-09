@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
 )
@@ -163,7 +164,40 @@ func resolveRegularFile(path string) string {
 }
 
 // EnvFileSource returns a host-side .env path for broker ingestion (never for
-// agent mounts in proxy/firewall). Prefers inputDir, then repoRoot.
-func EnvFileSource(inputDir, repoRoot string) string {
-	return envMountSource(inputDir, repoRoot)
+// agent mounts in proxy/firewall). Matches the legacy egress.sh order:
+// invocationWD (host PWD) first, then scope inputDir / repoRoot, then
+// proveo-entrypoint's git-root / walk-up search.
+func EnvFileSource(invocationWD, inputDir, repoRoot string) string {
+	if invocationWD != "" {
+		if p := resolveRegularFile(filepath.Join(invocationWD, ".env")); p != "" {
+			return p
+		}
+	}
+	if p := envMountSource(inputDir, repoRoot); p != "" {
+		return p
+	}
+	for _, dir := range []string{inputDir, invocationWD} {
+		if dir == "" {
+			continue
+		}
+		if p := findEnvFileResolved(dir); p != "" {
+			return p
+		}
+	}
+	return ""
+}
+
+func findEnvFileResolved(dir string) string {
+	p := entrypoint.FindEnvFile(dir)
+	if p == "" {
+		return ""
+	}
+	if resolved := resolveRegularFile(p); resolved != "" {
+		return resolved
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	return abs
 }

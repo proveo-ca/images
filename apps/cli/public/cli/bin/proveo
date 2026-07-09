@@ -7,20 +7,28 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROVEO_LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
 
-TARGETS=(
-  "cecli"
-  "cecli-node"
-  "opencode"
-  "claudecode"
-  "claudecode-solo"
-  "claudecode-sol"
-  "cursor"
-)
-
-# Source helper modules
+# Source helper modules (list/build metadata only — run delegates to Go proveo).
 source "$PROVEO_LIB_DIR/ui.sh"
-source "$PROVEO_LIB_DIR/workspace.sh"
+# Prefer manifest enum when defs tree is available (dev/monorepo); else fallback list.
+if [[ -f "$PROVEO_LIB_DIR/manifest-enum.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$PROVEO_LIB_DIR/manifest-enum.sh"
+fi
+# REPO_ROOT for manifest discovery when running from a checkout
+if [[ -z "${REPO_ROOT:-}" ]]; then
+  if git rev-parse --show-toplevel >/dev/null 2>&1; then
+    REPO_ROOT="$(git rev-parse --show-toplevel)"
+  fi
+fi
+export REPO_ROOT
 source "$PROVEO_LIB_DIR/runners.sh"
+
+# TARGETS: from harness.manifest when defs exist, else installed fallback.
+if type proveo_load_manifest_targets >/dev/null 2>&1 && proveo_load_manifest_targets 2>/dev/null && [[ ${#MANIFEST_TARGETS[@]} -gt 0 ]]; then
+  TARGETS=("${MANIFEST_TARGETS[@]}")
+else
+  TARGETS=("${_PROVEO_FALLBACK_TARGETS[@]}")
+fi
 
 usage() {
   "$SCRIPT_DIR/help.sh"
@@ -102,8 +110,6 @@ is_ai_harness() {
       ;;
   esac
 }
-
-CURRENT_REPO_ROOT="$(find_repo_root)"
 
 show_help_command() {
   "$SCRIPT_DIR/help.sh"

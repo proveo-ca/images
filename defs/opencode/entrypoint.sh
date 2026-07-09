@@ -2,36 +2,25 @@
 # SPEC: _spec/defs/opencode/opencode-topology.puml, _spec/defs/opencode/opencode.paradigm.md
 set -e
 
-# Source shared entrypoint library if present
 if [[ -f /entrypoint-lib.sh ]]; then
+  # shellcheck source=/dev/null
   source /entrypoint-lib.sh
 fi
 
-# ── Make the run-as UID usable (root-free) ─────────────────
-# The wrapper runs us as the caller's host uid via `docker run --user`; give
-# that uid a passwd entry and a writable HOME (shared across harnesses).
-ensure_runtime_user
+# Shared prelude (uid, .env, model bridges, git, sentinel) via Go when baked.
+if command -v proveo-entrypoint >/dev/null 2>&1; then
+  export PROVEO_SMOKE_TARGET=opencode
+  proveo-entrypoint prep opencode || true
+else
+  ensure_runtime_user
+  set_working_directory "/app"
+  load_env
+  bridge_git_identity
+  report_git_context
+  attach_rtk
+  apply_env_bridges
+fi
 
-# ── Working directory ──────────────────────────────────────
-set_working_directory "/app"
-
-# ── Source .env file if present ────────────────────────────
-load_env
-
-# ── Git identity from environment ──────────────────────────
-# Bridge wrapper-forwarded GIT_* env into git's config-env so `git config --get`
-# resolves file-free; repo-local identity stays authoritative.
-bridge_git_identity
-
-# ── Git context (repo / remote / identity / gh session) ────
-report_git_context
-
-# ── Optional: attach RTK repo ──────────────────────────────
-attach_rtk
-
-# ── Bridge common .env model aliases to opencode config vars ─────────
-# Uses shared declarative environment variable bridges
-apply_env_bridges
 # ── Seed global defaults (~/.config/opencode) ──────────────
 # Only seed files that are missing, unless OPENCODE_RESEED=1 forces a full re-seed.
 write_minimal_opencode_config() {
@@ -360,13 +349,21 @@ echo "HITL: approve risky bash, destructive ops, publishes, deploys, secrets, an
 echo "─────────────────────────────────────────────────────"
 
 # ── Verification command discovery ────────────────────────
-if [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
+# Prefer Go proveo-entrypoint verify; fall back to thin detect-verify.sh wrapper.
+if command -v proveo-entrypoint >/dev/null 2>&1; then
+  echo "── Verification Commands ────────────────────────────"
+  proveo-entrypoint verify "$(pwd)" | while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    printf '  %s\n' "$line"
+  done
+  echo "─────────────────────────────────────────────────────"
+elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   # shellcheck source=/dev/null
   source /opt/proveo/lib/detect-verify.sh
   echo "── Verification Commands ────────────────────────────"
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    cat <<< "  $line"
+    printf '  %s\n' "$line"
   done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi

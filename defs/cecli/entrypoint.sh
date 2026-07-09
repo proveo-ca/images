@@ -2,22 +2,21 @@
 # SPEC: _spec/defs/cecli/cecli-topology.puml, _spec/defs/cecli/cecli.paradigm.md
 set -euo pipefail
 
-# Source shared entrypoint library if present
 if [[ -f /entrypoint-lib.sh ]]; then
+  # shellcheck source=/dev/null
   source /entrypoint-lib.sh
 fi
 
-# ── Make the run-as UID usable (root-free) ─────────────────
-# The wrapper runs us as the caller's host uid via `docker run --user`; give
-# that uid a passwd entry and a writable HOME (shared across harnesses).
-ensure_runtime_user
-
-set_working_directory "/app"
+if command -v proveo-entrypoint >/dev/null 2>&1; then
+  export PROVEO_SMOKE_TARGET=cecli
+  proveo-entrypoint prep cecli || true
+else
+  ensure_runtime_user
+  set_working_directory "/app"
+fi
 
 : "${CECLI_HOME:=/app/.cecli}"
-
 export CECLI_HOME
-
 mkdir -p "$CECLI_HOME" 2>/dev/null || true
 
 seed_cecli_subagents() {
@@ -56,26 +55,13 @@ has_cecli_agent_config() {
   return 1
 }
 
-load_env
+if ! command -v proveo-entrypoint >/dev/null 2>&1; then
+  load_env
+  bridge_git_identity
+  report_git_context
+fi
 
-# ── Git identity from environment ──────────────────────────
-# Bridge env-provided identity into git's config-env so cecli's `git config
-# --get` reads resolve file-free instead of seeding placeholders into .git/config.
-bridge_git_identity
-
-# ── Git context (repo / remote / identity / gh session) ────
-report_git_context
-
-# ── Environment Variable Bridge ────────────────────────────
-# Standardized vars:
-#   ARCHITECT_MODEL -> CECLI_MODEL / AIDER_MODEL
-#   EDITOR_MODEL    -> CECLI_EDITOR_MODEL / AIDER_EDITOR_MODEL
-#   SMALL_MODEL     -> CECLI_WEAK_MODEL / AIDER_WEAK_MODEL
-#   DARK_MODE=true  -> CECLI_DARK_MODE / AIDER_DARK_MODE
-#   CODE_THEME      -> CECLI_CODE_THEME
-#
-# CECLI is an aider fork, so both CECLI_* and AIDER_* names are exported
-# unless the caller already set a more specific value.
+# CECLI is an aider fork: export CECLI_* and AIDER_* aliases.
 if [[ -n "${ARCHITECT_MODEL:-}" ]]; then
   export CECLI_MODEL="${CECLI_MODEL:-$ARCHITECT_MODEL}"
   export AIDER_MODEL="${AIDER_MODEL:-$ARCHITECT_MODEL}"
@@ -190,13 +176,21 @@ echo "────────────────────────�
 run_smoke_test "cecli"
 
 # ── Verification command discovery ────────────────────────
-if [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
+# Prefer Go proveo-entrypoint verify; fall back to thin detect-verify.sh wrapper.
+if command -v proveo-entrypoint >/dev/null 2>&1; then
+  echo "── Verification Commands ────────────────────────────"
+  proveo-entrypoint verify "$(pwd)" | while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    printf '  %s\n' "$line"
+  done
+  echo "─────────────────────────────────────────────────────"
+elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   # shellcheck source=/dev/null
   source /opt/proveo/lib/detect-verify.sh
   echo "── Verification Commands ────────────────────────────"
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    cat <<< "  $line"
+    printf '  %s\n' "$line"
   done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi

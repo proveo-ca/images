@@ -1,4 +1,4 @@
-// Command proveo is the harness CLI (Plan 4 Phase 1). It composes the shared
+// Command proveo is the harness CLI. It composes the shared
 // hardened docker-run builder (internal/runner), the egress orchestration
 // (internal/egress), and provider detection (internal/provider) into one typed
 // binary — replacing the triplicated Bash run logic. Distributed as a single
@@ -26,7 +26,10 @@ import (
 	"golang.org/x/term"
 
 	proveo "github.com/proveo-ca/proveo"
+	"github.com/proveo-ca/proveo/internal/dind"
 	"github.com/proveo-ca/proveo/internal/egress"
+	"github.com/proveo-ca/proveo/internal/entrypoint"
+	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
@@ -184,23 +187,9 @@ func doRun(p runParams) error {
 		return err
 	}
 
-	// Declared-but-missing env: prompt (the DinD-prompt-style wizard) on a TTY,
-	// else warn — a skipped var keeps today's warn-and-continue behavior. Runs
-	// before provider detection so a prompted key feeds the broker + forwarding.
-	if missing := man.MissingEnv(os.Getenv); len(missing) > 0 && !p.printOnly {
-		if isStdinTTY() && wizardEnabled() {
-			for name, v := range promptEnv(p.target, missing, os.Stdin, os.Stderr, termSecret) {
-				os.Setenv(name, v)
-			}
-			missing = man.MissingEnv(os.Getenv)
-		}
-		for _, e := range missing {
-			msg := e.Name + " not set"
-			if e.Description != "" {
-				msg += " — " + e.Description
-			}
-			ui.Warnf("%s", msg)
-		}
+	// Cursor CLI has no local-model path — all inference transits Cursor's backend.
+	if p.target == "cursor" && p.localModel != "" {
+		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
 	}
 
 	// Monorepo scope: the repo root gives full git/workspace context.
@@ -245,18 +234,50 @@ func doRun(p runParams) error {
 			wsSpec.RepoRoot = repoRoot
 		}
 	}
+
+	// Host-side .env for broker ingestion (never mounted into the agent in
+	// proxy/firewall). Explicit PROVEO_EGRESS_ENV_FILE wins. Resolve before
+	// missing-env prompts so keys present only in a project .env are visible.
+	invocationWD, _ := os.Getwd()
+	hostEnvFile := strings.TrimSpace(os.Getenv("PROVEO_EGRESS_ENV_FILE"))
+	if hostEnvFile == "" {
+		hostEnvFile = workspace.EnvFileSource(invocationWD, wsSpec.InputDir, wsSpec.RepoRoot)
+	}
+	lookup := providerLookup(hostEnvFile)
+
+	// DinD offer before the env wizard: cursor declares CURSOR_API_KEY and the
+	// wizard may attach a bufio.Reader to stdin, which would starve the DinD prompt.
+	dindScope := wsSpec.InputDir
+	if dindScope == "" {
+		dindScope = start
+	}
+	wantDind := !p.printOnly && dind.ShouldStart(man.Dind, dindScope, isStdinTTY(), func() bool {
+		return dind.PromptYesNo(os.Stdin, os.Stderr)
+	})
+
+	// Declared-but-missing env: prompt (the DinD-prompt-style wizard) on a TTY,
+	// else warn — a skipped var keeps today's warn-and-continue behavior. Runs
+	// before provider detection so a prompted key feeds the broker + forwarding.
+	if missing := man.MissingEnv(lookup); len(missing) > 0 && !p.printOnly {
+		if isStdinTTY() && wizardEnabled() {
+			for name, v := range promptEnv(p.target, missing, os.Stdin, os.Stderr, termSecret) {
+				os.Setenv(name, v)
+			}
+			missing = man.MissingEnv(lookup)
+		}
+		for _, e := range missing {
+			msg := e.Name + " not set"
+			if e.Description != "" {
+				msg += " — " + e.Description
+			}
+			ui.Warnf("%s", msg)
+		}
+	}
+
 	mounts, planWorkdir := wsSpec.Plan()
 	if planWorkdir != "" {
 		workdir = planWorkdir
 	}
-
-	// Host-side .env for broker ingestion (never mounted into the agent in
-	// proxy/firewall). Explicit PROVEO_EGRESS_ENV_FILE wins.
-	hostEnvFile := strings.TrimSpace(os.Getenv("PROVEO_EGRESS_ENV_FILE"))
-	if hostEnvFile == "" {
-		hostEnvFile = workspace.EnvFileSource(wsSpec.InputDir, wsSpec.RepoRoot)
-	}
-	lookup := providerLookup(hostEnvFile)
 
 	// Credential broker: gated by brokerProvider (firewall + exactly one provider +
 	// not disabled). Write the secret file up front on real runs.
@@ -267,6 +288,8 @@ func doRun(p runParams) error {
 			brokerFile = filepath.Join(egDir, "inject", "broker.env") // path only in dry-run
 		} else if f, err := writeBrokerEnv(filepath.Join(egDir, "inject"), lookup); err == nil {
 			brokerFile = f
+		} else {
+			ui.Warnf("broker secret file: %v", err)
 		}
 	}
 
@@ -277,27 +300,56 @@ func doRun(p runParams) error {
 		modelsDir = ollamaModelsDir()
 	}
 
-	// Declared env vars that are present are forwarded as bare `-e NAME`:
-	// docker resolves the value from the client env, keeping secrets off the argv.
-	// Secret vars are forwarded only in broker mode — in proxy/firewall the broker
-	// (firewall) or withheld-key posture (proxy) keeps them out of the agent.
-	var envNames []string
+	// Declared env: bare `-e NAME` for non-secrets. Secrets: broker forwards real
+	// value; firewall injects sentinel + PROVEO_CREDENTIAL_BROKER_KEYS; proxy withholds.
+	var env []string
+	var brokerKeyNames []string
 	for _, e := range man.Env {
-		if strings.TrimSpace(os.Getenv(e.Name)) == "" {
+		if strings.TrimSpace(lookup(e.Name)) == "" {
 			continue
 		}
-		if e.Secret && p.mode != "broker" {
+		if e.Secret {
+			switch p.mode {
+			case "broker":
+				env = append(env, e.Name)
+				hydrateProcessEnv(e.Name, lookup)
+			case "firewall":
+				env = append(env, e.Name+"="+entrypoint.DefaultSentinel)
+				brokerKeyNames = append(brokerKeyNames, e.Name)
+			}
 			continue
 		}
-		envNames = append(envNames, e.Name)
+		env = append(env, e.Name)
 	}
+	if p.mode == "firewall" {
+		for _, k := range provider.KeyVars() {
+			if strings.TrimSpace(lookup(k)) == "" {
+				continue
+			}
+			already := false
+			for _, n := range brokerKeyNames {
+				if n == k {
+					already = true
+					break
+				}
+			}
+			if !already {
+				env = append(env, k+"="+entrypoint.DefaultSentinel)
+				brokerKeyNames = append(brokerKeyNames, k)
+			}
+		}
+		if len(brokerKeyNames) > 0 {
+			env = append(env, "PROVEO_CREDENTIAL_BROKER_KEYS="+strings.Join(brokerKeyNames, ","))
+		}
+	}
+	env = append(env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
 
-	// Pure assembly of the topology + agent config from the resolved inputs — the
-	// unit-testable seam (D2); all I/O (scope resolve, picker, secret write) is above.
+	var dindSidecar *dind.Sidecar
+
 	plan, agent, err := assemble(assembleInput{
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
 		modelsDir: modelsDir, provider: providerName, brokerFile: brokerFile,
-		mounts: mounts, workdir: workdir, env: envNames,
+		mounts: mounts, workdir: workdir, env: env,
 		providerDomains: os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"),
 		squidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		proxyImage:      os.Getenv("PROVEO_EGRESS_PROXY_IMAGE"),
@@ -312,15 +364,19 @@ func doRun(p runParams) error {
 		fmt.Printf("# agent\ndocker %s\n", strings.Join(runner.DockerRunArgs(agent), " "))
 		return nil
 	}
-	// Ready every image (sidecars + agent) before any network/container exists:
-	// pull public ones, offer to build missing proveo/* ones (see provision.go).
 	if err := preflightImages(plan, man, p.image); err != nil {
 		return err
 	}
-	warnMountedSecrets(wsSpec.InputDir, p.mode)
-	// Dispatch on whether the plan actually has sidecars/networks — not on the mode
-	// name. Pure broker mode runs the agent directly; anything with a sidecar/network
-	// (proxy, broker, firewall + --local-model) goes through the lifecycle.
+	if wantDind {
+		sc, err := dind.Start(dind.ExecRunner{}, p.target, dindScope, os.Stderr)
+		if err != nil {
+			return err
+		}
+		dindSidecar = sc
+		agent.ExtraArgs = append(append([]string(nil), agent.ExtraArgs...), sc.AgentArgs()...)
+		defer dindSidecar.Cleanup(dind.ExecRunner{})
+	}
+	warnMountedSecrets(wsSpec.InputDir, p.mode, lookup)
 	if !needsLifecycle(plan) {
 		return execAgent(agent)
 	}
@@ -622,7 +678,7 @@ func orWD(p string) string {
 // warnMountedSecrets warns when the mounted workspace contains a .env while a
 // provider key is present — the agent reads it directly, which the broker cannot
 // prevent (S4). Skipped when proxy/broker mask the file out of the agent.
-func warnMountedSecrets(dir, mode string) {
+func warnMountedSecrets(dir, mode string, lookup func(string) string) {
 	if dir == "" {
 		return
 	}
@@ -633,7 +689,7 @@ func warnMountedSecrets(dir, mode string) {
 	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
 		return
 	}
-	if len(provider.Detect(os.Getenv)) == 0 {
+	if len(provider.Detect(lookup)) == 0 {
 		return
 	}
 	ui.Warnf("%s/.env is mounted and a provider key is set — the agent can read it directly; use --egress-mode firewall so egress DLP blocks the key from leaving", dir)
@@ -655,6 +711,18 @@ func stateDir() string {
 		return filepath.Join(x, "proveo")
 	}
 	return filepath.Join(os.Getenv("HOME"), ".local", "state", "proveo")
+}
+
+// hydrateProcessEnv copies a secret from lookup into the proveo process env when
+// it is present in a host .env but not exported. Docker's bare `-e NAME` only
+// forwards the client process environment, so broker mode needs this.
+func hydrateProcessEnv(name string, lookup func(string) string) {
+	if strings.TrimSpace(os.Getenv(name)) != "" {
+		return
+	}
+	if v := strings.TrimSpace(lookup(name)); v != "" {
+		_ = os.Setenv(name, v)
+	}
 }
 
 // providerLookup prefers the process env, then a host-side KEY=VALUE file

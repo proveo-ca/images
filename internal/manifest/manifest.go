@@ -1,5 +1,5 @@
 // Package manifest reads the per-harness `defs/<name>/harness.manifest` files —
-// the single registration point (Plan 2). Adding a harness should mean dropping
+// the single registration point. Adding a harness should mean dropping
 // a def dir with a manifest; nothing else enumerates harnesses by hand.
 package manifest
 
@@ -52,6 +52,7 @@ type Manifest struct {
 	Name        string            `yaml:"name"`
 	Description string            `yaml:"description"`
 	Egress      bool              `yaml:"egress"`    // sources the egress lifecycle
+	Dind        bool              `yaml:"dind"`      // image ships docker client; may get DinD sidecar
 	Stability   string            `yaml:"stability"` // experimental | candidate | stable
 	Images      map[string]string `yaml:"images"`    // target name -> image ref
 	Workspace   Workspace         `yaml:"workspace"` // mount model

@@ -1,4 +1,13 @@
 ARG BASE_IMAGE=proveo/base:latest
+
+# Plan 4 Ph3: shared in-container prelude
+FROM golang:1.26-bookworm AS proveo-entrypoint-builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
+
 FROM ${BASE_IMAGE}
 
 ARG USER_ID=1000

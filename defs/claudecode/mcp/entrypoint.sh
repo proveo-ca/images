@@ -1,79 +1,56 @@
 #!/usr/bin/env bash
 # SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode.paradigm.md
+# Thin entrypoint: shared prelude via proveo-entrypoint (or bash fallback), then seed + exec.
 set -e
 
-# Source shared entrypoint library if present
 if [[ -f /entrypoint-lib.sh ]]; then
+  # shellcheck source=/dev/null
   source /entrypoint-lib.sh
 fi
 
-# ── Make the run-as UID usable (root-free) ─────────────────
-# The wrapper runs us as the caller's host uid via `docker run --user`; give
-# that uid a passwd entry and a writable HOME (shared across harnesses).
-ensure_runtime_user
-
-# ── Working directory ──────────────────────────────────────
-set_working_directory "/workspace"
-
-# ── Source .env file if present ────────────────────────────
-load_env
-
-# ── Git identity from environment ──────────────────────────
-# Bridge wrapper-forwarded GIT_* env into git's config-env so `git config --get`
-# resolves file-free; repo-local identity in the input mount stays authoritative.
-bridge_git_identity /workspace/input
-
-# ── Git context (repo / remote / identity / gh session) ────
-# The workspace repo is mounted at /workspace/input, not the workdir.
-report_git_context /workspace/input
-
-# ── Optional: attach RTK repo ──────────────────────────────
-attach_rtk
-
-# ── Smoke test mode ────────────────────────────────────────
-run_smoke_test "claudecode"
-
-# ── Ensure project-level tools (nx, turbo, mise) ───────────
-ensure_project_tools
+if command -v proveo-entrypoint >/dev/null 2>&1; then
+  export PROVEO_SMOKE_TARGET=claudecode
+  proveo-entrypoint prep claudecode || true
+else
+  ensure_runtime_user
+  set_working_directory "/workspace"
+  load_env
+  bridge_git_identity /workspace/input
+  report_git_context /workspace/input
+  attach_rtk
+  run_smoke_test "claudecode"
+  ensure_project_tools
+fi
 
 # ── Verification command discovery ────────────────────────
-if [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
+# Prefer Go proveo-entrypoint verify; fall back to thin detect-verify.sh wrapper.
+if command -v proveo-entrypoint >/dev/null 2>&1; then
+  echo "── Verification Commands ────────────────────────────"
+  proveo-entrypoint verify "$(pwd)" | while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    printf '  %s\n' "$line"
+  done
+  echo "─────────────────────────────────────────────────────"
+elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   # shellcheck source=/dev/null
   source /opt/proveo/lib/detect-verify.sh
   echo "── Verification Commands ────────────────────────────"
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    cat <<< "  $line"
+    printf '  %s\n' "$line"
   done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi
 
-# ── Seed project-level CLAUDE.md if missing ───────────────
 if [[ -f /opt/claudecode/defaults/CLAUDE.md && ! -f CLAUDE.md ]]; then
   cp /opt/claudecode/defaults/CLAUDE.md CLAUDE.md
   echo "🌱 Seeded CLAUDE.md into workspace"
 fi
 
-# ── Launch Claude Code ─────────────────────────────────────
 echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
-
-if [[ -n "${ENFORCEMENT_PROXY:-}" ]]; then
-  echo "🛡️  Enforcement proxy: ${ENFORCEMENT_PROXY}"
-elif [[ -n "${HTTP_PROXY:-}" || -n "${HTTPS_PROXY:-}" ]]; then
-  echo "🛡️  Outbound proxy active: ${HTTP_PROXY:-${HTTPS_PROXY}}"
-fi
-if [[ -n "${INSPECT_PROXY:-}" && "${INSPECT_PROXY}" != "${ENFORCEMENT_PROXY:-}" ]]; then
-  echo "🔍  Inspection proxy (mitmproxy): ${INSPECT_PROXY}"
-fi
-if [[ -n "${PROVEO_EGRESS_CA_CERT:-}" && -f "${PROVEO_EGRESS_CA_CERT}" ]]; then
-  echo "🔐  Trusting mitmproxy CA for HTTPS inspection: ${PROVEO_EGRESS_CA_CERT}"
-fi
-if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
-  echo "🧠  Local model: ${PROVEO_LOCAL_MODEL} via ${OLLAMA_API_BASE:-http://ollama:11434} (NO_PROXY bypass)"
-fi
+[[ -n "${ENFORCEMENT_PROXY:-}" ]] && echo "🛡️  Enforcement proxy: ${ENFORCEMENT_PROXY}"
+[[ -n "${INSPECT_PROXY:-}" && "${INSPECT_PROXY}" != "${ENFORCEMENT_PROXY:-}" ]] && echo "🔍  Inspection proxy: ${INSPECT_PROXY}"
+[[ -n "${PROVEO_LOCAL_MODEL:-}" ]] && echo "🧠  Local model: ${PROVEO_LOCAL_MODEL}"
 
 echo "🚀 Launching Claude Code..."
-
-# Full consent is intentional for the ML blackbox loop.
-# The container sandbox is the security boundary.
 exec claude --dangerously-skip-permissions "$@"

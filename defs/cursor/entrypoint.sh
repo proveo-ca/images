@@ -2,25 +2,25 @@
 # SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor.paradigm.md
 set -e
 
-# Source shared entrypoint library if present
 if [[ -f /entrypoint-lib.sh ]]; then
+  # shellcheck source=/dev/null
   source /entrypoint-lib.sh
 fi
 
-# ── Make the run-as UID usable (root-free) ─────────────────
-# The wrapper runs us as the caller's host uid via `docker run --user`; give
-# that uid a passwd entry and a writable HOME (shared across harnesses).
-ensure_runtime_user
+# Shared prelude (uid, .env, bridges, git, sentinel) via Go entrypoint when baked.
+if command -v proveo-entrypoint >/dev/null 2>&1; then
+  export PROVEO_SMOKE_TARGET=cursor
+  proveo-entrypoint prep cursor || true
+else
+  ensure_runtime_user
+  set_working_directory "/app"
+  load_env
+  bridge_git_identity
+  report_git_context
+  attach_rtk
+fi
 
-# ── Working directory ──────────────────────────────────────
-set_working_directory "/app"
-
-# ── Source .env file if present ────────────────────────────
-load_env
-
-# ── Environment Variable Bridge ────────────────────────────
-# Standardized vars (see README.md):
-#   ARCHITECT_MODEL -> CURSOR_MODEL (fallback: EDITOR_MODEL)
+# ARCHITECT_MODEL / EDITOR_MODEL → CURSOR_MODEL (cursor-specific)
 if [[ -z "${CURSOR_MODEL:-}" ]]; then
   if [[ -n "${ARCHITECT_MODEL:-}" ]]; then
     export CURSOR_MODEL="$ARCHITECT_MODEL"
@@ -28,17 +28,6 @@ if [[ -z "${CURSOR_MODEL:-}" ]]; then
     export CURSOR_MODEL="$EDITOR_MODEL"
   fi
 fi
-
-# ── Git identity from environment ──────────────────────────
-# Bridge wrapper-forwarded GIT_* env into git's config-env so `git config --get`
-# resolves file-free; repo-local identity stays authoritative.
-bridge_git_identity
-
-# ── Git context (repo / remote / identity / gh session) ────
-report_git_context
-
-# ── Optional: attach RTK repo ──────────────────────────────
-attach_rtk
 
 # ── Seed user-level defaults (~/.cursor) ────────────────────
 # Only seed files that are missing, unless CURSOR_RESEED=1 forces a full
@@ -179,13 +168,21 @@ report_steering() {
 report_steering
 
 # ── Verification command discovery ────────────────────────
-if [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
+# Prefer Go proveo-entrypoint verify; fall back to thin detect-verify.sh wrapper.
+if command -v proveo-entrypoint >/dev/null 2>&1; then
+  echo "── Verification Commands ────────────────────────────"
+  proveo-entrypoint verify "$(pwd)" | while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    printf '  %s\n' "$line"
+  done
+  echo "─────────────────────────────────────────────────────"
+elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   # shellcheck source=/dev/null
   source /opt/proveo/lib/detect-verify.sh
   echo "── Verification Commands ────────────────────────────"
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    cat <<< "  $line"
+    printf '  %s\n' "$line"
   done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi

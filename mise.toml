@@ -1,16 +1,40 @@
 [tools]
 node = "24"
 pnpm = "10"
+go = "1.26"
 
 [tasks.install]
 description = "Install root workspace dependencies"
 run = "pnpm install"
+
+[tasks.test-go]
+description = "Go unit + contract tests with coverage data dir (no Docker / no integration tags)"
+dir = "{{config_root}}"
+run = "scripts/go-test-coverage.sh unit"
+
+[tasks.test-go-integration]
+description = "Layer 3 egress Docker integration (-tags=integration; needs PROVEO_EGRESS_INTEGRATION=1)"
+dir = "{{config_root}}"
+run = "scripts/go-test-coverage.sh integration"
+
+[tasks.test-go-e2e]
+description = "Layer 4 agent E2E (-tags=e2e; needs PROVEO_LLM_TEST=1)"
+dir = "{{config_root}}"
+run = "scripts/go-test-coverage.sh e2e"
+
+[tasks.coverage]
+description = "Merge GOCOVERDIR profiles and print percent (run test-go first)"
+dir = "{{config_root}}"
+run = "scripts/go-test-coverage.sh merge"
 
 [tasks.test]
 description = "Run all project test suites"
 dir = "{{config_root}}"
 run = """
 set -euo pipefail
+
+printf '\\n==> scripts/go-test-coverage.sh unit\\n'
+scripts/go-test-coverage.sh unit
 
 tests=(
   "apps/cli/public/cli/tests/run_tests.sh"
@@ -23,7 +47,7 @@ tests=(
 )
 
 for test_script in "${tests[@]}"; do
-  printf '\n==> %s\n' "$test_script"
+  printf '\\n==> %s\\n' "$test_script"
   "$test_script"
 done
 """

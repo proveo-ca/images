@@ -173,3 +173,41 @@ func TestMountPlanAppNonRepoReadOnly(t *testing.T) {
 		t.Errorf("workdir = %q, want /app", wd)
 	}
 }
+
+func TestEnvFileSourcePrefersRepoRoot(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	sub := filepath.Join(root, "apps", "web")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(root, ".env")
+	if err := os.WriteFile(envPath, []byte("CURSOR_API_KEY=x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := EnvFileSource(sub, sub, root)
+	if got != envPath {
+		t.Fatalf("EnvFileSource(sub, sub, root) = %q, want %q", got, envPath)
+	}
+}
+
+func TestEnvFileSourcePrefersInvocationWD(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	scope := filepath.Join(root, "scope")
+	if err := os.MkdirAll(scope, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pwdEnv := filepath.Join(root, ".env")
+	if err := os.WriteFile(pwdEnv, []byte("CURSOR_API_KEY=from-pwd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scopeEnv := filepath.Join(scope, ".env")
+	if err := os.WriteFile(scopeEnv, []byte("CURSOR_API_KEY=from-scope\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := EnvFileSource(root, scope, "")
+	if got != pwdEnv {
+		t.Fatalf("EnvFileSource(pwd, scope, \"\") = %q, want pwd %q", got, pwdEnv)
+	}
+}

@@ -11,7 +11,7 @@ type Command []string
 
 // Plan is the full egress topology for one run, as pure data so it can be
 // golden-tested without Docker. Ports the orchestration in
-// defs/lib/egress.sh `proveo_egress_prepare` (Plan 4 Phase 2).
+// defs/lib/egress.sh `proveo_egress_prepare`.
 type Plan struct {
 	Networks        []Command // `network create ...`
 	Sidecars        []Command // `run -d ...` (squid, proxy, ollama)

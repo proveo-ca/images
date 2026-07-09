@@ -2,7 +2,7 @@
 //
 // Command proveo-egress is the egress inspection sidecar for firewall
 // mode: a Go MITM proxy that records flows, brokers credentials, and forwards to
-// Squid upstream. It replaces the Python mitmproxy sidecar (Plan 4 Phase 2).
+// Squid upstream. It replaces the Python mitmproxy sidecar.
 //
 // Configuration is by environment so the egress lifecycle can wire it with
 // `docker run -e`. Secrets are NOT passed on argv/env: the broker reads provider

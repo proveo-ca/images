@@ -19,18 +19,15 @@ enumerates from it.
   is the coupling cost made visible: someone wired 5 of ~10 sites and the def can't run.
 - **Contract tests are static grep assertions**, not behavior; Docker egress invariants never run.
 
-## Status (landed via Plan 4)
-The manifest + single runner now exist in Go: `internal/manifest` reads `defs/<name>/harness.manifest`
-(one file per harness), `internal/runner` holds the one hardened `docker run` baseline, and the
-`proveo` CLI enumerates targets from the manifests. Adding a harness = drop a def dir + manifest
-(verified). Remaining: embed manifests into the distributed binary, retire the parallel Bash
-`TARGETS`/`image_name`/`run_target` lists, and delete the dead `registry/*.yaml`.
+## Status (complete)
+Manifest + single Go runner + embedded manifests + bash enumeration from `harness.manifest` for
+mise/build. Consumer install still has a fallback target list when defs are absent.
 
 ## Design
 1. **`defs/<name>/harness.manifest`** (or `manifest.yaml`) — the single source of truth per def:
    ```yaml
    name: cursor
-   image: ${BRAND_IMAGE_ORG}/cursor:latest       # BRAND_* → Plan 3
+   image: ${BRAND_IMAGE_ORG}/cursor:latest       # BRAND_* → Plan 5
    variants: [default]
    description: Policy-gated autonomous loop (Cursor CLI)
    egress: true            # sources defs/lib/egress.sh
@@ -47,17 +44,13 @@ The manifest + single runner now exist in Go: `internal/manifest` reads `defs/<n
    for literal strings.
 
 ## Work items
-- [ ] Define the manifest schema + a tiny pure-Bash/`yq`-free parser (repo already parses YAML in
-      `workspace.sh` — reuse that style; no new dependency).
-- [ ] Author `harness.manifest` for cecli, claudecode (mcp+solo), opencode, cursor, and the
-      mitmproxy sidecar (flagged non-harness).
-- [ ] Extract the hardening baseline + git-identity + monorepo-scope into one shared `docker-run`
-      helper; make `defs/*/run.sh` and the consumer runner both consume it.
-- [ ] Replace the hardcoded `TARGETS`/`image_name`/`target_description`/`run_target` dispatch and
-      maintainer `target_dir`/`build_target` special-cases with manifest enumeration.
-- [ ] Delete or wire the dead `registry/*.yaml` (fold into the manifest set or remove).
-- [ ] **Wire cursor end-to-end** as the first proof the registration cost dropped to one file.
-- [ ] Upgrade `defs/tests/test_harness_contracts.sh` to manifest-derived assertions.
+- [x] Manifest schema in Go (`internal/manifest`) + bash enum helper (`lib/manifest-enum.sh`) for mise/CLI.
+- [x] Author `harness.manifest` for cecli, claudecode (incl. sol), opencode, cursor.
+- [x] Hardening + mounts + git-identity in Go (`internal/runner`, `workspace`, `gitidentity`); run.sh shims.
+- [x] TARGETS / image_name / target_dir from manifests (maintainer `lib/runners.sh` + consumer fallback).
+- [x] Dead `registry/*.yaml` removed.
+- [x] Cursor wired end-to-end (`proveo run cursor`, build/test targets).
+- [x] Contract tests assert manifest enum, proveo/* images, shims without redeclared hardening.
 
 ## Acceptance criteria
 - Adding a new harness = drop `defs/<name>/` + a `harness.manifest`; **no** other file edited.

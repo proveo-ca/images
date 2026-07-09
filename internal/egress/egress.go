@@ -1,7 +1,7 @@
 // SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml
 //
 // Package egress holds the egress-lifecycle policy logic being ported from
-// defs/lib/egress.sh (Plan 4 Phase 2): provider detection and the Squid
+// defs/lib/egress.sh: provider detection and the Squid
 // write-pin allowlist. It is the Go source of truth; egress.sh delegates to the
 // `proveo-egress` subcommands when PROVEO_EGRESS_BIN is set, else uses its Bash
 // fallback (behavior parity is asserted by tests).

@@ -1,8 +1,11 @@
-// Package egresspolicy is the pure, stdlib-only egress policy core for the
-// firewall mode (see plans/egress-policy.md). It implements the
-// read-allow / write-deny / DLP decision (layers A, B, C) over an *http.Request,
-// so the security-critical logic is table-testable without the proxy runtime.
-// internal/egressproxy wires it as a martian RequestModifier (Phase 2).
+// Package egresspolicy is the pure, stdlib-only egress policy core for
+// firewall mode. It implements the read-allow / write-deny / DLP decision
+// (layers A, B, C) over an *http.Request so the security-critical logic is
+// table-testable without the proxy runtime. internal/egressproxy wires it as
+// a martian RequestModifier.
+//
+// SPEC: _spec/egress-policy.md, _spec/egress-policy-components.puml,
+// _spec/egress-policy-layers.puml, _spec/egress-policy-decide.puml
 //
 // Every rule applies OFF-provider only: a request to a pinned-provider host is
 // allowed untouched (the broker owns it), so the broker's injected credential is

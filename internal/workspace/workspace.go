@@ -1,6 +1,6 @@
 // Package workspace resolves the monorepo scope for a run: the git repo root
 // and the repo-relative prefix of the start directory, so a harness launched
-// from a subproject still mounts full repo/git context (Plan 4 Phase 1, porting
+// from a subproject still mounts full repo/git context (, porting
 // the monorepo logic from apps/cli/public/cli/lib/workspace.sh).
 package workspace
 

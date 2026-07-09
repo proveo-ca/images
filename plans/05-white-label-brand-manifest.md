@@ -1,4 +1,4 @@
-# Plan 3 — White-labelling: Brand Manifest + Build-time Templating
+# Plan 5 — White-labelling: Brand Manifest + Build-time Templating
 
 **Paradigm imported from omnigent:** omnigent already models the discipline this repo lacks — its
 diagrams pull identity from **one** upstream include (`proveo.puml`): *"change it once upstream and

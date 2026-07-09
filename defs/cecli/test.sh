@@ -23,8 +23,9 @@ docker run --rm --entrypoint bash "$IMAGE_NAME" -c '
   fi
   test -n "$PLAYWRIGHT_BROWSERS_PATH" \
     && test -d "$PLAYWRIGHT_BROWSERS_PATH" \
-    && ls "$PLAYWRIGHT_BROWSERS_PATH" | grep -q chromium'
-echo "✅ playwright + chromium browsers baked in"
+    && ls "$PLAYWRIGHT_BROWSERS_PATH" | grep -q chromium \
+    && ldconfig -p | grep -q "libglib-2.0.so.0"'
+echo "✅ playwright + chromium browsers + OS deps baked in"
 docker run --rm --user 4242:4242 --entrypoint bash \
   -e GIT_AUTHOR_NAME="Proveo Dev" -e GIT_AUTHOR_EMAIL="dev@proveo.test" "$IMAGE_NAME" -c '
     source /entrypoint-lib.sh && ensure_runtime_user && bridge_git_identity \

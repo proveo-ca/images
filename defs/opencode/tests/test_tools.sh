@@ -18,15 +18,17 @@ for tool_entry in "${TOOLS[@]}"; do
   assert_success "$name is installed" "$IMAGE" "$cmd"
 done
 
-# Node major version: 22
+# Node major version: MCR playwright noble ships Node 24
 assert_output_matches \
-  "node version is v22.x" \
+  "node version is v24.x" \
   "$IMAGE" \
   "node --version" \
-  "^v22\."
+  "^v24\."
 
 assert_success "playwright chromium browsers are baked" "$IMAGE" \
   'test -n "$PLAYWRIGHT_BROWSERS_PATH" && test -d "$PLAYWRIGHT_BROWSERS_PATH" && ls "$PLAYWRIGHT_BROWSERS_PATH" | grep -q chromium'
+assert_success "playwright OS deps include libglib" "$IMAGE" \
+  'ldconfig -p | grep -q "libglib-2.0.so.0"'
 
 # opencode CLI exposes the `run` subcommand
 assert_output_contains \

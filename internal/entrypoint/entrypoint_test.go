@@ -1,0 +1,99 @@
+package entrypoint
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+)
+
+func TestShouldSkipEnvLoad(t *testing.T) {
+	t.Parallel()
+	if !ShouldSkipEnvLoad("firewall") || !ShouldSkipEnvLoad("proxy") {
+		t.Fatal("proxy/firewall should skip")
+	}
+	if ShouldSkipEnvLoad("broker") || ShouldSkipEnvLoad("") {
+		t.Fatal("broker/empty should not skip")
+	}
+}
+
+func TestLoadEnvFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".env")
+	if err := os.WriteFile(path, []byte("FOO=bar\n# c\nexport BAZ=qux\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Unsetenv("FOO")
+	_ = os.Unsetenv("BAZ")
+	if err := LoadEnvFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("FOO") != "bar" || os.Getenv("BAZ") != "qux" {
+		t.Fatalf("got FOO=%q BAZ=%q", os.Getenv("FOO"), os.Getenv("BAZ"))
+	}
+	t.Setenv("FOO", "keep")
+	if err := LoadEnvFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("FOO") != "keep" {
+		t.Fatal("existing env must win")
+	}
+}
+
+func TestApplyBrokerSentinel(t *testing.T) {
+	t.Setenv("CURSOR_API_KEY", "sk-real")
+	t.Setenv("OPENAI_API_KEY", "sk-oai")
+	got := ApplyBrokerSentinel("firewall", "CURSOR_API_KEY,OPENAI_API_KEY", "")
+	if diff := cmp.Diff([]string{"CURSOR_API_KEY", "OPENAI_API_KEY"}, got); diff != "" {
+		t.Fatal(diff)
+	}
+	if os.Getenv("CURSOR_API_KEY") != DefaultSentinel {
+		t.Fatalf("cursor key = %q", os.Getenv("CURSOR_API_KEY"))
+	}
+	t.Setenv("CURSOR_API_KEY", "sk-real")
+	if ApplyBrokerSentinel("broker", "CURSOR_API_KEY", "") != nil {
+		t.Fatal("broker mode must not rewrite")
+	}
+}
+
+func TestNormalizeModel(t *testing.T) {
+	t.Parallel()
+	tests := []struct{ in, want string }{
+		{"anthropic/claude-x", "anthropic/claude-x"},
+		{"claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"},
+		{"gpt-4o", "openai/gpt-4o"},
+		{"o3-mini", "openai/o3-mini"},
+		{"gemini-2.0", "google/gemini-2.0"},
+	}
+	for _, tc := range tests {
+		if got := NormalizeModel(tc.in); got != tc.want {
+			t.Errorf("NormalizeModel(%q)=%q want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestApplyEnvBridges(t *testing.T) {
+	for _, k := range []string{"ARCHITECT_MODEL", "OPENCODE_MODEL", "OPENCODE_BUILD_MODEL", "OPENCODE_SMALL_MODEL", "SMALL_MODEL", "EDITOR_MODEL"} {
+		_ = os.Unsetenv(k)
+	}
+	t.Setenv("ARCHITECT_MODEL", "claude-sonnet-4-5")
+	ApplyEnvBridges()
+	if got := os.Getenv("OPENCODE_MODEL"); got != "anthropic/claude-sonnet-4-5" {
+		t.Fatalf("OPENCODE_MODEL=%q", got)
+	}
+}
+
+func TestFindEnvFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if FindEnvFile(dir) != "" {
+		t.Fatal("empty dir")
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("A=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindEnvFile(dir); got != filepath.Join(dir, ".env") {
+		t.Fatalf("got %q", got)
+	}
+}

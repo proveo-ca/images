@@ -1,3 +1,5 @@
+//go:build e2e
+
 // SPEC: _spec/tests/40-agent-e2e-components.puml, _spec/tests/41-agent-e2e-sequence.puml
 
 package tmux_test
@@ -22,7 +24,7 @@ import (
 // present, so it never fails CI for missing local infra.
 //
 //	PROVEO_LLM_TEST=1 [PROVEO_TEST_TARGET=opencode] [PROVEO_TEST_LOCAL_MODEL=gemma4] \
-//	  go test ./internal/tmux/ -run PromptfulE2E -v -timeout 360s
+//	  go test -tags=e2e ./internal/tmux/ -run PromptfulE2E -v -timeout 360s
 func TestPromptfulE2E(t *testing.T) {
 	if os.Getenv("PROVEO_LLM_TEST") != "1" {
 		t.Skip("set PROVEO_LLM_TEST=1 to run the local-model agent E2E")

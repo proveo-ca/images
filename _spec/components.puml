@@ -16,178 +16,152 @@ actor "Maintainer" as Maintainer
 actor "AI Agent" as Agent
 
 package "Repository Root" as RepoRoot {
-  component "README / PLAN / CONVENTIONS" as RootDocs <<doc>>
-  component "pnpm workspace" as WorkspaceConfig <<config>>
-  component "mise toolchain" as ToolchainConfig <<config>>
+ component "README / plans / CONVENTIONS" as RootDocs <<doc>>
+ component "pnpm workspace" as WorkspaceConfig <<config>>
+ component "mise toolchain" as ToolchainConfig <<config>>
+ component "embed.go\n//go:embed manifests + squid" as Embed <<config>>
 }
 
 package "Specifications\n_spec/" as Specs {
-  component "components.puml" as ComponentsSpec <<spec>>
-  component "usage.puml" as UsageSpec <<spec>>
-  component "paradigms.md" as Paradigms <<spec>>
-  component "claudecode.paradigm.md" as ClaudePara <<spec>>
-  component "opencode.paradigm.md" as OpenPara <<spec>>
-  component "cecli.paradigm.md" as CecliPara <<spec>>
-  component "claudecode-topology.puml" as ClaudeTopo <<spec>>
-  component "claudecode-egress-topology.puml" as ClaudeEgressTopo <<spec>>
-  component "opencode-topology.puml" as OpenTopo <<spec>>
-  component "cecli-topology.puml" as CecliTopo <<spec>>
+ component "components.puml" as ComponentsSpec <<spec>>
+ component "usage.puml" as UsageSpec <<spec>>
+ component "paradigms.md" as Paradigms <<spec>>
+ component "testing.md + tests/*.puml" as TestingSpec <<spec>>
+ component "per-harness paradigm + topology" as HarnessSpecs <<spec>>
 }
 
-package "Applications\napps/" as Apps {
-  package "apps/cli" as AppsCli {
-    component "public image assets" as CliAssets <<app>>
-    component "proveo\nconsumer CLI\nwith interactive TUI" as ConsumerCli <<app>>
-    component "help.sh" as ConsumerHelp <<script>>
-    component "uninstall.sh" as ConsumerUninstall <<script>>
-    component "wrangler.toml" as WranglerConfig <<config>>
-  }
-}
-
-package "Maintainer Tools\nmise + lib/" as Bin {
-  component "mise tasks\nlib/*.sh helpers" as MaintainerCli <<internal>>
+package "Go CLI + packages\ncmd/ + internal/" as GoSurface {
+ component "cmd/proveo\nlist · run · projects · setup" as ProveoCLI <<app>>
+ component "cmd/proveo-egress\nMITM · broker · detect" as ProveoEgress <<app>>
+ component "cmd/proveo-entrypoint\nin-container prelude + sentinel" as ProveoEP <<app>>
+ package "internal/" as Internals {
+ component "manifest\nharness.manifest" as Manifest <<app>>
+ component "runner\nhardened docker argv" as Runner <<app>>
+ component "workspace\nscope + mount plan" as Workspace <<app>>
+ component "egress\nBuildPlan · lifecycle" as EgressPkg <<app>>
+ component "dind\nsibling docker:dind" as DindPkg <<app>>
+ component "provider · broker\nregistry + inject/strip" as CredPkg <<app>>
+ component "gitidentity\nGIT_* forwarding" as GitId <<app>>
+ component "entrypoint\n.env · bridges · sentinel" as EPPkg <<app>>
+ }
 }
 
 package "Definitions\ndefs/" as Defs {
-  package "Coding Harness Definitions" as CodingDefs {
-    component "cecli\ncandidate" as DefCecli <<definition>>
-    component "claudecode\ncandidate; variants: mcp, solo" as DefClaude <<definition>>
-    component "opencode\ncandidate" as DefOpen <<definition>>
-  }
-
-  package "Egress Layer\ndefs/lib + sidecars/squid-proxy + sidecars/mitmproxy + egress-dashboard" as EgressLayer {
-    component "lib/egress.sh\nshared egress lifecycle\nbroker|proxy|firewall" as DefEgressLib <<script>>
-    component "squid-proxy\nenforcement proxy + provider allowlist" as DefSquid <<definition>>
-    component "mitmproxy\nTLS-inspecting sidecar" as DefMitm <<definition>>
-    component "ollama sidecar\noptional local model" as DefOllama <<definition>>
-    component "egress-dashboard\nVite + Node timeline + report" as DefDashboard <<app>>
-  }
-  component "definition-local scripts\nbuild/run/test/debug" as DefinitionScripts <<script>>
-  component "Dockerfiles and entrypoints" as DefinitionRuntime <<definition>>
-  component "tests/" as DefinitionTests <<test>>
-  component "sample configs" as DefinitionConfigs <<config>>
-  component "default agent prompts" as DefinitionAgents <<prompt>>
+ package "Coding harnesses" as CodingDefs {
+ component "cecli" as DefCecli <<definition>>
+ component "claudecode\nmcp + solo" as DefClaude <<definition>>
+ component "opencode" as DefOpen <<definition>>
+ component "cursor" as DefCursor <<definition>>
+ }
+ component "harness.manifest\nper def (registration)" as HarnessManifest <<config>>
+ component "thin run.sh shims\n→ proveo run" as RunShims <<script>>
+ component "build.sh / test.sh\nDockerfiles · entrypoints" as DefBuild <<script>>
+ package "Sidecars" as Sidecars {
+ component "squid-proxy config" as DefSquid <<definition>>
+ component "egress-proxy image\n(proveo-egress)" as DefEgressImg <<definition>>
+ component "mitmproxy (legacy)" as DefMitm <<definition>>
+ component "dind (public docker:dind)" as DefDind <<definition>>
+ }
+ component "defaults · agents · samples" as DefAssets <<config>>
 }
 
-package "Shared Packages\npackages/" as Packages {
-  component "shared Bash utilities\nfuture extraction" as BashUtils <<package>>
-  component "shared CLI libraries\nfuture extraction" as CliLibs <<package>>
-  component "subagent definitions\npossible package boundary" as SubagentPackage <<package>>
+package "Maintainer tools" as Maint {
+ component "mise tasks\nbuild · test · deploy" as Mise <<internal>>
+ component "lib/*.sh\nbuild/deploy helpers" as MaintLib <<script>>
 }
 
-package "Contracts and Docs" as Contracts {
-  component "CODING_HARNESSES.md" as HarnessContract <<contract>>
-  component "defs/README.md" as DefsContract <<contract>>
-  component "per-definition README.md" as DefinitionReadmes <<doc>>
+package "Distribution" as Dist {
+ component "goreleaser\nproveo + proveo-egress" as Goreleaser <<config>>
+ component "dist/install.sh\nchecksum-verified" as Installer <<script>>
+ component "apps/cli (optional CDN)\nrelease assets only" as CliCDN <<app>>
 }
 
 package "Artifacts" as Artifacts {
-  component "proveo/cecli" as ImgCecli <<image>>
-  component "proveo/mitmproxy" as ImgMitm <<image>>
-  component "proveo/claudecode" as ImgClaudeMcp <<image>>
-  component "proveo/claudecode-solo" as ImgClaudeSolo <<image>>
-  component "proveo/opencode" as ImgOpen <<image>>
+ component "proveo/* harness images" as HarnessImgs <<image>>
+ component "proveo/egress-proxy" as EgressImg <<image>>
+ component "ubuntu/squid · ollama\n(upstream)" as UpstreamImgs <<image>>
 }
 
-package "Runtime and External Systems" as Runtime {
-  component "Docker / containerd" as Containerd <<runtime>>
-  component "image registry" as Registry <<external>>
-  component "host workspace" as HostWorkspace <<workspace>>
-  component "reports / sessions / config dirs" as RuntimeStorage <<storage>>
-  component "provider APIs and credentials" as ProviderApis <<external>>
+package "Runtime" as Runtime {
+ component "Docker" as Docker <<runtime>>
+ component "host workspace" as HostWS <<workspace>>
+ component "state dir\negress · broker secrets" as State <<storage>>
+ component "provider APIs" as Providers <<external>>
 }
 
-Consumer --> ConsumerCli : installed usage
-Maintainer --> MaintainerCli : repo-local workflows
-Maintainer --> DefinitionScripts : direct deterministic commands
+Consumer --> ProveoCLI : installed binary
+Consumer --> Installer : curl install + checksum
+Maintainer --> Mise : repo workflows
+Maintainer --> ProveoCLI : proveo run / --print
+Maintainer --> DefBuild : build images
 Agent --> RootDocs : collaboration rules
 Agent --> Specs : architecture context
 
-ConsumerCli *-- ConsumerHelp
-ConsumerCli *-- ConsumerUninstall
-CliAssets *-- ConsumerCli
-AppsCli *-- WranglerConfig
+ProveoCLI --> Manifest : load targets
+ProveoCLI --> Workspace : scope + mounts
+ProveoCLI --> Runner : docker run argv
+ProveoCLI --> EgressPkg : plan + apply
+ProveoCLI --> DindPkg : optional sidecar
+ProveoCLI --> GitId : forward identity
+ProveoCLI --> CredPkg : detect provider
+ProveoCLI --> ProveoEgress : inspector binary
+ProveoCLI --> Embed : standalone embeds
+ProveoEP --> EPPkg : prep / exec
+DefBuild ..> ProveoEP : bake into images
 
-MaintainerCli ..> DefinitionScripts : delegates or wraps
-MaintainerCli ..> ConsumerUninstall : lifecycle helper
-MaintainerCli ..> WorkspaceConfig : scope discovery
+Manifest ..> HarnessManifest : reads / embeds
+CodingDefs *-- HarnessManifest
+CodingDefs *-- RunShims
+CodingDefs *-- DefBuild
+CodingDefs *-- DefAssets
+RunShims ..> ProveoCLI : exec proveo run
 
-DefinitionScripts *-- DefinitionRuntime
-DefinitionScripts *-- DefinitionTests
-DefinitionRuntime *-- DefinitionConfigs
-DefinitionRuntime *-- DefinitionAgents
+EgressPkg ..> DefSquid : stage config
+EgressPkg ..> DefEgressImg : start MITM
+EgressPkg ..> UpstreamImgs : squid / ollama
+DindPkg ..> DefDind : docker:dind
+ProveoEgress ..> CredPkg : inject / strip
 
-CodingDefs ..> HarnessContract : standard contract
-CodingDefs ..> DefsContract : classification
-CodingDefs ..> DefinitionReadmes : target-specific usage
-DefMitm ..> DefsContract : non-harness allowed
+Mise ..> MaintLib
+Mise ..> DefBuild
+Mise ..> ProveoCLI : run / list
 
-DefClaude ..> DefEgressLib : --egress-mode (broker|proxy|firewall_SLASH)
-DefEgressLib ..> DefSquid : starts enforcement + allowlist sidecar
-DefEgressLib ..> DefMitm : starts TLS-inspection sidecar
-DefEgressLib ..> DefOllama : starts optional local-model sidecar
-DefEgressLib ..> DefDashboard : feeds normalized logs + report
-DefEgressLib ..> ClaudeEgressTopo : SPEC
-DefEgressLib ..> RuntimeStorage : reports/egress/<session>/
+Installer ..> Goreleaser : downloads release
+CliCDN ..> Goreleaser : hosts assets
 
-DefCecli --> ImgCecli
-DefMitm --> ImgMitm
-DefClaude --> ImgClaudeMcp
-DefClaude --> ImgClaudeSolo
-DefOpen --> ImgOpen
+DefBuild --> HarnessImgs
+DefBuild --> EgressImg
+ProveoCLI ..> HarnessImgs : pull / run
+ProveoCLI ..> Docker
+ProveoCLI ..> HostWS
+ProveoCLI ..> State
+HarnessImgs ..> Providers : inference (brokered)
 
-ConsumerCli ..> Artifacts : runs published images
-DefinitionScripts ..> Artifacts : builds and tests images
-MaintainerCli ..> Registry : deploy command pushes images
+Specs ..> RootDocs
+UsageSpec ..> ComponentsSpec
+Paradigms ..> HarnessSpecs
+TestingSpec ..> Internals
 
-Artifacts ..> Containerd
-ConsumerCli ..> Containerd
-DefinitionScripts ..> Containerd
-DefinitionScripts ..> HostWorkspace : mounts selected scope
-DefinitionScripts ..> RuntimeStorage : writes outputs where applicable
-DefinitionRuntime ..> ProviderApis : runtime credentials only
-
-Packages ..> DefinitionScripts : extract only when duplication warrants
-Packages ..> ConsumerCli : future shared implementation
-SubagentPackage ..> DefinitionAgents : possible source of reusable prompts
-
-Specs ..> RootDocs : document project boundaries
-UsageSpec ..> ComponentsSpec : command-level view of components
-Paradigms ..> ClaudePara
-Paradigms ..> OpenPara
-Paradigms ..> CecliPara
-ClaudePara ..> ClaudeTopo
-ClaudePara ..> ClaudeEgressTopo
-OpenPara ..> OpenTopo
-CecliPara ..> CecliTopo
-
-note right of ConsumerCli
-Consumer CLI lives under apps/cli assets.
-It should remain small and consume images,
-not own definition-specific behavior.
+note right of ProveoCLI
+**Single host orchestrator.**
+Hardened docker argv, egress topology,
+DinD, mounts, and env wizard live here.
+Consumer install is the static binary only
+— not a curl|bash of live shell libs.
 end note
 
-note right of MaintainerCli
-Maintainer workflows run via mise tasks that
-source the reusable lib/*.sh helpers.
-Definition-local scripts remain the preferred
-source of deterministic target behavior.
+note right of RunShims
+defs/*/run.sh are thin shims to
+""proveo run <target>"". Fat bash
+runners and lib/egress.sh orchestration
+are retired (Round 2).
 end note
 
-note bottom of SubagentPackage
-Reusable subagents can become a package when
-multiple CLIs/images need the same prompt assets.
-Until then, defaults may stay with definitions.
-end note
-
-note bottom of EgressLayer
-Reusable network-egress containment for agent harnesses
-(wired into claudecode run today). ""lib/egress.sh"" orchestrates
-per-session sidecars and networks: Squid enforces protocol +
-provider allowlist, mitmproxy decrypts/records, an optional
-Ollama sidecar serves a local model. Squid (""ubuntu/squid"")
-and Ollama (""ollama/ollama"") are upstream images; only
-""proveo/mitmproxy"" is built here.
+note bottom of EgressPkg
+firewall (default): agent → proveo-egress
+(MITM + credential broker) → Squid → net.
+proxy: Squid only. broker: container boundary.
+Policy + flow log at the MITM hop.
 end note
 
 @enduml

@@ -156,7 +156,7 @@ func sidecarBuildScript(defsDir, image string) string {
 }
 
 // harnessBuildScript maps the agent image to its def's build.sh via the
-// manifest (the def dir is named after the manifest, Plan 2), covering images
+// manifest (the def dir is named after the manifest, ), covering images
 // whose name differs from the def (e.g. proveo/cecli-node -> defs/cecli).
 func harnessBuildScript(defsDir string, man manifest.Manifest, agentImage string) string {
 	if _, ok := proveoImageBase(agentImage); defsDir == "" || man.Name == "" || !ok {

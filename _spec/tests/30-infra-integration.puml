@@ -1,29 +1,31 @@
 @startuml TestingLayer3InfraIntegration
 ' SPEC source: internal/egress/integration_test.go
-' Layer 3 — live egress topology with real containers, NO model. What the gated
-' integration test spins up and asserts.
+' Layer 3 — live egress topology with real containers, NO model.
+' Build tag: //go:build integration — not compiled by default go test ./...
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 
-title Layer 3 · Infra integration — real containers, no model (PROVEO_EGRESS_INTEGRATION=1)
+title Layer 3 · Infra integration — real containers, no model\n(-tags=integration + PROVEO_EGRESS_INTEGRATION=1)
 
-actor "integration test\n(BuildPlan + ExecRunner)" as Test <<actor>>
+actor "integration test\n(BuildPlan + ExecRunner)\n//go:build integration" as Test <<actor>>
 
 package "per-session egress topology (Docker)" as Topo {
-  component "curl agent probe\ncurlimages/curl (no agent, no keys)" as Probe <<container>>
-  component "agent-net\n--internal" as ANet <<queue>>
-  component "proveo-egress\nTLS intercept + record" as Proxy <<container>>
-  component "enforce-net\n--internal" as ENet <<queue>>
-  component "squid:3128\nenforcement + write-pin" as Squid <<container>>
-  component "egress-net\ninternet-capable" as XNet <<queue>>
-  component "flows.ndjson\n(decrypted, no query string)" as Flows <<storage>>
+ component "curl agent probe\ncurlimages/curl (no agent, no keys)" as Probe <<container>>
+ component "agent-net\n--internal" as ANet <<queue>>
+ component "proveo-egress\nTLS intercept + record" as Proxy <<container>>
+ component "enforce-net\n--internal" as ENet <<queue>>
+ component "squid:3128\nenforcement + write-pin" as Squid <<container>>
+ component "egress-net\ninternet-capable" as XNet <<queue>>
+ component "flows.ndjson\n(decrypted, no query string)" as Flows <<storage>>
+ component "broker.env\n(host .env → inject)" as BrokerFile <<storage>>
 }
 
 cloud "internet (example.com)" as Net <<external>>
 
 Test --> Topo : stage squid config + Apply plan
+Test --> BrokerFile : writeBrokerEnv from host .env\n(CURSOR_API_KEY regression)
 Probe --> ANet : HTTP_PROXY + trusts CA
 ANet --> Proxy
 Proxy --> Flows : record
@@ -31,17 +33,23 @@ Proxy --> ENet
 ENet --> Squid
 Squid --> XNet
 XNet --> Net : allowed reads
+BrokerFile ..> Proxy : mount /broker:ro
 
 note bottom of Topo
 Asserts the load-bearing invariants: HTTPS GET succeeds through
 agent->proxy->squid->internet with the generated **CA trusted**; the decrypted
 request is recorded to **flows.ndjson**; a proxy-bypassing request **fails**
-(the --internal agent net has no direct egress). Teardown leaves nothing behind.
+(the --internal agent net has no direct egress). Broker-aware case: host .env
+key → broker.env mounted; agent plan carries sentinel. Teardown via **t.Cleanup**.
+Wait for CA file / HTTP ready — never fixed sleep-only sync.
 Deterministic, keyless — no model is involved.
 end note
 
 note right of Test
-The credential broker's inject/strip is proven separately by the in-process
-martian test (internal/egressproxy); this layer proves the network topology.
+Practices from Testcontainers (without the library): wait strategies,
+t.Cleanup, env gate + docker LookPath skip. Orchestration stays BuildPlan
+(no testcontainers-go — would duplicate owned topology).
+Credential inject/strip proven in-process (egressproxy); this layer proves
+network topology + broker mount wiring.
 end note
 @enduml
