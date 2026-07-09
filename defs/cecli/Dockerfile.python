@@ -22,7 +22,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    CECLI_HOME=/app/.cecli
+    CECLI_HOME=/app/.cecli \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -33,7 +34,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --upgrade pip setuptools wheel \
-  && pip install cecli-dev boto3 botocore
+  && pip install cecli-dev boto3 botocore playwright \
+  && playwright install --with-deps chromium \
+  && chmod -R a+rX /ms-playwright \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR /app
 

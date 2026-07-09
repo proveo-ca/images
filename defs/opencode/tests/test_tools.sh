@@ -10,6 +10,7 @@ TOOLS=(
   "gh:gh --version"
   "curl:curl --version"
   "dumb-init:dumb-init --version"
+  "playwright:playwright --version"
 )
 
 for tool_entry in "${TOOLS[@]}"; do
@@ -23,6 +24,9 @@ assert_output_matches \
   "$IMAGE" \
   "node --version" \
   "^v22\."
+
+assert_success "playwright chromium browsers are baked" "$IMAGE" \
+  'test -n "$PLAYWRIGHT_BROWSERS_PATH" && test -d "$PLAYWRIGHT_BROWSERS_PATH" && ls "$PLAYWRIGHT_BROWSERS_PATH" | grep -q chromium'
 
 # opencode CLI exposes the `run` subcommand
 assert_output_contains \

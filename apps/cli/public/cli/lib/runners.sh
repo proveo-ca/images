@@ -256,7 +256,7 @@ run_opencode() {
   # Run as the caller's host UID/GID (never root) so files written to mounts
   # come back owned by the developer, for any uid — not just 1000. Apply the
   # same capability/privilege hardening baseline as the claudecode runner so all
-  # harnesses share one floor (this runner is also the DinD-capable one).
+  # harnesses share one floor (opencode and cursor are the DinD-capable runners).
   local -a docker_args=(
     run -it --rm
     --user "$(id -u):$(id -g)"
@@ -379,6 +379,9 @@ run_cursor() {
 
   docker rm -f "$container_name" >/dev/null 2>&1 || true
 
+  # Append dind arguments if sidecar is active
+  docker_args+=(${DIND_DOCKER_ARGS[@]+"${DIND_DOCKER_ARGS[@]}"})
+
   docker_args+=("$image")
   docker_args+=(${extra_args[@]+"${extra_args[@]}"})
 
@@ -497,10 +500,10 @@ run_target() {
   # Only targets whose image ships a docker client can use the sidecar; for
   # every other target a sidecar would be a wasted privileged container with an
   # unusable DOCKER_HOST. Keep this in sync with the images that install a
-  # docker client (see defs/opencode/Dockerfile).
+  # docker client (see defs/opencode/Dockerfile, defs/cursor/Dockerfile).
   local dind_capable=false
   case "$target" in
-    opencode) dind_capable=true ;;
+    opencode|cursor) dind_capable=true ;;
   esac
 
   if [[ "$dind_capable" == "true" && -n "$scope_dir" ]]; then
@@ -530,8 +533,8 @@ run_target() {
       gitignore_dir="$(dirname "$gitignore_dir")"
     done
 
-    # Check for Dockerfiles or Compose configurations in scope_dir up to maxdepth 5, pruning ignored dirs
-    if find "$scope_dir" -maxdepth 5 \( "${prune_args[@]}" \) -prune \
+    # Check for Dockerfiles or Compose configurations in scope_dir up to maxdepth 7, pruning ignored dirs
+    if find "$scope_dir" -maxdepth 7 \( "${prune_args[@]}" \) -prune \
         -o \( -name "Dockerfile" -o -name "docker-compose.yml" -o -name "docker-compose.yaml" -o -name "compose.yml" -o -name "compose.yaml" \) -print -quit 2>/dev/null | grep -q .; then
       if [[ "${PROVEO_DIND:-}" == "1" || "${OPENCODE_INSTALL_DIND:-}" == "1" ]]; then
         use_dind=true

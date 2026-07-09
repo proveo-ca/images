@@ -2,8 +2,9 @@
 
 `proveo/base` is the shared floor for every Node-based harness image
 (claudecode, opencode, cursor, cecli-node): `node:22-slim` plus the common
-apt set (`git gh curl ca-certificates python3 dumb-init`), pnpm, common env,
-and the baked `/usr/local/sbin/proveo-harden` pass (setuid/setgid strip +
+apt set (`git gh curl ca-certificates python3 dumb-init`), pnpm, Playwright
+(Chromium + OS deps under `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`), common
+env, and the baked `/usr/local/sbin/proveo-harden` pass (setuid/setgid strip +
 raw-network-tool removal).
 
 Why it exists (structural size work): before this base, each harness carried
@@ -22,6 +23,8 @@ Rules:
   pull → build), so a lone `mise build cursor` works on a clean machine.
 - Per-harness users, toolchains, configs, and entrypoints do NOT belong here.
   If two harnesses need the same new tool, that is the bar for adding it.
+  Playwright Chromium cleared that bar (cecli-node advertised it; agents run
+  browser e2e against mounted workspaces).
 
 It is not a runnable harness: no `harness.manifest`, no entrypoint. It is a
 mise build/deploy target (`mise build base`) like the sidecar images.

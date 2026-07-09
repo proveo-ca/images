@@ -22,4 +22,8 @@ assert_success "gh is installed" "$IMAGE" "gh --version"
 assert_success "node is installed" "$IMAGE" "node --version"
 assert_success "pnpm is installed" "$IMAGE" "pnpm -v"
 assert_success "python3 is installed" "$IMAGE" "python3 --version"
+assert_success "docker client is installed (DinD sidecar)" "$IMAGE" "docker --version"
+assert_success "playwright is installed" "$IMAGE" "playwright --version"
+assert_success "playwright chromium browsers are baked" "$IMAGE" \
+  'test -n "$PLAYWRIGHT_BROWSERS_PATH" && test -d "$PLAYWRIGHT_BROWSERS_PATH" && ls "$PLAYWRIGHT_BROWSERS_PATH" | grep -q chromium'
 assert_success "shared verification lib is baked" "$IMAGE" "test -f /opt/proveo/lib/detect-verify.sh"
