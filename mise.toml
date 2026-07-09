@@ -7,10 +7,63 @@ go = "1.26"
 description = "Install root workspace dependencies"
 run = "pnpm install"
 
+# ── Go CLI ──────────────────────────────────────────────────
+
+[tasks.build-cli]
+description = "Install Go proveo CLIs onto GOPATH/bin; pass -- --release for a goreleaser snapshot into dist/"
+dir = "{{config_root}}"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+release=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --release) release=1; shift ;;
+    -h|--help)
+      printf 'Usage: mise run build-cli [-- --release]\\n'
+      printf '  (default) go install → $(go env GOPATH)/bin\\n'
+      printf '  --release also runs goreleaser snapshot → dist/\\n'
+      exit 0
+      ;;
+    *)
+      echo "Unknown build-cli option: $1 (want --release)" >&2
+      exit 1
+      ;;
+  esac
+done
+
+export CGO_ENABLED=0
+# Prefer GOPATH/bin over a toolchain-local GOBIN (mise may set the latter).
+export GOBIN="$(go env GOPATH)/bin"
+mkdir -p "$GOBIN"
+go install -trimpath -ldflags='-s -w -X main.version=dev' ./cmd/proveo
+go install -trimpath -ldflags='-s -w' ./cmd/proveo-egress
+go install -trimpath -ldflags='-s -w' ./cmd/proveo-entrypoint
+printf 'Installed %s/{proveo,proveo-egress,proveo-entrypoint}\\n' "$GOBIN"
+printf 'Ensure %s is on PATH (or set PROVEO_BIN).\\n' "$GOBIN"
+
+if [[ "$release" -eq 1 ]]; then
+  if ! command -v goreleaser >/dev/null 2>&1; then
+    echo "goreleaser not on PATH — installing via go install..." >&2
+    go install github.com/goreleaser/goreleaser/v2@latest
+    export PATH="$(go env GOPATH)/bin:$PATH"
+  fi
+  goreleaser release --snapshot --clean
+  printf 'Snapshot artifacts under dist/ (gitignored).\\n'
+  bash scripts/stage-cli-cdn.sh
+fi
+"""
+
+# ── Tests ───────────────────────────────────────────────────
+
 [tasks.test-go]
 description = "Go unit + contract tests with coverage data dir (no Docker / no integration tags)"
 dir = "{{config_root}}"
 run = "scripts/go-test-coverage.sh unit"
+
+[tasks.test]
+description = "Fast gate: Go unit + contract tests (same as test-go)"
+depends = ["test-go"]
 
 [tasks.test-go-integration]
 description = "Layer 3 egress Docker integration (-tags=integration; needs PROVEO_EGRESS_INTEGRATION=1)"
@@ -27,14 +80,12 @@ description = "Merge GOCOVERDIR profiles and print percent (run test-go first)"
 dir = "{{config_root}}"
 run = "scripts/go-test-coverage.sh merge"
 
-[tasks.test]
-description = "Run all project test suites"
+[tasks.test-images]
+description = "Docker/image + consumer CLI suites (needs Docker; slow)"
 dir = "{{config_root}}"
 run = """
 set -euo pipefail
-
-printf '\\n==> scripts/go-test-coverage.sh unit\\n'
-scripts/go-test-coverage.sh unit
+bash scripts/stage-cli-cdn.sh
 
 tests=(
   "apps/cli/public/cli/tests/run_tests.sh"
@@ -52,17 +103,37 @@ for test_script in "${tests[@]}"; do
 done
 """
 
+[tasks.test-all]
+description = "Fast Go gate then Docker/image megasuite"
+depends = ["test-go", "test-images"]
+
+# ── Consumer CDN (apps/cli) ─────────────────────────────────
+
 [tasks.wrangler-version]
 description = "Show the local wrangler version"
 run = "pnpm exec wrangler --version"
 
 [tasks.deploy-cli]
-description = "Deploy the apps/cli Cloudflare distribution assets with Wrangler"
-run = "pnpm exec wrangler deploy --cwd apps/cli"
+description = "Stage Go CDN binaries then deploy apps/cli Cloudflare assets with Wrangler"
+dir = "{{config_root}}"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+bash scripts/stage-cli-cdn.sh
+pnpm exec wrangler deploy --cwd apps/cli
+"""
 
 [tasks.dev-cli]
-description = "Run the apps/cli Cloudflare distribution assets locally with Wrangler"
-run = "pnpm exec wrangler dev --cwd apps/cli"
+description = "Stage Go CDN binaries then run apps/cli Cloudflare assets locally with Wrangler"
+dir = "{{config_root}}"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+bash scripts/stage-cli-cdn.sh
+pnpm exec wrangler dev --cwd apps/cli
+"""
+
+# ── Harness images (maintainer) ─────────────────────────────
 
 [tasks.build]
 description = "Build a container harness def"
@@ -121,7 +192,7 @@ if [[ -z "$target" ]]; then
     build_options+=("$t")
   done
 
-  printf '\nSelect build target:\n' >&2
+  printf '\\nSelect build target:\\n' >&2
   choice=0
   tui_select "${build_options[@]}" || choice=$?
 
@@ -193,7 +264,7 @@ if [[ -z "$target" ]]; then
     test_options+=("$t")
   done
 
-  printf '\nSelect test target:\n' >&2
+  printf '\\nSelect test target:\\n' >&2
   choice=0
   tui_select "${test_options[@]}" || choice=$?
 
@@ -273,7 +344,7 @@ if [[ -z "$target" ]]; then
     deploy_options+=("$t")
   done
 
-  printf '\nSelect deploy target:\n' >&2
+  printf '\\nSelect deploy target:\\n' >&2
   choice=0
   tui_select "${deploy_options[@]}" || choice=$?
 
@@ -304,12 +375,17 @@ fi
 """
 
 [tasks.debug]
-description = "Debug a container harness def"
+description = "Debug a container harness def (shell via proveo run --shell)"
+depends = ["build-cli"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
 REPO_ROOT="$(pwd)"
 DEFAULT_TAG="latest"
+
+# Prefer the binary just installed by build-cli over a random PATH proveo.
+export PATH="$(go env GOPATH)/bin:$PATH"
+export PROVEO_BIN="$(command -v proveo)"
 
 source "$REPO_ROOT/apps/cli/public/cli/bin/proveo"
 source "$REPO_ROOT/lib/helpers.sh"
@@ -356,7 +432,7 @@ if [[ -z "$target" ]]; then
     debug_options+=("$t")
   done
 
-  printf '\nSelect debug target:\n' >&2
+  printf '\\nSelect debug target:\\n' >&2
   choice=0
   tui_select "${debug_options[@]}" || choice=$?
 

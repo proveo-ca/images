@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
+# Product installer: download checksum-verified Go proveo into ~/.proveo/bin.
+# Usage: curl -fsSL https://proveo.ca/cli/install.sh | bash
 set -euo pipefail
 
-PROVEO_VERSION="0.0.1"
+PROVEO_VERSION="${PROVEO_VERSION:-0.0.1}"
 INSTALL_ROOT="${PROVEO_INSTALL_ROOT:-$HOME/.proveo}"
 BIN_DIR="$INSTALL_ROOT/bin"
 ASSET_BASE_URL="${PROVEO_ASSET_BASE_URL:-https://proveo.ca/cli}"
@@ -34,6 +36,58 @@ download_file() {
 
   print_error "curl or wget is required to install proveo."
   exit 1
+}
+
+detect_platform() {
+  local os arch
+  case "$(uname -s)" in
+    Linux) os=linux ;;
+    Darwin) os=darwin ;;
+    *)
+      print_error "unsupported OS: $(uname -s) (need Linux or Darwin)"
+      exit 1
+      ;;
+  esac
+  case "$(uname -m)" in
+    x86_64|amd64) arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *)
+      print_error "unsupported architecture: $(uname -m) (need amd64 or arm64)"
+      exit 1
+      ;;
+  esac
+  printf '%s %s\n' "$os" "$arch"
+}
+
+sha256_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+    return 0
+  fi
+  print_error "sha256sum or shasum is required to verify the download."
+  exit 1
+}
+
+verify_checksum() {
+  local file="$1"
+  local checksums="$2"
+  local base expected actual
+  base="$(basename "$file")"
+  expected="$(awk -v b="$base" '$2 == b { print $1; exit }' "$checksums")"
+  if [[ -z "$expected" ]]; then
+    print_error "no checksum entry for $base in checksums.txt"
+    exit 1
+  fi
+  actual="$(sha256_file "$file")"
+  if [[ "$actual" != "$expected" ]]; then
+    print_error "checksum mismatch for $base (expected $expected, got $actual)"
+    exit 1
+  fi
 }
 
 shell_config_file() {
@@ -72,7 +126,7 @@ path_entry_for_shell() {
   fi
 }
 
-ensure_path() {
+ensure_path_markers() {
   local config_file
   config_file="$(shell_config_file)"
   touch "$config_file"
@@ -88,6 +142,16 @@ ensure_path() {
   } >> "$config_file"
 
   print_info "Added $BIN_DIR to PATH in $config_file"
+}
+
+ensure_path() {
+  # Prefer Go proveo setup when the just-installed binary works.
+  if [[ -x "$BIN_DIR/proveo" ]]; then
+    if PATH="$BIN_DIR:$PATH" "$BIN_DIR/proveo" setup >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  ensure_path_markers
 }
 
 check_docker() {
@@ -137,27 +201,32 @@ Or reload your current configuration:
   $reload_cmd
 
 Then try:
+  proveo version
+  proveo list
   proveo init
-  proveo help
 EOF
 }
 
-LIB_DIR="$INSTALL_ROOT/lib"
+# --- main ---
 
-mkdir -p "$BIN_DIR" "$LIB_DIR"
+read -r OS ARCH < <(detect_platform)
+ASSET_NAME="proveo-${OS}-${ARCH}"
 
-download_file "$ASSET_BASE_URL/bin/proveo" "$BIN_DIR/proveo"
-download_file "$ASSET_BASE_URL/bin/help.sh" "$BIN_DIR/help.sh"
-download_file "$ASSET_BASE_URL/bin/init.sh" "$BIN_DIR/init.sh"
-download_file "$ASSET_BASE_URL/lib/ui.sh" "$LIB_DIR/ui.sh"
-download_file "$ASSET_BASE_URL/lib/manifest-enum.sh" "$LIB_DIR/manifest-enum.sh"
-download_file "$ASSET_BASE_URL/lib/runners.sh" "$LIB_DIR/runners.sh"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+mkdir -p "$BIN_DIR"
+
+print_info "Downloading $ASSET_NAME..."
+download_file "$ASSET_BASE_URL/checksums.txt" "$TMP_DIR/checksums.txt"
+download_file "$ASSET_BASE_URL/bin/$ASSET_NAME" "$TMP_DIR/$ASSET_NAME"
 download_file "$CLI_BASE_URL/uninstall.sh" "$INSTALL_ROOT/uninstall.sh"
 
-chmod +x "$BIN_DIR/proveo" "$BIN_DIR/help.sh" "$BIN_DIR/init.sh" "$INSTALL_ROOT/uninstall.sh"
+verify_checksum "$TMP_DIR/$ASSET_NAME" "$TMP_DIR/checksums.txt"
+
+cp "$TMP_DIR/$ASSET_NAME" "$BIN_DIR/proveo"
+chmod +x "$BIN_DIR/proveo" "$INSTALL_ROOT/uninstall.sh"
 
 ensure_path
 check_docker
-
 print_post_install_message
-

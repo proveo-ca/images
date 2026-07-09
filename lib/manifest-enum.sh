@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Enumerate harness targets/images from defs/*/harness.manifest (single registration).
-# Used by maintainer mise + consumer CLI when the defs tree is present.
+# Canonical copy for maintainer mise / lib/runners.sh (not shipped on the consumer CDN).
 # Requires: REPO_ROOT or PROVEO_DEFS_DIR pointing at a tree that contains defs/.
 
 proveo_defs_root() {
@@ -16,10 +16,12 @@ proveo_defs_root() {
 }
 
 # Print "target|image|description|defdir" lines for every images: key in every harness.manifest.
+# Top-level keys are detected by leading indentation (not an allowlist): any unindented
+# key other than name/description/images ends the images: block, so new manifest fields
+# (provider, dind, …) cannot be mistaken for image targets.
 proveo_manifest_entries() {
-  local defs root f name desc in_images key val defdir
+  local defs f name desc in_images key val defdir raw line trimmed
   defs="$(proveo_defs_root)" || return 1
-  root="$(cd "$defs/.." && pwd)"
   shopt -s nullglob
   for f in "$defs"/*/harness.manifest; do
     [[ -f "$f" ]] || continue
@@ -27,41 +29,39 @@ proveo_manifest_entries() {
     name=""
     desc=""
     in_images=0
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      # strip comments
-      line="${line%%#*}"
-      # trim
-      line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-      [[ -n "$line" ]] || continue
-      case "$line" in
-        name:*)
-          name="${line#name:}"
-          name="$(printf '%s' "$name" | sed -e 's/^[[:space:]]*//')"
-          ;;
-        description:*)
-          desc="${line#description:}"
-          desc="$(printf '%s' "$desc" | sed -e 's/^[[:space:]]*//')"
-          ;;
-        images:)
-          in_images=1
-          ;;
-        workspace:*|env:*|egress:*|dind:*|stability:*)
-          in_images=0
-          ;;
-        *)
-          if (( in_images )); then
-            # "  key: value" under images:
-            if [[ "$line" == *:* ]]; then
-              key="${line%%:*}"
-              val="${line#*:}"
-              key="$(printf '%s' "$key" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-              val="$(printf '%s' "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-              [[ -n "$key" && -n "$val" ]] || continue
-              printf '%s|%s|%s|%s\n' "$key" "$val" "$desc" "$defdir"
-            fi
-          fi
-          ;;
-      esac
+    while IFS= read -r raw || [[ -n "$raw" ]]; do
+      line="${raw%%#*}"
+      trimmed="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+      [[ -n "$trimmed" ]] || continue
+
+      # Unindented line ⇒ top-level YAML key (ends or starts a block).
+      if [[ "$line" == "$trimmed" && "$trimmed" == *:* ]]; then
+        key="${trimmed%%:*}"
+        case "$key" in
+          name)
+            name="$(printf '%s' "${trimmed#name:}" | sed -e 's/^[[:space:]]*//')"
+            in_images=0
+            ;;
+          description)
+            desc="$(printf '%s' "${trimmed#description:}" | sed -e 's/^[[:space:]]*//')"
+            in_images=0
+            ;;
+          images)
+            in_images=1
+            ;;
+          *)
+            in_images=0
+            ;;
+        esac
+        continue
+      fi
+
+      if (( in_images )) && [[ "$trimmed" == *:* ]]; then
+        key="$(printf '%s' "${trimmed%%:*}" | sed -e 's/[[:space:]]*$//')"
+        val="$(printf '%s' "${trimmed#*:}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+        [[ -n "$key" && -n "$val" ]] || continue
+        printf '%s|%s|%s|%s\n' "$key" "$val" "$desc" "$defdir"
+      fi
     done < "$f"
   done
 }
@@ -73,7 +73,7 @@ proveo_load_manifest_targets() {
   MANIFEST_IMAGES=()
   MANIFEST_DESCS=()
   MANIFEST_DIRS=()
-  local line t img d dir
+  local line t img d dir rest rest2
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     t="${line%%|*}"

@@ -88,11 +88,36 @@ remove_path_block "$HOME/.bash_profile"
 remove_path_block "$HOME/.profile"
 remove_path_block "$HOME/.config/fish/config.fish"
 
+# Also strip markers written by `proveo setup` (Go installer path).
+remove_setup_markers() {
+  local config_file="$1"
+  local tmp_file status=0
+  [[ -f "$config_file" ]] || return 0
+  tmp_file="$(mktemp)"
+  awk '
+    $0 == "# added by `proveo setup` — proveo on PATH" { skip = 1; next }
+    skip == 1 && ($0 ~ /^export PATH=/ || $0 ~ /^set -gx PATH / || $0 ~ /^setenv PATH /) { skip = 0; changed = 1; next }
+    skip == 1 { changed = 1; next }
+    { print }
+    END { exit changed ? 2 : 0 }
+  ' "$config_file" >"$tmp_file" || status="$?"
+  if [[ "${status:-0}" -eq 2 ]]; then
+    mv "$tmp_file" "$config_file"
+  else
+    rm -f "$tmp_file"
+  fi
+}
+remove_setup_markers "$HOME/.zshrc"
+remove_setup_markers "$HOME/.bashrc"
+remove_setup_markers "$HOME/.bash_profile"
+remove_setup_markers "$HOME/.profile"
+remove_setup_markers "$HOME/.config/fish/config.fish"
+
 remove_install_root
 
 if command -v proveo >/dev/null 2>&1; then
   print_warning "proveo is still resolvable in this shell: $(command -v proveo)"
-  print_warning "If this points at the repo, it is your internal maintainer CLI, not the distributed install."
+  print_warning "If this points at GOPATH/bin or a repo checkout, it is not the distributed install."
   print_warning "Open a new shell, or run 'hash -r' in bash / 'rehash' in zsh."
 else
   print_info "proveo uninstalled."

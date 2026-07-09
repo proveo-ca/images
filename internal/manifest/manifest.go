@@ -53,6 +53,7 @@ type Manifest struct {
 	Description string            `yaml:"description"`
 	Egress      bool              `yaml:"egress"`    // sources the egress lifecycle
 	Dind        bool              `yaml:"dind"`      // image ships docker client; may get DinD sidecar
+	Provider    string            `yaml:"provider"`  // vendor-pinned broker target (firewall mode); e.g. cursor
 	Stability   string            `yaml:"stability"` // experimental | candidate | stable
 	Images      map[string]string `yaml:"images"`    // target name -> image ref
 	Workspace   Workspace         `yaml:"workspace"` // mount model

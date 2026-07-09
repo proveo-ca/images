@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # tests/test_tui.sh - Interactive TUI & Scope Discovery Tests
 #
-# Launches bin/proveo using PROVEO_FORCE_TTY=1 inside samples/ to assert all 4 TUI selection and auto-filtering requirements.
+# Sources the consumer proveo bash surface with PROVEO_FORCE_TTY=1 inside samples/
+# to assert TUI selection and auto-filtering requirements.
 
 echo "--- Phase 8: Interactive TUI & Scope Discovery ---"
 

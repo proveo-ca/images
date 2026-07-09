@@ -40,8 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && /usr/local/sbin/proveo-harden
 
 # Install lightweight docker static client (non-setuid) so the sibling DinD
-# sidecar is usable when the runner provisions it. Keep in sync with
-# defs/opencode/Dockerfile and the dind_capable allowlist in runners.sh.
+# sidecar is usable when proveo run provisions it (harness.manifest dind: true).
+# Keep the docker client version in sync with defs/opencode/Dockerfile.
 RUN DOCKER_VERSION=26.1.4 \
     && case "$(uname -m)" in \
          x86_64|amd64) DOCKER_ARCH=x86_64 ;; \

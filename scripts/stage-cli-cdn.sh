@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Stage host proveo binaries + checksums into apps/cli/public/cli for Cloudflare.
+# Prefers goreleaser dist/ archives; falls back to cross-compiling proveo only.
+# SPEC: apps/cli README — Go binary install via CDN
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CDN_ROOT="${PROVEO_CDN_ROOT:-$REPO_ROOT/apps/cli/public/cli}"
+DIST_DIR="${PROVEO_DIST_DIR:-$REPO_ROOT/dist}"
+OUT_BIN="$CDN_ROOT/bin"
+
+platforms=(
+  "linux/amd64"
+  "linux/arm64"
+  "darwin/amd64"
+  "darwin/arm64"
+)
+
+mkdir -p "$OUT_BIN"
+# Drop legacy bash consumer assets if present.
+rm -f "$OUT_BIN/proveo" "$OUT_BIN/help.sh" "$OUT_BIN/init.sh"
+rm -rf "$CDN_ROOT/lib"
+rm -f "$OUT_BIN"/proveo-* "$CDN_ROOT/checksums.txt"
+
+extract_from_dist() {
+  local goos="$1" goarch="$2" dest="$3"
+  local archive=""
+  shopt -s nullglob
+  local candidates=(
+    "$DIST_DIR"/proveo_*_"${goos}"_"${goarch}".tar.gz
+    "$DIST_DIR"/proveo_*_"${goos}"_"${goarch}".tgz
+  )
+  shopt -u nullglob
+  for archive in "${candidates[@]}"; do
+    [[ -f "$archive" ]] || continue
+    if tar -tzf "$archive" 2>/dev/null | grep -qx 'proveo'; then
+      tar -xzf "$archive" -O proveo >"$dest"
+      chmod +x "$dest"
+      return 0
+    fi
+    # Some archives nest the binary
+    local member
+    member="$(tar -tzf "$archive" 2>/dev/null | grep -E '(^|/)proveo$' | head -1 || true)"
+    if [[ -n "$member" ]]; then
+      tar -xzf "$archive" -O "$member" >"$dest"
+      chmod +x "$dest"
+      return 0
+    fi
+  done
+  # Binary-format goreleaser output
+  shopt -s nullglob
+  for f in "$DIST_DIR"/proveo-"${goos}"-"${goarch}" "$DIST_DIR"/proveo_"${goos}"_"${goarch}"/proveo; do
+    if [[ -f "$f" ]]; then
+      cp "$f" "$dest"
+      chmod +x "$dest"
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+cross_compile() {
+  local goos="$1" goarch="$2" dest="$3"
+  echo "cross-compiling proveo ${goos}/${goarch}..." >&2
+  (
+    cd "$REPO_ROOT"
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+      go build -trimpath -ldflags='-s -w -X main.version=dev' \
+      -o "$dest" ./cmd/proveo
+  )
+  chmod +x "$dest"
+}
+
+used_dist=0
+for plat in "${platforms[@]}"; do
+  goos="${plat%/*}"
+  goarch="${plat#*/}"
+  dest="$OUT_BIN/proveo-${goos}-${goarch}"
+  if extract_from_dist "$goos" "$goarch" "$dest"; then
+    used_dist=1
+    echo "staged from dist: proveo-${goos}-${goarch}" >&2
+  else
+    cross_compile "$goos" "$goarch" "$dest"
+    echo "staged via go build: proveo-${goos}-${goarch}" >&2
+  fi
+done
+
+(
+  cd "$OUT_BIN"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum proveo-*
+  else
+    shasum -a 256 proveo-*
+  fi
+) >"$CDN_ROOT/checksums.txt"
+
+printf 'Wrote %s and %s/checksums.txt\n' "$OUT_BIN" "$CDN_ROOT" >&2
+if [[ "$used_dist" -eq 0 ]]; then
+  printf 'Note: no goreleaser archives found under %s — used go build fallback.\n' "$DIST_DIR" >&2
+  printf 'For release artifacts: mise run build-cli -- --release (stages CDN assets) or mise run deploy-cli\n' >&2
+fi

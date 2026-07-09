@@ -18,7 +18,7 @@ The current repo is still personal-tooling oriented, but the direction is toward
 cmd/proveo # Host orchestrator (Go): list / run / projects / setup
 cmd/proveo-egress # MITM + credential broker
 internal/ # runner, workspace mounts, egress plan, dind, manifests
-dist/install.sh # Checksum-verified binary install (product path)
+.goreleaser.yaml # Multi-arch release config (optional: mise run build-cli -- --release)
 
 apps/cli/ # Optional CDN / transitional bash list+help surface
 
@@ -67,7 +67,8 @@ The preferred interaction model is to use committed commands rather than retypin
 Examples:
 
 ```bash
-# Preferred: Go CLI (install via dist/install.sh / goreleaser)
+# Preferred: Go CLI on PATH (local: mise run build-cli → GOPATH/bin)
+mise run build-cli
 proveo list
 proveo run opencode
 proveo run cursor --egress-mode firewall
@@ -78,16 +79,34 @@ proveo run claudecode --local-model gemma4 --print
 ./defs/claudecode/run.sh --variant solo
 
 # Maintainer build / test / deploy via mise
-mise run test
+mise run test                 # fast gate (= test-go)
+mise run test-images          # Docker/image + consumer CLI suites
+mise run test-all             # test-go then test-images
 mise run test-defs claudecode
+mise run debug cursor         # depends on build-cli; uses that proveo
+mise run build cursor
 mise run deploy claudecode --tag latest
+mise run build-cli -- --release  # goreleaser → dist/ + stage CDN binaries
+mise run deploy-cli              # stage binaries + Wrangler → proveo.ca/cli
 ```
 
 The smoke suite generates and mounts a temporary `.env` with dummy non-secret
 model/API values to keep CLIs from falling into authentication prompts before the
 smoke-ready log is emitted.
 
-The distributed `proveo` command under `apps/cli/public/cli/bin/proveo` is the consumer base CLI. Maintainer workflows with extra powers (build, test, debug, deploy) run via `mise` tasks that source the reusable `lib/*.sh` helpers. Maintainer behavior may extend or override the consumer surface, but consumer install/uninstall should only manage the distributed `~/.proveo` install.
+**CLI vs CDN:** `mise run build-cli` installs Go binaries into `$(go env GOPATH)/bin`
+for local use. Pass `-- --release` to also run goreleaser into `dist/` and stage
+CDN assets. `mise run deploy-cli` stages checksummed
+`proveo-{os}-{arch}` binaries plus `install.sh` and publishes them to Cloudflare (`proveo.ca/cli`).
+Consumers run:
+
+```bash
+curl -fsSL https://proveo.ca/cli/install.sh | bash
+```
+
+which verifies SHA-256 and installs the Go `proveo` to `~/.proveo/bin`. Maintainer
+image workflows (`build`, `test-defs`, `debug`, `deploy`) still use `lib/*.sh` and
+`lib/manifest-enum.sh` (not shipped on the CDN).
 
 New deterministic harness behavior should live under `defs/<name>/` first, with the `mise` tasks and `lib/*.sh` helpers delegating where useful.
 

@@ -47,11 +47,6 @@ proveo_bin() {
     command -v proveo
     return 0
   fi
-  local candidate="${REPO_ROOT:-}/bin/proveo"
-  if [[ -x "$candidate" ]]; then
-    printf '%s\n' "$candidate"
-    return 0
-  fi
   printf 'proveo\n'
 }
 

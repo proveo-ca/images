@@ -77,11 +77,19 @@ func manifestForTarget(target string) (manifest.Manifest, error) {
 func main() {
 	root := &cobra.Command{
 		Use:           "proveo",
-		Short:         "Deterministic Docker coding-agent harnesses",
+		Short:         ui.BrandTagline,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(versionCmd(), listCmd(), runCmd(), projectsCmd(), setupCmd())
+	defaultHelp := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		// Branding banner on root help only (proveo help / proveo --help).
+		if !cmd.HasParent() {
+			ui.WriteBrandBanner(cmd.OutOrStdout())
+		}
+		defaultHelp(cmd, args)
+	})
+	root.AddCommand(versionCmd(), listCmd(), runCmd(), projectsCmd(), setupCmd(), initCmd())
 	if err := root.Execute(); err != nil {
 		// The agent's own non-zero exit is not a proveo error — propagate its code
 		// verbatim, without the "error:" prefix (C6). Only the agent's: a failed
@@ -279,9 +287,12 @@ func doRun(p runParams) error {
 		workdir = planWorkdir
 	}
 
-	// Credential broker: gated by brokerProvider (firewall + exactly one provider +
-	// not disabled). Write the secret file up front on real runs.
-	providerName := brokerProvider(p.mode, provider.Detect(lookup), brokerEnabled())
+	// Credential broker: gated by brokerProvider (firewall + a resolved provider +
+	// not disabled). Vendor-pinned harnesses (manifest provider:) win over the
+	// "exactly one detected key" rule so a multi-provider .env does not block
+	// cursor when CURSOR_API_KEY lives only in the host env. Write secrets up front.
+	detected := provider.Detect(lookup)
+	providerName := brokerProvider(p.mode, man, detected, lookup, brokerEnabled())
 	var brokerFile string
 	if providerName != "" {
 		if p.printOnly {
@@ -380,14 +391,34 @@ func doRun(p runParams) error {
 	if !needsLifecycle(plan) {
 		return execAgent(agent)
 	}
-	return execWithEgress(plan, agent, egDir, provider.Detect(lookup))
+	squidProviders := detected
+	if providerName != "" {
+		squidProviders = []string{providerName}
+	}
+	return execWithEgress(plan, agent, egDir, squidProviders)
 }
 
 // brokerProvider returns the provider to broker for this run, or "" for none:
-// firewall mode only (the sole mode whose MITM consumes it), exactly one detected
-// provider (never guess which key to inject), and the broker not disabled.
-func brokerProvider(mode string, detected []string, brokerOn bool) string {
-	if mode == "firewall" && brokerOn && len(detected) == 1 {
+// firewall mode only (the sole mode whose MITM consumes it) and the broker not
+// disabled. A manifest provider pin (vendor-pinned harness) is used when its
+// detect key is present; otherwise exactly one detected provider is required.
+func brokerProvider(mode string, man manifest.Manifest, detected []string, lookup func(string) string, brokerOn bool) string {
+	if mode != "firewall" || !brokerOn {
+		return ""
+	}
+	if pin := strings.TrimSpace(man.Provider); pin != "" {
+		e, ok := provider.Lookup(pin)
+		if !ok {
+			return ""
+		}
+		for _, v := range e.Detect {
+			if strings.TrimSpace(lookup(v)) != "" {
+				return pin
+			}
+		}
+		return ""
+	}
+	if len(detected) == 1 {
 		return detected[0]
 	}
 	return ""

@@ -3,12 +3,9 @@
 # SPEC: _spec/usage.puml, _spec/components.puml, _spec/defs/cursor/cursor.paradigm.md
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -z "${PROVEO_BIN:-}" ]]; then
  if command -v proveo >/dev/null 2>&1; then
  PROVEO_BIN="$(command -v proveo)"
- elif [[ -x "$SCRIPT_DIR/../../bin/proveo" ]]; then
- PROVEO_BIN="$SCRIPT_DIR/../../bin/proveo"
  else
  PROVEO_BIN="proveo"
  fi

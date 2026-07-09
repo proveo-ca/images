@@ -7,6 +7,7 @@ package contract_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -76,6 +77,9 @@ func TestRunShimsExecProveo(t *testing.T) {
 		body := string(b)
 		if !strings.Contains(body, `exec "$PROVEO_BIN" run`) {
 			t.Errorf("%s must exec proveo run", path)
+		}
+		if strings.Contains(body, "bin/proveo") {
+			t.Errorf("%s must not fall back to repo-local bin/proveo (use PATH / PROVEO_BIN)", path)
 		}
 		if strings.Contains(body, "--cap-drop=ALL") {
 			t.Errorf("%s must not redeclare hardening (lives in internal/runner)", path)
@@ -172,6 +176,9 @@ func TestCursorManifestDeclaresAPIKey(t *testing.T) {
 	if !cursor.Dind {
 		t.Error("cursor manifest must enable dind (docker client + sibling sidecar offer)")
 	}
+	if cursor.Provider != "cursor" {
+		t.Errorf("cursor manifest provider = %q, want cursor", cursor.Provider)
+	}
 }
 
 func TestOpenCodeManifestEnablesDind(t *testing.T) {
@@ -186,3 +193,65 @@ func TestOpenCodeManifestEnablesDind(t *testing.T) {
 		}
 	}
 }
+
+func TestDindCapableHarnessesIncludeCursorAndOpenCode(t *testing.T) {
+	t.Parallel()
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"cursor": false, "opencode": false}
+	for _, m := range ms {
+		if _, ok := want[m.Name]; ok {
+			want[m.Name] = m.Dind
+		}
+	}
+	for name, ok := range want {
+		if !ok {
+			t.Errorf("%s manifest must enable dind (docker client + sibling sidecar offer)", name)
+		}
+	}
+}
+
+func TestBashManifestEnumIgnoresUnknownTopLevelKeys(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	dir := t.TempDir()
+	def := filepath.Join(dir, "defs", "x")
+	if err := os.MkdirAll(def, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `name: x
+description: enum future-key test
+egress: true
+dind: true
+provider: cursor
+future_flag: true
+images:
+  x: proveo/x:latest
+  y: proveo/y:latest
+workspace:
+  layout: app
+`
+	if err := os.WriteFile(filepath.Join(def, "harness.manifest"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := `set -euo pipefail
+source "` + filepath.Join(root, "lib/manifest-enum.sh") + `"
+proveo_manifest_entries
+`
+	cmd := exec.Command("bash", "-c", script)
+	cmd.Env = append(os.Environ(), "REPO_ROOT="+dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("enum: %v\n%s", err, out)
+	}
+	got := string(out)
+	if strings.Contains(got, "provider|") || strings.Contains(got, "future_flag|") || strings.Contains(got, "egress|") {
+		t.Errorf("top-level keys leaked as image targets:\n%s", got)
+	}
+	if !strings.Contains(got, "x|proveo/x:latest") || !strings.Contains(got, "y|proveo/y:latest") {
+		t.Errorf("expected image entries, got:\n%s", got)
+	}
+}
+
