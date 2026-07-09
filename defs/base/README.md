@@ -1,39 +1,58 @@
 # base
 
-`proveo/base` is the shared floor for every Node-based harness image
-(claudecode, opencode, cursor, cecli-node): Microsoft's official Playwright
-image (`mcr.microsoft.com/playwright:v*-noble` — Node, Chromium/Firefox/WebKit,
-and their Ubuntu OS deps under `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`), plus
-harness extras (`gh`, `python3`, `dumb-init`), pnpm, a version-matched global
-`playwright` CLI, common env, and the baked `/usr/local/sbin/proveo-harden`
-pass (setuid/setgid strip + raw-network-tool removal).
+`proveo/base` is the **minimal** shared floor for every harness image. It carries
+only what is universal to all harnesses:
 
-Why the MCR image (not `node:*-slim` + `playwright install --with-deps`):
-hand-installing OS deps on a slim Node image is fragile (missing `libglib`,
-stale apt lists, Debian/Ubuntu package-name drift). The official image is the
-supported way to ship browsers + system libraries together; pin the image tag
-and the npm `playwright` version to the same release.
+- `git`, `gh`, `ca-certificates`, `curl`, `dumb-init`, `bash`
+- the `proveo-entrypoint` binary (built once here via a `golang` builder stage;
+  every harness inherits `/usr/local/bin/proveo-entrypoint` instead of
+  recompiling it)
+- the `/usr/local/sbin/proveo-harden` pass (setuid/setgid strip + raw-network-tool
+  removal)
 
-Why a shared base exists (structural size work): before this base, each harness
-carried its own copy of these layers on a slightly different parent, so nothing
-was shared — a consumer pulling two harnesses downloaded the same bulk twice.
-With one base, registries and consumer machines store the common layers once;
-each harness image is only its delta.
+It is `FROM debian:bookworm-slim` and lands at ~200 MB.
 
-Rules:
+## What is deliberately NOT here
 
-- Harness Dockerfiles start with `ARG BASE_IMAGE=proveo/base:latest` +
-  `FROM ${BASE_IMAGE}` (the ARG is the white-label / pinning seam).
+- **No language runtime.** Node and Python are not universal — `cursor` needs
+  neither (its `cursor-agent` is a self-contained binary), `cecli` is Python,
+  `opencode`/`claudecode` are Node. Node lives in the thin `proveo/base-node`
+  intermediate (`defs/base-node`), which the Node harnesses build FROM; Python
+  is added by the one harness that needs it (`cecli`).
+- **No browsers.** No harness's runtime drives a browser; Playwright/Chromium was
+  a speculative "agent runs browser e2e in the mounted repo" capability that
+  fattened the shared floor to multiple GB. It is now install-on-demand: inside a
+  harness run `npx playwright install chromium` (Node) or
+  `python -m playwright install chromium` (cecli) into a mounted cache dir.
+
+## FROM tree
+
+```
+debian:bookworm-slim
+└── proveo/base                git/gh/curl/dumb-init/bash/proveo-entrypoint/harden
+     ├── cursor                cursor-agent binary; no runtime
+     ├── cecli                 + python3-venv (aider fork)
+     └── proveo/base-node      + Node 22 LTS + pnpm
+          ├── opencode
+          └── claudecode (mcp) ├── claudecode-solo   └── claudecode-sol
+```
+
+## Rules
+
+- Harness Dockerfiles start with `ARG BASE_IMAGE=proveo/base:latest` (or
+  `proveo/base-node:latest`) + `FROM ${BASE_IMAGE}` (the ARG is the
+  white-label / pinning seam).
 - Any harness layer that `apt-get install`s extras must end with
-  `/usr/local/sbin/proveo-harden` — new packages can reintroduce setuid bits.
-- Harness `build.sh` scripts call `defs/base/ensure.sh` first (present with a
-  usable Playwright floor → pull → build), so a lone `mise build cursor` works
-  on a clean machine and will not reuse a stale local tag that lacks browsers
-  or `libglib`.
-- Per-harness users, toolchains, configs, and entrypoints do NOT belong here.
-  If two harnesses need the same new tool, that is the bar for adding it.
-  Playwright Chromium cleared that bar (cecli-node advertised it; agents run
-  browser e2e against mounted workspaces).
+  `/usr/local/sbin/proveo-harden <paths>` — new packages can reintroduce setuid
+  bits. Pass the prefixes you touched (e.g. `proveo-harden /usr /opt`) so the
+  scan doesn't re-walk the whole filesystem.
+- Harness `build.sh` scripts call `defs/base/ensure.sh` (or
+  `defs/base-node/ensure.sh` for Node harnesses) first, so a lone
+  `mise build <harness>` works on a clean machine and won't reuse a stale local
+  tag from a different lineage.
+- Per-harness users, runtimes, configs, and entrypoints do NOT belong here. If
+  two harnesses need the same new tool, that is the bar for adding it to the
+  appropriate shared layer.
 
-It is not a runnable harness: no `harness.manifest`, no entrypoint. It is a
-mise build/deploy target (`mise build base`) like the sidecar images.
+It is not a runnable harness: no `harness.manifest`, no entrypoint. It is a mise
+build/deploy target (`mise build base`) like the sidecar images.

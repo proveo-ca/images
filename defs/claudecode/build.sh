@@ -63,8 +63,8 @@ build_sol() {
     -t "proveo/claudecode-sol:$TAG" -f "$SCRIPT_DIR/sol/Dockerfile" "$SCRIPT_DIR/../.."
 }
 
-# mcp/solo build FROM proveo/base
-"$SCRIPT_DIR/../base/ensure.sh"
+# mcp/solo build FROM proveo/base-node
+"$SCRIPT_DIR/../base-node/ensure.sh"
 
 case "$VARIANT" in
   mcp)

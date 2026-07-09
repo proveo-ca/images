@@ -1,6 +1,7 @@
 package maintain
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -24,7 +25,7 @@ func TestRegistry(t *testing.T) {
 
 	// Stable order: base, harness (sorted), then the sidecars last.
 	wantOrder := []string{
-		"base", "cecli", "cecli-node", "claudecode", "claudecode-sol",
+		"base", "base-node", "cecli", "cecli-node", "claudecode", "claudecode-sol",
 		"claudecode-solo", "egress-proxy", "mitmproxy",
 	}
 	if len(got) != len(wantOrder) {
@@ -41,6 +42,7 @@ func TestRegistry(t *testing.T) {
 	// Image is org/name with the manifest tag stripped; DefDir matches the Bash baseline.
 	for _, tc := range []struct{ name, kind, image, dir string }{
 		{"base", KindBase, "proveo/base", "/d/base"},
+		{"base-node", KindBase, "proveo/base-node", "/d/base-node"},
 		{"cecli", KindHarness, "proveo/cecli", "/d/cecli"},
 		{"cecli-node", KindHarness, "proveo/cecli-node", "/d/cecli"}, // shares cecli's def dir
 		{"claudecode", KindHarness, "proveo/claudecode", "/d/claudecode"},
@@ -54,5 +56,88 @@ func TestRegistry(t *testing.T) {
 			t.Errorf("%s = {kind:%s image:%s dir:%s}, want {kind:%s image:%s dir:%s}",
 				tc.name, g.Kind, g.Image, g.DefDir, tc.kind, tc.image, tc.dir)
 		}
+	}
+
+	// Build recipe: script path off DefDir, and the variant selector only on the
+	// three claudecode images.
+	if got := byName["claudecode"]; strings.Join(got.BuildArgs, " ") != "--variant mcp" || got.BuildScript != "/d/claudecode/build.sh" {
+		t.Errorf("claudecode recipe = args:%v script:%s", got.BuildArgs, got.BuildScript)
+	}
+	if got := byName["claudecode-solo"]; strings.Join(got.BuildArgs, " ") != "--variant solo" {
+		t.Errorf("claudecode-solo args = %v, want --variant solo", got.BuildArgs)
+	}
+	if got := byName["claudecode-sol"]; strings.Join(got.BuildArgs, " ") != "--variant sol" {
+		t.Errorf("claudecode-sol args = %v, want --variant sol", got.BuildArgs)
+	}
+	if got := byName["cursor"]; len(got.BuildArgs) != 0 {
+		t.Errorf("cursor should have no variant args, got %v", got.BuildArgs)
+	}
+	if got := byName["cecli-node"]; got.BuildScript != "/d/cecli/build.sh" {
+		t.Errorf("cecli-node build script = %s, want /d/cecli/build.sh (shared)", got.BuildScript)
+	}
+}
+
+func argvs(cmds []Command) []string {
+	out := make([]string, len(cmds))
+	for i, c := range cmds {
+		out[i] = strings.Join(c.Argv, " ")
+	}
+	return out
+}
+
+func TestBuildPlan(t *testing.T) {
+	t.Parallel()
+	cc := Target{Name: "claudecode", Image: "proveo/claudecode", DefDir: "/d/claudecode",
+		BuildScript: "/d/claudecode/build.sh", BuildArgs: []string{"--variant", "mcp"}}
+
+	// Default (latest): build via the variant script, then verify — no docker tag.
+	got := argvs(cc.BuildPlan("latest", false))
+	want := []string{
+		"bash /d/claudecode/build.sh --variant mcp",
+		"docker image inspect proveo/claudecode:latest",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("BuildPlan(latest) = %v, want %v", got, want)
+	}
+
+	// Tagged + no-cache: adds --no-cache to the build and a docker tag :latest→:tag.
+	got = argvs(cc.BuildPlan("v2", true))
+	want = []string{
+		"bash /d/claudecode/build.sh --variant mcp --no-cache",
+		"docker tag proveo/claudecode:latest proveo/claudecode:v2",
+		"docker image inspect proveo/claudecode:v2",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("BuildPlan(v2,no-cache) = %v, want %v", got, want)
+	}
+
+	// A no-variant target (cursor): build.sh with no extra args.
+	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor", BuildScript: "/d/cursor/build.sh"}
+	if got := argvs(cur.BuildPlan("", false)); got[0] != "bash /d/cursor/build.sh" {
+		t.Errorf("cursor build = %q, want bare build.sh", got[0])
+	}
+
+	// The verify step discards stdout.
+	last := cc.BuildPlan("latest", false)[1]
+	if !last.Quiet {
+		t.Error("verify (docker image inspect) should be Quiet")
+	}
+}
+
+func TestDeployAndTestPlan(t *testing.T) {
+	t.Parallel()
+	cur := Target{Name: "cursor", Image: "proveo/cursor", DefDir: "/d/cursor", TestScript: "/d/cursor/test.sh"}
+
+	if got := argvs(cur.DeployPlan("v3")); strings.Join(got, "|") !=
+		"docker image inspect proveo/cursor:v3|docker push proveo/cursor:v3" {
+		t.Errorf("DeployPlan = %v", got)
+	}
+
+	// TestPlan runs test.sh when it exists, else skips (nil).
+	if got := cur.TestPlan(func(string) bool { return true }); len(got) != 1 || strings.Join(got[0].Argv, " ") != "bash /d/cursor/test.sh" {
+		t.Errorf("TestPlan(exists) = %v", got)
+	}
+	if got := cur.TestPlan(func(string) bool { return false }); got != nil {
+		t.Errorf("TestPlan(missing) = %v, want nil (skip)", got)
 	}
 }

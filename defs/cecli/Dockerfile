@@ -1,13 +1,8 @@
+# cecli = the aider fork (cecli-dev) in a Python venv on proveo/base. No Node, no
+# browsers (deduped from the old MCR playwright/python variant).
 ARG BASE_IMAGE=proveo/base:latest
 
-# Plan 4 Ph3: shared in-container prelude
-FROM golang:1.26-bookworm AS proveo-entrypoint-builder
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
-
+# proveo-entrypoint is inherited from proveo/base (built once in defs/base).
 FROM ${BASE_IMAGE}
 
 ARG USER_ID=1000
@@ -34,15 +29,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     CECLI_HOME=/app/.cecli
 
-# Harness extras on top of proveo/base (git/gh/curl/python3/dumb-init/pnpm and
-# the hardening pass live there); re-run the harden pass after installing.
+# Python runtime + build tooling for the venv. proveo/base carries only
+# git/gh/curl/dumb-init + the harden pass — no language runtime — so python lives
+# here (cecli is the one python-primary harness). Re-run the scoped harden after.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
     python3-pip \
     python3-venv \
     build-essential \
     less \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-  && /usr/local/sbin/proveo-harden
+  && /usr/local/sbin/proveo-harden /usr /opt
 
 RUN python3 -m venv /opt/cecli \
   && /opt/cecli/bin/pip install --upgrade pip setuptools wheel \
@@ -53,8 +50,6 @@ ENV PATH="/opt/cecli/bin:${PATH}"
 WORKDIR /app
 
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
-COPY --from=proveo-entrypoint-builder /out/proveo-entrypoint /usr/local/bin/proveo-entrypoint
-RUN chmod +x /usr/local/bin/proveo-entrypoint
 COPY defs/cecli/entrypoint.sh /usr/local/bin/cecli-entrypoint
 COPY defs/cecli/defaults/ /opt/cecli/defaults/
 COPY defs/cecli/proveo-lib/ /opt/proveo/lib/

@@ -1,38 +1,48 @@
 # SPEC: _spec/components.puml
-# proveo/base — the shared floor every Node-based harness image builds FROM:
-ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.61.1-noble
-FROM ${PLAYWRIGHT_IMAGE}
+# proveo/base — the MINIMAL shared floor every harness image builds FROM.
+# Only the universally-shared pieces live here: git, gh, ca-certs, curl,
+# dumb-init, bash, the proveo-entrypoint binary, and the proveo-harden pass.
+# NO language runtime (Node/Python) and NO browsers — those are not universal
+# (cursor needs neither; cecli is Python; opencode/claudecode are Node), so they
+# live in thin per-runtime layers (proveo/base-node) or are installed on demand.
+# This keeps the floor ~200MB instead of the multi-GB Playwright browser image
+# it used to inherit.
 
-ARG PLAYWRIGHT_VERSION=1.61.1
+# Single builder for proveo-entrypoint; every harness inherits it from here
+# instead of recompiling it in its own stage. Context is the repo root.
+FROM golang:1.26-bookworm AS proveo-entrypoint-builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
 
-# Hardening is a callable script (see its header): base runs it here, and every
-# harness apt layer re-runs `proveo-harden` after installing extras.
+FROM debian:bookworm-slim
+
 COPY defs/base/proveo-harden /usr/local/sbin/proveo-harden
+COPY --from=proveo-entrypoint-builder /out/proveo-entrypoint /usr/local/bin/proveo-entrypoint
 
-# MCR playwright already ships Node, git, ca-certificates, and Chromium/Firefox/
-# WebKit with their Ubuntu OS libs under PLAYWRIGHT_BROWSERS_PATH=/ms-playwright.
-# Add the harness floor extras that are not in that image.
-RUN chmod +x /usr/local/sbin/proveo-harden \
+# Universal harness floor. `gh` is not in Debian's default repos, so add the
+# official GitHub CLI apt source (its published keyring is already dearmored, so
+# no gnupg needed). Everything is cleaned in-layer; one harden pass.
+RUN chmod +x /usr/local/sbin/proveo-harden /usr/local/bin/proveo-entrypoint \
+    && apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+         -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+         > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y --no-install-recommends \
-       gh python3 dumb-init \
+       git gh bash dumb-init passwd \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
-# Global CLI matching the image tag so `playwright` resolves the baked browsers.
-# Browsers stay world-readable for non-root runtime users (and project-local
-# installs that honor PLAYWRIGHT_BROWSERS_PATH).
 ENV DEBIAN_FRONTEND=noninteractive \
     NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FUND=false \
     RLIMIT_CORE=0 \
     RLIMIT_NOFILE=1024 \
-    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-
-RUN npm install -g pnpm@10.33.0 "playwright@${PLAYWRIGHT_VERSION}" \
-    && chmod -R a+rX /ms-playwright \
-    && npm cache clean --force \
-    && /usr/local/sbin/proveo-harden
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 LABEL security.hardened=true \
       org.opencontainers.image.title="proveo harness base"

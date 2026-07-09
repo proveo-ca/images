@@ -89,7 +89,8 @@ func main() {
 		}
 		defaultHelp(cmd, args)
 	})
-	root.AddCommand(versionCmd(), listCmd(), runCmd(), projectsCmd(), setupCmd(), initCmd(), targetsCmd())
+	root.AddCommand(versionCmd(), listCmd(), runCmd(), projectsCmd(), setupCmd(), initCmd(),
+		cleanCmd(), targetsCmd(), buildCmd(), deployCmd(), testCmd())
 	if err := root.Execute(); err != nil {
 		// The agent's own non-zero exit is not a proveo error — propagate its code
 		// verbatim, without the "error:" prefix (C6). Only the agent's: a failed

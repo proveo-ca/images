@@ -141,242 +141,34 @@ pnpm exec wrangler dev --cwd apps/cli
 # ── Harness images (maintainer) ─────────────────────────────
 
 [tasks.build]
-description = "Build a container harness def"
+description = "Build a container harness def (Go: proveo build)"
+dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-REPO_ROOT="$(pwd)"
-DEFAULT_TAG="latest"
-
-source "$REPO_ROOT/lib/ui.sh"
-source "$REPO_ROOT/lib/helpers.sh"
-source "$REPO_ROOT/lib/registry.sh"
-source "$REPO_ROOT/lib/build.sh"
-
-target=""
-no_cache=""
-tag="$DEFAULT_TAG"
-
-# Parse arguments cleanly, supporting optional target parameter anywhere
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --no-cache)
-      no_cache="--no-cache"
-      shift
-      ;;
-    --tag)
-      if [[ $# -lt 2 ]]; then
-        print_error "--tag requires a value"
-        exit 1
-      fi
-      tag="$2"
-      shift 2
-      ;;
-    -*)
-      print_error "Unknown build option: $1"
-      exit 1
-      ;;
-    *)
-      if [[ -z "$target" ]]; then
-        target="$1"
-      else
-        print_error "Multiple build targets specified: $target and $1"
-        exit 1
-      fi
-      shift
-      ;;
-  esac
-done
-
-# If no target specified, show interactive TUI selector
-if [[ -z "$target" ]]; then
-  build_options=(
-    "all defs (Build everything)"
-  )
-  for t in "${TARGETS[@]}"; do
-    build_options+=("$t")
-  done
-
-  printf '\\nSelect build target:\\n' >&2
-  choice=0
-  tui_select "${build_options[@]}" || choice=$?
-
-  if [[ $choice -eq 255 ]]; then
-    echo "Build cancelled." >&2
-    exit 0
-  fi
-
-  if [[ $choice -eq 0 ]]; then
-    target="all"
-  else
-    target="${TARGETS[$((choice - 1))]}"
-  fi
-fi
-
-require_tag "$tag" "build"
-
-if [[ "$target" == "all" ]]; then
-  echo "Building all defs..." >&2
-  for t in "${TARGETS[@]}"; do
-    echo "--- Building $t ---" >&2
-    build_target "$t" "$tag" "$no_cache"
-  done
-else
-  require_target "$target"
-  build_target "$target" "$tag" "$no_cache"
-fi
+# Maintainer image build orchestration is Go now (proveo build -> internal/maintain).
+# `go run` keeps it on the current repo source, never a possibly-stale installed
+# proveo; the ~1-2s compile is noise next to a docker build.
+# Forwards: [target|all] [--tag T] [--no-cache] [--print]
+exec go run ./cmd/proveo build "$@"
 """
 
 [tasks.test-defs]
-description = "Test a specific container harness def"
+description = "Test a container harness def's image (Go: proveo test)"
+dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-REPO_ROOT="$(pwd)"
-
-source "$REPO_ROOT/lib/ui.sh"
-source "$REPO_ROOT/lib/helpers.sh"
-source "$REPO_ROOT/lib/registry.sh"
-source "$REPO_ROOT/lib/test.sh"
-
-target=""
-
-# Parse arguments cleanly, supporting optional target parameter
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -*)
-      print_error "Unknown test option: $1"
-      exit 1
-      ;;
-    *)
-      if [[ -z "$target" ]]; then
-        target="$1"
-      else
-        print_error "Multiple test targets specified: $target and $1"
-        exit 1
-      fi
-      shift
-      ;;
-  esac
-done
-
-# If no target specified, show interactive TUI selector
-if [[ -z "$target" ]]; then
-  test_options=(
-    "all defs (Run entire test suite)"
-  )
-  for t in "${TARGETS[@]}"; do
-    test_options+=("$t")
-  done
-
-  printf '\\nSelect test target:\\n' >&2
-  choice=0
-  tui_select "${test_options[@]}" || choice=$?
-
-  if [[ $choice -eq 255 ]]; then
-    echo "Test cancelled." >&2
-    exit 0
-  fi
-
-  if [[ $choice -eq 0 ]]; then
-    target="all"
-  else
-    target="${TARGETS[$((choice - 1))]}"
-  fi
-fi
-
-if [[ "$target" == "all" ]]; then
-  echo "Running entire test suite..." >&2
-  for t in "${TARGETS[@]}"; do
-    echo "--- Testing $t ---" >&2
-    test_target "$t"
-  done
-else
-  require_target "$target"
-  test_target "$target"
-fi
+exec go run ./cmd/proveo test "$@"
 """
 
 [tasks.deploy]
-description = "Deploy a container image def"
+description = "Deploy a container image def (Go: proveo deploy)"
+dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-REPO_ROOT="$(pwd)"
-DEFAULT_TAG="latest"
-
-source "$REPO_ROOT/lib/ui.sh"
-source "$REPO_ROOT/lib/helpers.sh"
-source "$REPO_ROOT/lib/registry.sh"
-source "$REPO_ROOT/lib/deploy.sh"
-
-target=""
-tag="$DEFAULT_TAG"
-
-# Parse arguments cleanly, supporting optional target parameter anywhere
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --tag)
-      if [[ $# -lt 2 ]]; then
-        print_error "--tag requires a value"
-        exit 1
-      fi
-      tag="$2"
-      shift 2
-      ;;
-    -*)
-      print_error "Unknown deploy option: $1"
-      exit 1
-      ;;
-    *)
-      if [[ -z "$target" ]]; then
-        target="$1"
-      else
-        print_error "Multiple deploy targets specified: $target and $1"
-        exit 1
-      fi
-      shift
-      ;;
-  esac
-done
-
-# If no target specified, show interactive TUI selector
-if [[ -z "$target" ]]; then
-  deploy_options=(
-    "all defs (Deploy everything)"
-  )
-  for t in "${TARGETS[@]}"; do
-    deploy_options+=("$t")
-  done
-
-  printf '\\nSelect deploy target:\\n' >&2
-  choice=0
-  tui_select "${deploy_options[@]}" || choice=$?
-
-  if [[ $choice -eq 255 ]]; then
-    echo "Deploy cancelled." >&2
-    exit 0
-  fi
-
-  if [[ $choice -eq 0 ]]; then
-    target="all"
-  else
-    target="${TARGETS[$((choice - 1))]}"
-  fi
-fi
-
-require_tag "$tag" "deploy"
-
-if [[ "$target" == "all" ]]; then
-  echo "Deploying all defs..." >&2
-  for t in "${TARGETS[@]}"; do
-    echo "--- Deploying $t ---" >&2
-    deploy_target "$t" "$tag"
-  done
-else
-  require_target "$target"
-  deploy_target "$target" "$tag"
-fi
+exec go run ./cmd/proveo deploy "$@"
 """
 
 [tasks.debug]

@@ -3,6 +3,15 @@
 # and delete raw network utilities. Baked into proveo/base so every harness
 # layer that apt-installs extras re-runs the SAME pass (new packages can
 # reintroduce setuid binaries) instead of copy-pasting a drifting inline RUN.
-find / -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true
-find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true
+#
+# Scope: scans the path args (default `/`). The base does one full `/` sweep;
+# harness layers pass just the prefixes their apt/npm touched
+# (e.g. `proveo-harden /usr /opt`) so re-runs don't re-walk the whole filesystem.
+if [ "$#" -eq 0 ]; then
+  set -- /
+fi
+for root in "$@"; do
+  find "$root" -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true
+  find "$root" -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true
+done
 rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss || true

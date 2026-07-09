@@ -1,17 +1,11 @@
-ARG BASE_IMAGE=proveo/base:latest
+ARG BASE_IMAGE=proveo/base-node:latest
 
 FROM golang:1.26-bookworm AS plantuml-lsp-builder
 
 RUN GOBIN=/out go install github.com/ptdewey/plantuml-lsp@latest
 
-# Plan 4 Ph3: shared in-container prelude (env, git identity, broker sentinel).
-FROM golang:1.26-bookworm AS proveo-entrypoint-builder
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
-
+# proveo-entrypoint (shared in-container prelude) is inherited from
+# proveo/base-node — built once in defs/base, no per-harness rebuild.
 FROM ${BASE_IMAGE}
 
 ARG USER_ID=1000
@@ -77,9 +71,8 @@ COPY defs/opencode/sample_opencode.json /opt/opencode/sample_opencode.json
 COPY defs/lib/ /opt/proveo/lib/
 
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
-COPY --from=proveo-entrypoint-builder /out/proveo-entrypoint /usr/local/bin/proveo-entrypoint
 COPY defs/opencode/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh /usr/local/bin/proveo-entrypoint
+RUN chmod +x /entrypoint.sh
 
 # Default to the non-root build user; the wrapper overrides the runtime uid with
 # `--user $(id -u):$(id -g)` (see ensure_runtime_user for arbitrary-uid handling).

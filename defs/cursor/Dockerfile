@@ -1,14 +1,7 @@
 # SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor.paradigm.md
 ARG BASE_IMAGE=proveo/base:latest
 
-# Plan 4 Ph3: shared in-container prelude
-FROM golang:1.26-bookworm AS proveo-entrypoint-builder
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
-
+# proveo-entrypoint is inherited from proveo/base (built once in defs/base).
 FROM ${BASE_IMAGE}
 
 ARG USER_ID=1000
@@ -82,8 +75,6 @@ RUN mkdir -p /etc/cursor \
 COPY defs/lib/ /opt/proveo/lib/
 
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
-COPY --from=proveo-entrypoint-builder /out/proveo-entrypoint /usr/local/bin/proveo-entrypoint
-RUN chmod +x /usr/local/bin/proveo-entrypoint
 COPY defs/cursor/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

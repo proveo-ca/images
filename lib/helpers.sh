@@ -1,18 +1,10 @@
 #!/usr/bin/env bash
-# Maintainer helpers for the proveo mise tasks. Formerly split between the
-# consumer bash CLI (now retired — the consumer surface is the Go `proveo`
-# binary) and lib/; these are the pieces the maintainer image tasks still use.
+# Maintainer helpers for the proveo mise tasks. The build/deploy/test
+# orchestration moved to Go (`proveo build|deploy|test`); what remains here is
+# used by the `debug` task (with lib/ui.sh + lib/registry.sh).
 
 print_error() {
   echo "❌ $*" >&2
-}
-
-print_info() {
-  echo "ℹ️  $*"
-}
-
-print_success() {
-  echo "✅ $*"
 }
 
 require_tag() {
@@ -58,28 +50,4 @@ require_target() {
     _print_targets
     exit 1
   fi
-}
-
-# ensure_image_available lives here (not lib/build.sh) so the deploy task —
-# which sources helpers + runners + deploy.sh but NOT build.sh — can call it too.
-ensure_image_available() {
-  local image="$1"
-  if ! docker image inspect "$image" >/dev/null 2>&1; then
-    print_error "Docker image not found locally: $image"
-    print_info "Build it first with: mise run build ${2:-<target>} --tag ${DEFAULT_TAG:-latest}"
-    exit 1
-  fi
-}
-
-find_script_in_dir() {
-  local dir="$1"
-  shift
-  local script_name
-  for script_name in "$@"; do
-    if [[ -f "$dir/$script_name" ]]; then
-      echo "$dir/$script_name"
-      return 0
-    fi
-  done
-  return 1
 }

@@ -5,12 +5,23 @@
 # this file just consumes them. Populates TARGETS + parallel REG_* arrays and
 # offers reg_image / reg_dir lookups. Requires REPO_ROOT.
 
-# proveo_maint runs the proveo CLI for maintainer tooling. It uses PROVEO_BIN
-# when the task set it to a freshly-built binary (the `debug` task does), else
-# builds from the repo via `go run`. It deliberately does NOT fall back to a
-# `proveo` on PATH: the maintainer always runs from the checkout, and a stale
-# installed proveo (e.g. one predating `targets`) would silently break the
-# registry. `go run` from REPO_ROOT is always the current source of truth.
+# _resolve_proveo picks the proveo binary for maintainer tooling and exports
+# PROVEO_BIN. Precedence: an explicit PROVEO_BIN (the `debug` task sets it to a
+# freshly-built binary) → an installed `proveo` on PATH, but ONLY if it is current
+# enough to know `targets` (a stale pre-migration binary would silently break the
+# registry) → otherwise leave it unset so proveo_maint builds from the repo via
+# `go run`. The `targets` probe runs from REPO_ROOT so it sees the defs/ tree.
+_resolve_proveo() {
+  [[ -n "${PROVEO_BIN:-}" && -x "${PROVEO_BIN}" ]] && return
+  local p
+  if p="$(command -v proveo 2>/dev/null)" && ( cd "$REPO_ROOT" && "$p" targets >/dev/null 2>&1 ); then
+    export PROVEO_BIN="$p"
+  fi
+}
+
+# proveo_maint runs the proveo CLI for maintainer tooling: PROVEO_BIN (resolved
+# above) when set, else `go run` from the repo — always the current source of
+# truth, never a possibly-stale binary chosen blindly off PATH.
 proveo_maint() {
   if [[ -n "${PROVEO_BIN:-}" && -x "${PROVEO_BIN}" ]]; then
     "$PROVEO_BIN" "$@"
@@ -82,4 +93,5 @@ debug_target() {
   proveo_maint "${args[@]}" ${extra_args[@]+"${extra_args[@]}"}
 }
 
+_resolve_proveo
 proveo_load_registry

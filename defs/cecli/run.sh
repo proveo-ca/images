@@ -11,12 +11,11 @@ if [[ -z "${PROVEO_BIN:-}" ]]; then
  fi
 fi
 
-TARGET="cecli-node"
+TARGET="cecli"
 ARGS=
 while [[ $# -gt 0 ]]; do
  case "$1" in
- --python) TARGET="cecli"; shift ;;
- --node) TARGET="cecli-node"; shift ;;
+ --python|--node) shift ;; # single cecli image now — variant flags accepted for back-compat
  --image)
  [[ $# -ge 2 ]] || { echo "--image requires a value" >&2; exit 1; }
  ARGS+=(--image "$2"); shift 2 ;;
@@ -45,12 +44,5 @@ while [[ $# -gt 0 ]]; do
  ARGS+=("$1"); shift ;;
  esac
 done
-
-# Image name may imply target when set via CECLI_IMAGE / --image proveo/cecli
-if [[ -n "${CECLI_IMAGE:-}" && ${#ARGS[@]} -eq 0 ]]; then
- case "$CECLI_IMAGE" in
- *cecli:python*|*cecli:latest*|*/cecli|*/cecli:*) TARGET="cecli" ;;
- esac
-fi
 
 exec "$PROVEO_BIN" run "$TARGET" ${ARGS[@]+"${ARGS[@]}"}

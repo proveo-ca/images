@@ -7,7 +7,6 @@ package contract_test
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -213,16 +212,19 @@ func TestDindCapableHarnessesIncludeCursorAndOpenCode(t *testing.T) {
 	}
 }
 
-func TestBashManifestEnumIgnoresUnknownTopLevelKeys(t *testing.T) {
+// The manifest parser (now Go — internal/manifest, replacing the retired Bash
+// lib/manifest-enum.sh) must tolerate unknown/future top-level keys: only the
+// images: block yields build targets, and a new field like future_flag must
+// neither error nor leak in as an image.
+func TestManifestIgnoresUnknownTopLevelKeys(t *testing.T) {
 	t.Parallel()
-	root := repoRoot(t)
 	dir := t.TempDir()
-	def := filepath.Join(dir, "defs", "x")
+	def := filepath.Join(dir, "x")
 	if err := os.MkdirAll(def, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `name: x
-description: enum future-key test
+	manifestYAML := `name: x
+description: future-key test
 egress: true
 dind: true
 provider: cursor
@@ -233,24 +235,20 @@ images:
 workspace:
   layout: app
 `
-	if err := os.WriteFile(filepath.Join(def, "harness.manifest"), []byte(manifest), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(def, "harness.manifest"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	script := `set -euo pipefail
-source "` + filepath.Join(root, "lib/manifest-enum.sh") + `"
-proveo_manifest_entries
-`
-	cmd := exec.Command("bash", "-c", script)
-	cmd.Env = append(os.Environ(), "REPO_ROOT="+dir)
-	out, err := cmd.CombinedOutput()
+	ms, err := manifest.Load(dir)
 	if err != nil {
-		t.Fatalf("enum: %v\n%s", err, out)
+		t.Fatalf("Load must not error on unknown top-level keys: %v", err)
 	}
-	got := string(out)
-	if strings.Contains(got, "provider|") || strings.Contains(got, "future_flag|") || strings.Contains(got, "egress|") {
-		t.Errorf("top-level keys leaked as image targets:\n%s", got)
+	if len(ms) != 1 || ms[0].Name != "x" {
+		t.Fatalf("expected one manifest 'x', got %+v", ms)
 	}
-	if !strings.Contains(got, "x|proveo/x:latest") || !strings.Contains(got, "y|proveo/y:latest") {
-		t.Errorf("expected image entries, got:\n%s", got)
+	if ms[0].Images["x"] != "proveo/x:latest" || ms[0].Images["y"] != "proveo/y:latest" {
+		t.Errorf("images not parsed correctly: %+v", ms[0].Images)
+	}
+	if len(ms[0].Images) != 2 {
+		t.Errorf("unknown top-level keys leaked as images: %+v", ms[0].Images)
 	}
 }

@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Build the single cecli image: the aider fork (cecli-dev) in a Python venv on
-# proveo/base. Context is the repo root (the Dockerfile COPYs packages/lib +
-# defs/cecli from there). Deduped — the old MCR playwright/python "cecli:python"
-# lineage and the cecli-node alias are gone.
+# Build proveo/base-node (proveo/base + Node runtime). Ensures proveo/base exists
+# first. The Dockerfile pulls nothing from the repo, so the build context is this
+# dir (not the repo root).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-IMAGE="${PROVEO_CECLI_IMAGE:-proveo/cecli:latest}"
+IMAGE="${PROVEO_BASE_NODE_IMAGE:-proveo/base-node:latest}"
 TAG=""
 NO_CACHE=""
 while [[ $# -gt 0 ]]; do
@@ -24,9 +22,9 @@ done
 
 "$SCRIPT_DIR/../base/ensure.sh"
 
-echo "🔨 building $IMAGE (context: $REPO_ROOT)"
+echo "🔨 building $IMAGE (context: $SCRIPT_DIR)"
 exec docker build \
   ${NO_CACHE:+$NO_CACHE} \
   -f "$SCRIPT_DIR/Dockerfile" \
   -t "$IMAGE" \
-  "$REPO_ROOT"
+  "$SCRIPT_DIR"

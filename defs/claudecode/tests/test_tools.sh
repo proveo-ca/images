@@ -18,7 +18,6 @@ TOOLS=(
   "ts-node:ts-node --version"
   "prettier:prettier --version"
   "eslint:eslint --version"
-  "playwright:playwright --version"
 )
 
 # Solidity/security toolchain: lives only in the sol variant (defs/claudecode/sol).
@@ -38,10 +37,6 @@ for image in $(images_to_test); do
     IFS=':' read -r name cmd <<< "$tool_entry"
     assert_success "[$tag] $name is installed" "$image" "$cmd"
   done
-  assert_success "[$tag] playwright chromium browsers are baked" "$image" \
-    'test -n "$PLAYWRIGHT_BROWSERS_PATH" && test -d "$PLAYWRIGHT_BROWSERS_PATH" && ls "$PLAYWRIGHT_BROWSERS_PATH" | grep -q chromium'
-  assert_success "[$tag] playwright OS deps include libglib" "$image" \
-    'ldconfig -p | grep -q "libglib-2.0.so.0"'
   for tool_entry in "${SOL_TOOLS[@]}"; do
     IFS=':' read -r name cmd <<< "$tool_entry"
     assert_failure "[$tag] $name stays out of the base variant (sol-only)" "$image" "command -v $name"

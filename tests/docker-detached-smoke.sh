@@ -7,7 +7,6 @@ SMOKE_FAILED=0
 
 TARGETS=(
   "cecli|proveo/cecli:latest"
-  "cecli-node|proveo/cecli-node:latest"
   "mitmproxy|proveo/mitmproxy:latest"
   "claudecode|proveo/claudecode:latest"
   "claudecode-solo|proveo/claudecode-solo:latest"
@@ -125,7 +124,7 @@ run_target_smoke() {
   docker rm -f "$container" >/dev/null 2>&1 || true
 
   case "$target" in
-    cecli|cecli-node|opencode)
+    cecli|opencode)
       docker_args+=(-v "$workspace:/app" -w /app)
       ;;
     claudecode|claudecode-solo)
@@ -136,7 +135,7 @@ run_target_smoke() {
   docker_args+=("$image")
 
   case "$target" in
-    cecli|cecli-node)
+    cecli)
       # Older Cecli images do not understand PROVEO_SMOKE_TEST and will launch
       # the TUI. Cecli's entrypoint permits bash, so it still exercises
       # entrypoint initialization.
