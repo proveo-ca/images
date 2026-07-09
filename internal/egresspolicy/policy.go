@@ -127,7 +127,7 @@ func (p *Policy) Decide(req *http.Request) Decision {
 	}
 	// C(2): outbound byte budget (query + body) for non-allowlisted hosts.
 	if p.maxBytes > 0 && !allowlisted {
-		if p.charge(host, int64(len(req.URL.RawQuery)+bodyLen)) {
+		if p.charge(host, int64(len(req.URL.RawQuery))+bodyLen) {
 			return Decision{Reason: ReasonBudget}
 		}
 	}
@@ -156,26 +156,48 @@ func (p *Policy) charge(host string, n int64) bool {
 	return p.outByHost[host] > p.maxBytes
 }
 
-// peekBody reads req.Body fully and restores it, returning the prefix to scan
-// (capped at maxBodyScan) and the full body length (for the budget). Bodyless
-// requests return nil, 0.
-func peekBody(req *http.Request) (scan []byte, fullLen int) {
+// peekBody reads at most maxBodyScan bytes of req.Body for the DLP scan and
+// reattaches an equivalent body that streams the untouched remainder — so proxy
+// memory stays bounded by maxBodyScan regardless of upload size (a multi-GiB
+// push is no longer fully buffered). Returns the scanned prefix and the body
+// length for the budget: the client's ContentLength when set, else the scanned
+// length (the tail is not drained to measure it). Bodyless requests return nil, 0.
+func peekBody(req *http.Request) (scan []byte, fullLen int64) {
 	if req.Body == nil {
 		return nil, 0
 	}
-	full, err := io.ReadAll(req.Body)
-	_ = req.Body.Close()
-	req.Body = io.NopCloser(bytes.NewReader(full))
-	req.ContentLength = int64(len(full))
+	orig := req.Body
+	head, err := io.ReadAll(io.LimitReader(orig, maxBodyScan))
 	if err != nil {
-		return full, len(full)
+		// Read error: forward the prefix we have; drop the (unreadable) rest.
+		_ = orig.Close()
+		req.Body = io.NopCloser(bytes.NewReader(head))
+		return head, int64(len(head))
 	}
-	scan = full
-	if len(scan) > maxBodyScan {
-		scan = scan[:maxBodyScan]
+	// Reattach: scanned prefix first, then the still-open original stream (its
+	// cursor now sits just past the prefix). The tail is never buffered.
+	req.Body = &prefixBody{prefix: bytes.NewReader(head), rest: orig}
+	if req.ContentLength >= 0 {
+		return head, req.ContentLength
 	}
-	return scan, len(full)
+	return head, int64(len(head))
 }
+
+// prefixBody serves an already-read prefix, then the remainder of the original
+// body — reconstructing the full stream for forwarding without buffering the tail.
+type prefixBody struct {
+	prefix *bytes.Reader
+	rest   io.ReadCloser
+}
+
+func (b *prefixBody) Read(p []byte) (int, error) {
+	if b.prefix.Len() > 0 {
+		return b.prefix.Read(p)
+	}
+	return b.rest.Read(p)
+}
+
+func (b *prefixBody) Close() error { return b.rest.Close() }
 
 // matchHost reports whether host equals or is a dot-anchored subdomain of any
 // suffix (".foo.com" and "foo.com" both match "api.foo.com"; "evil-foo.com" does

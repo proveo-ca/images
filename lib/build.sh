@@ -1,21 +1,13 @@
 #!/usr/bin/env bash
 # Maintainer builder for proveo CLI
-
-ensure_image_available() {
-  local image="$1"
-  if ! docker image inspect "$image" >/dev/null 2>&1; then
-    print_error "Docker image not found locally: $image"
-    print_info "Build it first with: mise run build ${2:-<target>} --tag ${DEFAULT_TAG}"
-    exit 1
-  fi
-}
+# (ensure_image_available lives in lib/helpers.sh — shared with the deploy task.)
 
 build_target() {
   local target="$1"
   local tag="$2"
   local no_cache="${3:-}"
   local dir
-  dir="$(target_dir "$target")"
+  dir="$(reg_dir "$target")"
 
   local build_script=""
   build_script="$(find_script_in_dir "$dir" build.sh build.bash 2>/dev/null || true)"
@@ -59,32 +51,32 @@ build_target() {
     case "$target" in
       cecli)
         if [[ "$tag" != "$DEFAULT_TAG" ]]; then
-          docker tag "$(image_name cecli):latest" "$(image_name cecli):$tag"
+          docker tag "$(reg_image cecli):latest" "$(reg_image cecli):$tag"
         fi
-        ensure_image_available "$(image_name cecli):$tag" "$target"
-        print_success "Built $(image_name cecli):$tag"
+        ensure_image_available "$(reg_image cecli):$tag" "$target"
+        print_success "Built $(reg_image cecli):$tag"
         ;;
       cecli-node)
         if [[ "$tag" != "$DEFAULT_TAG" ]]; then
-          docker tag "$(image_name cecli-node):latest" "$(image_name cecli-node):$tag"
+          docker tag "$(reg_image cecli-node):latest" "$(reg_image cecli-node):$tag"
         else
           true
         fi
-        ensure_image_available "$(image_name cecli-node):$tag" "$target"
-        print_success "Built $(image_name cecli-node):$tag"
+        ensure_image_available "$(reg_image cecli-node):$tag" "$target"
+        print_success "Built $(reg_image cecli-node):$tag"
         ;;
       *)
-        if docker image inspect "$(image_name "$target")" >/dev/null 2>&1; then
-          docker tag "$(image_name "$target")" "$(image_name "$target"):$tag"
+        if docker image inspect "$(reg_image "$target")" >/dev/null 2>&1; then
+          docker tag "$(reg_image "$target")" "$(reg_image "$target"):$tag"
         fi
-        ensure_image_available "$(image_name "$target"):$tag" "$target"
-        print_success "Built $(image_name "$target"):$tag"
+        ensure_image_available "$(reg_image "$target"):$tag" "$target"
+        print_success "Built $(reg_image "$target"):$tag"
         ;;
     esac
     return 0
   fi
 
   print_info "Building $target with tag $tag via docker build fallback..."
-  docker build ${no_cache:+$no_cache} -t "$(image_name "$target"):$tag" -f "$dir/Dockerfile" "$REPO_ROOT"
-  print_success "Built $(image_name "$target"):$tag"
+  docker build ${no_cache:+$no_cache} -t "$(reg_image "$target"):$tag" -f "$dir/Dockerfile" "$REPO_ROOT"
+  print_success "Built $(reg_image "$target"):$tag"
 }

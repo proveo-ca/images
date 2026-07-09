@@ -257,3 +257,23 @@ func TestApplyOrder(t *testing.T) {
 		t.Errorf("networks must be created before sidecars: netIdx=%d runIdx=%d calls=%v", firstNet, firstRun, fr.calls)
 	}
 }
+
+func TestBuildPlanAgentNetwork(t *testing.T) {
+	t.Parallel()
+	// Broker + local model: agent is on a user-defined bridge, so AgentNetwork is
+	// exposed for a DinD sidecar to attach to by alias.
+	if p, _ := BuildPlan(withModel(baseOpts("broker"), "gemma4")); p.AgentNetwork == "" {
+		t.Error("broker+local-model should set AgentNetwork (user-defined bridge)")
+	}
+	// Broker without a model: agent is on the default bridge → empty (DinD uses --link).
+	if p, _ := BuildPlan(baseOpts("broker")); p.AgentNetwork != "" {
+		t.Errorf("broker (no model) should leave AgentNetwork empty, got %q", p.AgentNetwork)
+	}
+	// Enforced-egress modes must NEVER expose an agent network for a DinD attach:
+	// doing so would put an internet-capable daemon on the agent's internal net.
+	for _, mode := range []string{"proxy", "firewall"} {
+		if p, _ := BuildPlan(baseOpts(mode)); p.AgentNetwork != "" {
+			t.Errorf("%s must not set AgentNetwork (DinD attach would bypass egress), got %q", mode, p.AgentNetwork)
+		}
+	}
+}

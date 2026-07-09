@@ -89,7 +89,7 @@ func main() {
 		}
 		defaultHelp(cmd, args)
 	})
-	root.AddCommand(versionCmd(), listCmd(), runCmd(), projectsCmd(), setupCmd(), initCmd())
+	root.AddCommand(versionCmd(), listCmd(), runCmd(), projectsCmd(), setupCmd(), initCmd(), targetsCmd())
 	if err := root.Execute(); err != nil {
 		// The agent's own non-zero exit is not a proveo error — propagate its code
 		// verbatim, without the "error:" prefix (C6). Only the agent's: a failed
@@ -259,9 +259,21 @@ func doRun(p runParams) error {
 	if dindScope == "" {
 		dindScope = start
 	}
-	wantDind := !p.printOnly && dind.ShouldStart(man.Dind, dindScope, isStdinTTY(), func() bool {
-		return dind.PromptYesNo(os.Stdin, os.Stderr)
-	})
+	// DinD is only compatible with broker egress. Under proxy/firewall the agent
+	// runs on an --internal network the daemon cannot be reached across, and
+	// attaching an internet-capable daemon to it would defeat egress enforcement —
+	// so offer it only in broker mode, and warn (rather than silently no-op) if it
+	// was explicitly requested in an incompatible mode.
+	wantDind := false
+	switch {
+	case p.printOnly:
+	case dind.ModeSupported(p.mode):
+		wantDind = dind.ShouldStart(man.Dind, dindScope, isStdinTTY(), func() bool {
+			return dind.PromptYesNo(os.Stdin, os.Stderr)
+		})
+	case man.Dind && dind.EnvEnabled() && dind.ScopeHasDockerfiles(dindScope):
+		ui.Warnf("PROVEO_DIND is set but --egress-mode %s cannot expose a Docker daemon to the agent without defeating egress enforcement; skipping DinD (use --egress-mode broker for in-container Docker)", p.mode)
+	}
 
 	// Declared-but-missing env: prompt (the DinD-prompt-style wizard) on a TTY,
 	// else warn — a skipped var keeps today's warn-and-continue behavior. Runs
@@ -384,18 +396,41 @@ func doRun(p runParams) error {
 			return err
 		}
 		dindSidecar = sc
-		agent.ExtraArgs = append(append([]string(nil), agent.ExtraArgs...), sc.AgentArgs()...)
-		defer dindSidecar.Cleanup(dind.ExecRunner{})
+		// Point the agent's docker client at the daemon; the reachability
+		// mechanism depends on where the agent runs. Default bridge (broker
+		// without a local model): a legacy --link. User-defined network (broker
+		// with a local model): the daemon is attached to that network by alias
+		// once it exists (execWithEgress).
+		agent.ExtraArgs = append(append([]string(nil), agent.ExtraArgs...), sc.EnvArgs()...)
+		if plan.AgentNetwork == "" {
+			agent.ExtraArgs = append(agent.ExtraArgs, sc.LinkArgs()...)
+		}
+		// Teardown (incl. on Ctrl-C, which skips defers) is owned by the exec path
+		// below — execWithEgress for the lifecycle path, the signal-safe branch just
+		// below for the bare path — so it survives signals. One of the two always
+		// runs after a successful Start (no early return in between).
 	}
 	warnMountedSecrets(wsSpec.InputDir, p.mode, lookup)
 	if !needsLifecycle(plan) {
+		if dindSidecar == nil {
+			return execAgent(agent)
+		}
+		// DinD is running but there's no egress topology (broker without a local
+		// model): no lifecycle teardown, but the privileged sidecar must still come
+		// down on SIGINT/SIGTERM. A single once-guarded cleanup backs both the defer
+		// and the signal handler — Cleanup is not safe to call concurrently.
+		var once sync.Once
+		cleanup := func() { once.Do(func() { dindSidecar.Cleanup(dind.ExecRunner{}) }) }
+		defer cleanup()
+		stopSig := onSignalCleanup(cleanup)
+		defer stopSig()
 		return execAgent(agent)
 	}
 	squidProviders := detected
 	if providerName != "" {
 		squidProviders = []string{providerName}
 	}
-	return execWithEgress(plan, agent, egDir, squidProviders)
+	return execWithEgress(plan, agent, egDir, squidProviders, dindSidecar)
 }
 
 // brokerProvider returns the provider to broker for this run, or "" for none:
@@ -480,7 +515,26 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 // execWithEgress stages only what the plan needs (C7), brings up the egress
 // topology, waits for readiness, runs the agent, then tears the topology down —
 // including on SIGINT/SIGTERM (C4), and removes the broker secret (C2).
-func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, providers []string) error {
+func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, providers []string, dindSidecar *dind.Sidecar) error {
+	r := egress.ExecRunner{Stderr: true}
+	// Teardown containers/networks, the DinD sidecar, and the injected secret.
+	// Registered before any staging so an early failure still tears down what
+	// doRun already started (the DinD sidecar). Runs exactly once — on normal
+	// return AND on SIGINT/SIGTERM (Go defers don't run when a signal ends the
+	// process). Nil-safe when the run has no DinD sidecar.
+	var once sync.Once
+	cleanup := func() {
+		once.Do(func() {
+			plan.Teardown(r)
+			dindSidecar.Cleanup(dind.ExecRunner{})
+			_ = os.RemoveAll(filepath.Join(egDir, "inject")) // broker.env must not outlive the run
+		})
+	}
+	defer cleanup()
+	// Installed before plan.Apply so a Ctrl-C during bring-up still cleans up.
+	stopSig := onSignalCleanup(cleanup)
+	defer stopSig()
+
 	// Squid config + logs only when a Squid sidecar is present (proxy/firewall).
 	if plan.UsesSquid {
 		squidCfg := filepath.Join(egDir, "squid", "config")
@@ -500,30 +554,23 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 		}
 	}
 
-	r := egress.ExecRunner{Stderr: true}
-	// Teardown containers/networks and wipe the injected secret. Run exactly once,
-	// on normal return AND on a termination signal (Go defers don't run on signal).
-	var once sync.Once
-	cleanup := func() {
-		once.Do(func() {
-			plan.Teardown(r)
-			_ = os.RemoveAll(filepath.Join(egDir, "inject")) // broker.env must not outlive the run
-		})
-	}
-	defer cleanup()
-
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigs)
-	go func() {
-		if _, ok := <-sigs; ok {
-			cleanup()
-			os.Exit(130) // 128 + SIGINT
-		}
-	}()
-
 	if err := plan.Apply(r); err != nil {
 		return err
+	}
+	// Attach the DinD daemon to the agent's user-defined network so the agent
+	// resolves `docker` by alias (broker + local-model case; the default-bridge
+	// case is wired via --link in doRun). No-op when no sidecar / no network.
+	if dindSidecar != nil && plan.AgentNetwork != "" {
+		if err := dindSidecar.ConnectNetwork(dind.ExecRunner{}, plan.AgentNetwork); err != nil {
+			return fmt.Errorf("attach dind to agent network: %w", err)
+		}
+	}
+	// Squid is the internet-facing upstream both other modes transit; wait for it
+	// to accept connections so the agent's first request doesn't race a cold Squid.
+	if plan.SquidContainer != "" {
+		if err := egress.WaitSquidReady(r, plan.SquidContainer, 30*time.Second); err != nil {
+			return fmt.Errorf("squid upstream not ready: %w", err)
+		}
 	}
 	if plan.CAWaitPath != "" {
 		if err := waitForFile(plan.CAWaitPath, 20*time.Second); err != nil {
@@ -547,6 +594,24 @@ func execAgent(agent runner.Config) error {
 		return agentExitError{code: ee.ExitCode()}
 	}
 	return err
+}
+
+// onSignalCleanup runs cleanup then exits 130 on SIGINT/SIGTERM. Go does not run
+// deferred functions when a signal terminates the process, so any out-of-band
+// teardown (egress topology, injected secrets, a privileged DinD sidecar) needs
+// this. cleanup must be once-guarded — it may fire from this goroutine while a
+// normal-return defer runs it too. Returns a stop func (deregisters the handler)
+// that the caller should defer.
+func onSignalCleanup(cleanup func()) (stop func()) {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		if _, ok := <-sigs; ok {
+			cleanup()
+			os.Exit(130) // 128 + SIGINT
+		}
+	}()
+	return func() { signal.Stop(sigs) }
 }
 
 // ollamaModelsDir resolves the host Ollama model store: PROVEO_OLLAMA_MODELS_DIR
@@ -707,8 +772,9 @@ func orWD(p string) string {
 }
 
 // warnMountedSecrets warns when the mounted workspace contains a .env while a
-// provider key is present — the agent reads it directly, which the broker cannot
-// prevent (S4). Skipped when proxy/broker mask the file out of the agent.
+// provider key is present — in broker/open modes the agent reads it directly and
+// nothing stops the key from leaving (S4). Skipped for proxy/firewall: there the
+// egress DLP + header-strip blocks exfil even if the agent can still read .env.
 func warnMountedSecrets(dir, mode string, lookup func(string) string) {
 	if dir == "" {
 		return

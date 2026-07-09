@@ -4,7 +4,7 @@
 test_target() {
   local target="$1"
   local dir
-  dir="$(target_dir "$target")"
+  dir="$(reg_dir "$target")"
 
   local test_script=""
   test_script="$(find_script_in_dir "$dir" test.sh test.bash 2>/dev/null || true)"

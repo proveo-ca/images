@@ -19,16 +19,25 @@ const MaxDepth = 7
 
 // dockerFileNames are basenames that trigger the DinD offer.
 var dockerFileNames = map[string]bool{
-	"Dockerfile": true,
-	"docker-compose.yml": true,
+	"Dockerfile":          true,
+	"docker-compose.yml":  true,
 	"docker-compose.yaml": true,
-	"compose.yml": true,
-	"compose.yaml": true,
+	"compose.yml":         true,
+	"compose.yaml":        true,
 }
 
 // EnvEnabled reports whether PROVEO_DIND is on.
 func EnvEnabled() bool {
 	return truthy(os.Getenv("PROVEO_DIND"))
+}
+
+// ModeSupported reports whether DinD can run under the given egress mode. Only
+// broker mode (direct bridge egress) can expose a Docker daemon to the agent:
+// under proxy/firewall the agent sits on an --internal network the daemon cannot
+// be reached across (a legacy --link does not span networks), and attaching the
+// internet-capable daemon to that network would defeat egress enforcement.
+func ModeSupported(mode string) bool {
+	return strings.EqualFold(strings.TrimSpace(mode), "broker")
 }
 
 func truthy(v string) bool {
@@ -139,7 +148,7 @@ func PromptYesNo(in io.Reader, out io.Writer) bool {
 	// Bounded read so non-interactive pipes don't hang forever.
 	type result struct {
 		line string
-		err error
+		err  error
 	}
 	ch := make(chan result, 1)
 	go func() {
@@ -176,20 +185,51 @@ func PromptYesNo(in io.Reader, out io.Writer) bool {
 
 // Sidecar is a running docker:dind container linked into the agent.
 type Sidecar struct {
-	Name string
+	Name     string
 	ScopeDir string
 }
 
-// AgentArgs returns docker-run flags for the agent container.
-func (s *Sidecar) AgentArgs() []string {
+// EnvArgs are the docker-run env flags pointing the agent's docker client at the
+// sidecar daemon. Always applied when DinD is attached, regardless of how the
+// agent reaches the daemon.
+func (s *Sidecar) EnvArgs() []string {
 	if s == nil || s.Name == "" {
 		return nil
 	}
 	return []string{
-		"--link", s.Name + ":docker",
 		"-e", "DOCKER_HOST=tcp://docker:2375",
 		"-e", "DOCKER_TLS_VERIFY=",
 	}
+}
+
+// LinkArgs wire the agent to the sidecar via a legacy --link. This resolves the
+// `docker` hostname ONLY when both share the default bridge (broker mode without
+// a local-model network). For a user-defined agent network use ConnectNetwork —
+// --link does not span networks.
+func (s *Sidecar) LinkArgs() []string {
+	if s == nil || s.Name == "" {
+		return nil
+	}
+	return []string{"--link", s.Name + ":docker"}
+}
+
+// AgentArgs is the default-bridge attachment: link + env, in one slice.
+func (s *Sidecar) AgentArgs() []string {
+	return append(s.LinkArgs(), s.EnvArgs()...)
+}
+
+// ConnectNetwork attaches the sidecar to a user-defined network with the alias
+// `docker`, so an agent on that network resolves the daemon by name. Used for
+// broker mode with a local-model sidecar, where the agent is on a user-defined
+// bridge rather than the default bridge. No-op when name/network is empty.
+func (s *Sidecar) ConnectNetwork(r Runner, network string) error {
+	if s == nil || s.Name == "" || network == "" {
+		return nil
+	}
+	if r == nil {
+		r = ExecRunner{}
+	}
+	return r.Run("network", "connect", "--alias", "docker", network, s.Name)
 }
 
 // Runner executes docker commands (injectable for tests).

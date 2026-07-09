@@ -57,6 +57,28 @@ func WaitOllamaReady(r Runner, name string, timeout time.Duration) error {
 	}
 }
 
+// squidPollInterval is the WaitSquidReady poll cadence (var so tests can shrink it).
+var squidPollInterval = 300 * time.Millisecond
+
+// WaitSquidReady polls until the Squid sidecar accepts a TCP connection on :3128
+// (a bash /dev/tcp probe run inside the container — the ubuntu/squid image has
+// bash but no nc/squidclient) or the timeout elapses. It closes the startup race
+// where the agent (proxy mode) or the egress proxy (firewall mode) fires its
+// first request into a not-yet-listening Squid; the CA-wait and Ollama-wait were
+// the only gates before.
+func WaitSquidReady(r Runner, name string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := r.Run("exec", name, "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3128"); err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("squid sidecar %s not accepting on :3128 after %s", name, timeout)
+		}
+		time.Sleep(squidPollInterval)
+	}
+}
+
 // teardownNetRetries/Interval bound the `network rm` retry (vars so tests tune them).
 var (
 	teardownNetRetries  = 8
@@ -97,6 +119,9 @@ func (p Plan) Render() string {
 	fmt.Fprintf(&b, "# agent-args\n%s\n", strings.Join(p.AgentArgs, " "))
 	if p.CAWaitPath != "" {
 		fmt.Fprintf(&b, "# ca-wait\n%s\n", p.CAWaitPath)
+	}
+	if p.SquidContainer != "" {
+		fmt.Fprintf(&b, "# squid-wait\n%s\n", p.SquidContainer)
 	}
 	if p.OllamaContainer != "" {
 		fmt.Fprintf(&b, "# ollama-wait\n%s\n", p.OllamaContainer)

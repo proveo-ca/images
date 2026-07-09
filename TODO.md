@@ -18,6 +18,7 @@ Nothing currently enforces `docs/go-testing-standards.md` — `staticcheck` /
 ## 3. Image builds & supply chain
 - [ ] Build all harness + sidecar images in CI (`.goreleaser.yaml` covers the `proveo` binary; add the images).
 - [ ] **Digest-pin the enforcement images** (`ubuntu/squid`, `proveo/egress-proxy`, `ollama/ollama`) — they're the egress trust root and default to floating `:latest`. Resolve digests at release and set the defaults (or document pinning via `PROVEO_{SQUID_PROXY,EGRESS_PROXY,OLLAMA}_IMAGE`, already honored). *(Was review S6.)*
+- [ ] **CDN install trust (review L3):** the advertised consumer path is `curl … | bash` pulling `install.sh` + the binary + `checksums.txt` from the same origin (`proveo.ca/cli`), so the checksum catches corruption, not a compromised CDN. The genuinely-verified `dist/install.sh` (pinned GitHub release + independent `checksums.txt`) is wired to no mise task. Decide: make the GitHub-verified path the advertised one, or sign the CDN artifacts. Pairs with tagged releases + digest-pinning above. *(deploy-cli no longer ships `version=dev` — review M2 — but the trust model is unchanged.)*
 
 ## 4. Egress validation matrix (folded from the retired PLAN.md)
 Extend the gated Layer-3 job to the full matrix, so every mode's invariants are pinned:

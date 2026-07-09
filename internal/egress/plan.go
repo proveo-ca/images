@@ -20,8 +20,16 @@ type Plan struct {
 	Cleanup         []Command // teardown: `rm -f ...`, `network rm ...`
 	CAWaitPath      string    // host path to await before trusting the CA (firewall mode)
 	OllamaContainer string    // local-model sidecar to await before launching the agent
+	SquidContainer  string    // Squid sidecar to await (accepting on :3128) before the agent
 	UsesSquid       bool      // proxy/firewall stage a Squid config + logs dir
 	Images          []string  // every sidecar image, for the preflight (in add order)
+	// AgentNetwork names the user-defined Docker network the agent runs on, or ""
+	// when the agent is on the default bridge. It exists solely so an optional DinD
+	// sidecar can be attached to that network by alias in broker mode. It is left
+	// empty for proxy/firewall on purpose: those put the agent on an --internal
+	// network, and attaching an internet-capable daemon to it would defeat egress
+	// enforcement — so DinD is never wired there (see cmd/proveo dind gating).
+	AgentNetwork string
 }
 
 // Options parameterizes a Plan. Zero values are sensible: images default to the
@@ -168,6 +176,7 @@ func buildBroker(o Options) Plan {
 	net := o.SessionID + "-" + o.safeAgent() + "-broker-net"
 	b.network(net, false)
 	b.p.AgentArgs = []string{"--network", net}
+	b.p.AgentNetwork = net // internet-capable bridge: safe for a DinD attach in broker mode
 	b.attachLocalModel(net)
 	return b.done()
 }
@@ -180,6 +189,7 @@ func buildProxy(o Options) Plan {
 	b.network(egressNet, false)
 	b.p.UsesSquid = true
 	b.sidecar(squidRun(o, egressNet), squidName(o))
+	b.p.SquidContainer = squidName(o)
 	b.p.Connects = append(b.p.Connects, netConnectAlias(agentNet, squidName(o), "squid"))
 	b.p.AgentArgs = append(b.p.AgentArgs, "--network", agentNet, "--dns", dnsBlackhole, "-e", "ENFORCEMENT_PROXY="+squidUpstream)
 	b.p.AgentArgs = append(b.p.AgentArgs, proxyEnvArgs(o, squidUpstream)...)
@@ -197,6 +207,7 @@ func buildFirewall(o Options) Plan {
 	b.network(egressNet, false)
 	b.p.UsesSquid = true
 	b.sidecar(squidRun(o, egressNet), squidName(o))
+	b.p.SquidContainer = squidName(o)
 	b.sidecar(proxyRun(o, agentNet), proxyName(o))
 	b.p.Connects = append(b.p.Connects,
 		netConnectAlias(enforceNet, squidName(o), "squid"),
@@ -245,6 +256,12 @@ func sidecarHardening() []string {
 // CAP_SETUID/SETGID to drop from root to its own worker user.
 const capDropAll = "--cap-drop=ALL"
 
+// proxyMemoryLimit caps the egress proxy container's memory. Request bodies now
+// stream past the DLP scan window (internal/egresspolicy bounds the buffer to
+// ~1 MiB/request), so steady state is tens of MiB; this is a safety ceiling so a
+// burst of large concurrent uploads can't grow the proxy unbounded and OOM the host.
+const proxyMemoryLimit = "512m"
+
 func squidRun(o Options, egressNet string) Command {
 	c := Command{"run", "-d", "--rm", "--name", squidName(o), "--label", label(o.SessionID)}
 	c = append(c, sidecarHardening()...)
@@ -261,6 +278,7 @@ func proxyRun(o Options, agentNet string) Command {
 	}
 	c = append(c, capDropAll)
 	c = append(c, sidecarHardening()...)
+	c = append(c, "--memory="+proxyMemoryLimit)
 	c = append(c, "--label", label(o.SessionID), "--network", agentNet, "--network-alias", "mitm",
 		"-e", "PROVEO_EGRESS_LISTEN=:8888",
 		"-e", "PROVEO_EGRESS_UPSTREAM="+squidUpstream,

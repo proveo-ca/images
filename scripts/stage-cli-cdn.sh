@@ -17,9 +17,10 @@ platforms=(
 )
 
 mkdir -p "$OUT_BIN"
-# Drop legacy bash consumer assets if present.
+# Drop legacy bash consumer assets if present. ${CDN_ROOT:?} guards the recursive
+# rm so a mis-set/empty CDN_ROOT can never expand to `rm -rf /lib`.
 rm -f "$OUT_BIN/proveo" "$OUT_BIN/help.sh" "$OUT_BIN/init.sh"
-rm -rf "$CDN_ROOT/lib"
+rm -rf "${CDN_ROOT:?}/lib"
 rm -f "$OUT_BIN"/proveo-* "$CDN_ROOT/checksums.txt"
 
 extract_from_dist() {
@@ -31,7 +32,9 @@ extract_from_dist() {
     "$DIST_DIR"/proveo_*_"${goos}"_"${goarch}".tgz
   )
   shopt -u nullglob
-  for archive in "${candidates[@]}"; do
+  # bash 3.2 (macOS /usr/bin/env bash) errors on "${arr[@]}" for an empty array
+  # under `set -u`; guard the expansion so the no-dist path doesn't crash.
+  for archive in ${candidates[@]+"${candidates[@]}"}; do
     [[ -f "$archive" ]] || continue
     if tar -tzf "$archive" 2>/dev/null | grep -qx 'proveo'; then
       tar -xzf "$archive" -O proveo >"$dest"
@@ -80,6 +83,17 @@ for plat in "${platforms[@]}"; do
   if extract_from_dist "$goos" "$goarch" "$dest"; then
     used_dist=1
     echo "staged from dist: proveo-${goos}-${goarch}" >&2
+  elif [[ "${PROVEO_CDN_REQUIRE_DIST:-0}" == "1" ]]; then
+    # Release/deploy must publish real goreleaser artifacts, never the dev
+    # cross-compile fallback (it stamps `main.version=dev`). Refuse — up front,
+    # before wasting cross-compiles — rather than push an unversioned binary to
+    # the CDN. Set by `deploy-cli` and `build-cli --release`.
+    {
+      printf 'ERROR: release staging requires a goreleaser archive for %s/%s under\n' "$goos" "$goarch"
+      printf '       %s, but none was found. Build real artifacts first:\n' "$DIST_DIR"
+      printf '         mise run build-cli -- --release\n'
+    } >&2
+    exit 1
   else
     cross_compile "$goos" "$goarch" "$dest"
     echo "staged via go build: proveo-${goos}-${goarch}" >&2

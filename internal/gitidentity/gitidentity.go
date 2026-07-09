@@ -14,7 +14,7 @@ import (
 
 // Identity is the resolved author/committer name and email.
 type Identity struct {
-	Name string
+	Name  string
 	Email string
 }
 

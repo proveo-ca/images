@@ -44,13 +44,15 @@ printf 'Ensure %s is on PATH (or set PROVEO_BIN).\\n' "$GOBIN"
 
 if [[ "$release" -eq 1 ]]; then
   if ! command -v goreleaser >/dev/null 2>&1; then
-    echo "goreleaser not on PATH — installing via go install..." >&2
-    go install github.com/goreleaser/goreleaser/v2@latest
+    # Pinned (not @latest) so release builds are reproducible; bump deliberately.
+    goreleaser_version="v2.17.0"
+    echo "goreleaser not on PATH — installing $goreleaser_version via go install..." >&2
+    go install "github.com/goreleaser/goreleaser/v2@$goreleaser_version"
     export PATH="$(go env GOPATH)/bin:$PATH"
   fi
   goreleaser release --snapshot --clean
   printf 'Snapshot artifacts under dist/ (gitignored).\\n'
-  bash scripts/stage-cli-cdn.sh
+  PROVEO_CDN_REQUIRE_DIST=1 bash scripts/stage-cli-cdn.sh
 fi
 """
 
@@ -119,7 +121,10 @@ dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-bash scripts/stage-cli-cdn.sh
+# Publish only real goreleaser artifacts — never the dev cross-compile fallback,
+# which would push version=dev binaries to production. Run `mise run build-cli --
+# --release` first to populate dist/.
+PROVEO_CDN_REQUIRE_DIST=1 bash scripts/stage-cli-cdn.sh
 pnpm exec wrangler deploy --cwd apps/cli
 """
 
@@ -143,9 +148,9 @@ set -euo pipefail
 REPO_ROOT="$(pwd)"
 DEFAULT_TAG="latest"
 
-source "$REPO_ROOT/apps/cli/public/cli/bin/proveo"
+source "$REPO_ROOT/lib/ui.sh"
 source "$REPO_ROOT/lib/helpers.sh"
-source "$REPO_ROOT/lib/runners.sh"
+source "$REPO_ROOT/lib/registry.sh"
 source "$REPO_ROOT/lib/build.sh"
 
 target=""
@@ -229,9 +234,9 @@ run = """
 set -euo pipefail
 REPO_ROOT="$(pwd)"
 
-source "$REPO_ROOT/apps/cli/public/cli/bin/proveo"
+source "$REPO_ROOT/lib/ui.sh"
 source "$REPO_ROOT/lib/helpers.sh"
-source "$REPO_ROOT/lib/runners.sh"
+source "$REPO_ROOT/lib/registry.sh"
 source "$REPO_ROOT/lib/test.sh"
 
 target=""
@@ -300,9 +305,9 @@ set -euo pipefail
 REPO_ROOT="$(pwd)"
 DEFAULT_TAG="latest"
 
-source "$REPO_ROOT/apps/cli/public/cli/bin/proveo"
+source "$REPO_ROOT/lib/ui.sh"
 source "$REPO_ROOT/lib/helpers.sh"
-source "$REPO_ROOT/lib/runners.sh"
+source "$REPO_ROOT/lib/registry.sh"
 source "$REPO_ROOT/lib/deploy.sh"
 
 target=""
@@ -387,9 +392,9 @@ DEFAULT_TAG="latest"
 export PATH="$(go env GOPATH)/bin:$PATH"
 export PROVEO_BIN="$(command -v proveo)"
 
-source "$REPO_ROOT/apps/cli/public/cli/bin/proveo"
+source "$REPO_ROOT/lib/ui.sh"
 source "$REPO_ROOT/lib/helpers.sh"
-source "$REPO_ROOT/lib/runners.sh"
+source "$REPO_ROOT/lib/registry.sh"
 
 target=""
 tag="$DEFAULT_TAG"

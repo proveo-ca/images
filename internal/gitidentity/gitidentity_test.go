@@ -9,7 +9,7 @@ import (
 func TestResolveEnvWins(t *testing.T) {
 	t.Parallel()
 	env := map[string]string{
-		"GIT_AUTHOR_NAME": "Env Name",
+		"GIT_AUTHOR_NAME":  "Env Name",
 		"GIT_AUTHOR_EMAIL": "env@test.dev",
 	}
 	got := Resolve(func(k string) string { return env[k] }, func(string) string {
@@ -25,7 +25,7 @@ func TestResolveEnvWins(t *testing.T) {
 func TestResolveCommitterFallback(t *testing.T) {
 	t.Parallel()
 	env := map[string]string{
-		"GIT_COMMITTER_NAME": "C Name",
+		"GIT_COMMITTER_NAME":  "C Name",
 		"GIT_COMMITTER_EMAIL": "c@test.dev",
 	}
 	got := Resolve(func(k string) string { return env[k] }, func(string) string { return "" })

@@ -147,3 +147,71 @@ func TestStartAndAgentArgs(t *testing.T) {
 		t.Fatal("cleanup should clear name")
 	}
 }
+
+func TestModeSupported(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		mode string
+		want bool
+	}{
+		{"broker", true},
+		{"BROKER", true},
+		{"  broker  ", true},
+		{"proxy", false},
+		{"firewall", false},
+		{"", false},
+	} {
+		if got := ModeSupported(tc.mode); got != tc.want {
+			t.Errorf("ModeSupported(%q) = %v, want %v", tc.mode, got, tc.want)
+		}
+	}
+}
+
+func TestEnvAndLinkArgs(t *testing.T) {
+	t.Parallel()
+	s := &Sidecar{Name: "proveo-dind-x"}
+
+	env := strings.Join(s.EnvArgs(), " ")
+	if !strings.Contains(env, "DOCKER_HOST=tcp://docker:2375") {
+		t.Fatalf("EnvArgs missing DOCKER_HOST: %q", env)
+	}
+	if strings.Contains(env, "--link") {
+		t.Fatalf("EnvArgs must not carry --link: %q", env)
+	}
+
+	if link := strings.Join(s.LinkArgs(), " "); link != "--link proveo-dind-x:docker" {
+		t.Fatalf("LinkArgs = %q", link)
+	}
+
+	// AgentArgs composes link + env (default-bridge attachment).
+	all := strings.Join(s.AgentArgs(), " ")
+	if !strings.Contains(all, "--link") || !strings.Contains(all, "DOCKER_HOST=tcp://docker:2375") {
+		t.Fatalf("AgentArgs should carry both link and host: %q", all)
+	}
+}
+
+func TestConnectNetwork(t *testing.T) {
+	t.Parallel()
+	s := &Sidecar{Name: "proveo-dind-opencode"}
+
+	r := &fakeRunner{}
+	if err := s.ConnectNetwork(r, "sess-broker-net"); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.calls) != 1 {
+		t.Fatalf("expected 1 docker call, got %v", r.calls)
+	}
+	if got, want := strings.Join(r.calls[0], " "), "network connect --alias docker sess-broker-net proveo-dind-opencode"; got != want {
+		t.Fatalf("connect call = %q, want %q", got, want)
+	}
+
+	// No-op guards: empty network, and nil / cleaned sidecar.
+	empty := &fakeRunner{}
+	if err := s.ConnectNetwork(empty, ""); err != nil || len(empty.calls) != 0 {
+		t.Fatalf("empty network must be a no-op: err=%v calls=%v", err, empty.calls)
+	}
+	var nilSc *Sidecar
+	if err := nilSc.ConnectNetwork(empty, "net"); err != nil || len(empty.calls) != 0 {
+		t.Fatalf("nil sidecar must be a no-op: err=%v calls=%v", err, empty.calls)
+	}
+}

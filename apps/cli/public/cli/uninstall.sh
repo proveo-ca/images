@@ -27,7 +27,7 @@ remove_path_block() {
     -v start="$PATH_MARKER_START" \
     -v end="$PATH_MARKER_END" \
     -v posix_path="export PATH=\"$BIN_DIR:\$PATH\"" \
-    -v fish_path="set -gx PATH \"$BIN_DIR\" $PATH" '
+    -v fish_path="set -gx PATH \"$BIN_DIR\" \$PATH" '
     $0 == start { skip = 1; next }
     $0 == end { skip = 0; next }
     $0 == posix_path { changed = 1; next }

@@ -254,4 +254,3 @@ proveo_manifest_entries
 		t.Errorf("expected image entries, got:\n%s", got)
 	}
 }
-

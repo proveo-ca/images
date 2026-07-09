@@ -85,6 +85,40 @@ func TestDecideBodyRestored(t *testing.T) {
 	}
 }
 
+// A body larger than the scan window must still forward intact (streamed, not
+// buffered whole), a secret inside the first maxBodyScan bytes is caught, and a
+// secret only beyond the window is not — the documented bounded-memory tradeoff.
+func TestDecideLargeBodyStreamsPastScanWindow(t *testing.T) {
+	t.Parallel()
+	const secret = "sk-ant-SECRETKEY-123456"
+
+	// (a) large clean body → allowed, and reads back byte-for-byte (nothing dropped).
+	big := strings.Repeat("A", maxBodyScan+4096)
+	req := newReq(t, "POST", "https://api.github.com/x", big)
+	if d := New(tableCfg()).Decide(req); !d.Allow {
+		t.Fatalf("large clean body: expected allow, got %+v", d)
+	}
+	if rest, _ := io.ReadAll(req.Body); string(rest) != big {
+		t.Errorf("large body not streamed intact: got %d bytes, want %d", len(rest), len(big))
+	}
+
+	// (b) secret within the scan window → blocked.
+	within := secret + strings.Repeat("A", maxBodyScan)
+	if d := New(tableCfg()).Decide(newReq(t, "POST", "https://api.github.com/x", within)); d.Reason != ReasonSecret {
+		t.Errorf("secret within scan window: got %+v, want ReasonSecret", d)
+	}
+
+	// (c) secret only beyond the window → not scanned (bounded), but still forwarded.
+	beyond := strings.Repeat("A", maxBodyScan) + secret
+	rq := newReq(t, "POST", "https://api.github.com/x", beyond)
+	if d := New(tableCfg()).Decide(rq); !d.Allow {
+		t.Errorf("secret beyond scan window: expected allow (bounded scan), got %+v", d)
+	}
+	if got, _ := io.ReadAll(rq.Body); string(got) != beyond {
+		t.Errorf("beyond-window body not streamed intact: got %d bytes, want %d", len(got), len(beyond))
+	}
+}
+
 func TestBudget(t *testing.T) {
 	t.Parallel()
 
