@@ -18,6 +18,17 @@ set_working_directory "/app"
 # ── Source .env file if present ────────────────────────────
 load_env
 
+# ── Environment Variable Bridge ────────────────────────────
+# Standardized vars (see README.md):
+#   ARCHITECT_MODEL -> CURSOR_MODEL (fallback: EDITOR_MODEL)
+if [[ -z "${CURSOR_MODEL:-}" ]]; then
+  if [[ -n "${ARCHITECT_MODEL:-}" ]]; then
+    export CURSOR_MODEL="$ARCHITECT_MODEL"
+  elif [[ -n "${EDITOR_MODEL:-}" ]]; then
+    export CURSOR_MODEL="$EDITOR_MODEL"
+  fi
+fi
+
 # ── Git identity from environment ──────────────────────────
 # Bridge wrapper-forwarded GIT_* env into git's config-env so `git config --get`
 # resolves file-free; repo-local identity stays authoritative.

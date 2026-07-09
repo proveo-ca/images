@@ -259,6 +259,8 @@ assert_file_contains "cursor run supports the three egress modes" "$ROOT/defs/cu
 assert_file_contains "cursor run rejects local models (vendor-pinned inference)" "$ROOT/defs/cursor/run.sh" "no local-model path"
 assert_file_not_contains "cursor run has no --local-model flag" "$ROOT/defs/cursor/run.sh" '--local-model)'
 assert_file_contains "cursor entrypoint handles proxied HTTP/2 fallback" "$ROOT/defs/cursor/entrypoint.sh" "useHttp1ForAgent"
+assert_file_contains "cursor entrypoint bridges ARCHITECT_MODEL" "$ROOT/defs/cursor/entrypoint.sh" "ARCHITECT_MODEL"
+assert_file_contains "cursor entrypoint bridges EDITOR_MODEL fallback" "$ROOT/defs/cursor/entrypoint.sh" "EDITOR_MODEL"
 # Provider knowledge was retired from egress.sh into the Go registry (single
 # source). Assert it there.
 assert_file_contains "provider registry pins the Cursor backend for CURSOR_API_KEY" "$ROOT/internal/provider/provider.go" ".cursor.sh .cursor.com"

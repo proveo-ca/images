@@ -67,7 +67,9 @@ CURSOR_API_KEY=... ./run.sh -- -p "Fix the failing tests" --output-format stream
 Any args after `--` are forwarded to `agent`. The entrypoint launches
 `agent --force --sandbox disabled` and adds `--trust` automatically for `-p/--print` runs;
 utility subcommands (`login`, `status`, `ls`, `mcp`, …) pass through without the autonomy
-flags. Set `CURSOR_MODEL` to pin a model (`agent --list-models` enumerates valid ids).
+flags. Set `CURSOR_MODEL` to pin a model (`agent --list-models` enumerates valid ids), or use
+the shared `.env` aliases `ARCHITECT_MODEL` / `EDITOR_MODEL` (see root `README.md`) — the
+entrypoint bridges them into `CURSOR_MODEL` when `CURSOR_MODEL` is unset.
 
 ## Authentication
 
