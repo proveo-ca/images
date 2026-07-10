@@ -7,51 +7,54 @@ version: 2
 project_name: proveo
 
 builds:
- - id: proveo
- main: ./cmd/proveo
- binary: proveo
- env: [CGO_ENABLED=0]
- goos: [linux, darwin]
- goarch: [amd64, arm64]
- flags: [-trimpath]
- ldflags:
- - -s -w -X main.version={{ .Version }}
- - id: proveo-egress
- main: ./cmd/proveo-egress
- binary: proveo-egress
- env: [CGO_ENABLED=0]
- goos: [linux, darwin]
- goarch: [amd64, arm64]
- flags: [-trimpath]
- ldflags:
- - -s -w
- - id: proveo-entrypoint
- main: ./cmd/proveo-entrypoint
- binary: proveo-entrypoint
- env: [CGO_ENABLED=0]
- goos: [linux]
- goarch: [amd64, arm64]
- flags: [-trimpath]
- ldflags:
- - -s -w
+  - id: proveo
+    main: ./cmd/proveo
+    binary: proveo
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, freebsd, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+  - id: proveo-egress
+    main: ./cmd/proveo-egress
+    binary: proveo-egress
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, freebsd, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+  - id: proveo-entrypoint
+    main: ./cmd/proveo-entrypoint
+    binary: proveo-entrypoint
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
 
 archives:
- # Full multi-binary tarball (GitHub Releases / maintainer use).
- - id: default
-   ids: [proveo, proveo-egress, proveo-entrypoint]
-   formats: [tar.gz]
-   name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
- # Flat host proveo binaries for Cloudflare CDN staging (install.sh).
- - id: cdn-proveo
-   ids: [proveo]
-   formats: [binary]
-   name_template: "proveo-{{ .Os }}-{{ .Arch }}"
+  # Full multi-binary tarball (GitHub Releases / maintainer use).
+  - id: default
+    ids: [proveo, proveo-egress, proveo-entrypoint]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # proveo-entrypoint is linux-only (runs inside containers), so the darwin
+    # tarball carries fewer binaries than the linux one — that's intentional.
+    allow_different_binary_count: true
+  # Flat host proveo binaries for Cloudflare CDN staging (install.sh).
+  - id: cdn-proveo
+    ids: [proveo]
+    formats: [binary]
+    name_template: "proveo-{{ .Os }}-{{ .Arch }}"
 
 checksum:
- name_template: checksums.txt
- algorithm: sha256
+  name_template: checksums.txt
+  algorithm: sha256
 
 release:
- github:
- owner: proveo-ca
- name: images
+  github:
+    owner: proveo-ca
+    name: images

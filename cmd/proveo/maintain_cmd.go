@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
 
 	"github.com/proveo-ca/proveo/internal/maintain"
@@ -63,8 +65,39 @@ func selectTargets(reg []maintain.Target, arg, verb string) ([]maintain.Target, 
 	return nil, fmt.Errorf("no target given; pass a target name or 'all' (targets: %s)", targetNames(reg))
 }
 
-// pickTargets prints a numbered menu (0 = all) and returns the chosen targets.
+// pickTargets returns the chosen maintainer targets ("all" = every target). On a
+// real TTY it shows an fzf-style arrow-key + type-to-filter picker; otherwise
+// (pipe/test) it falls back to a numbered prompt driven by in.
 func pickTargets(reg []maintain.Target, verb string, in io.Reader, out io.Writer) ([]maintain.Target, error) {
+	if isReaderTTY(in) {
+		return fuzzyPickTargets(reg, verb)
+	}
+	return pickTargetsNumbered(reg, verb, in, out)
+}
+
+// fuzzyPickTargets shows an interactive finder with "all" as entry 0.
+func fuzzyPickTargets(reg []maintain.Target, verb string) ([]maintain.Target, error) {
+	labels := make([]string, 0, len(reg)+1)
+	labels = append(labels, "all")
+	for _, t := range reg {
+		labels = append(labels, t.Name)
+	}
+	idx, err := fuzzyfinder.Find(labels, func(i int) string { return labels[i] },
+		fuzzyfinder.WithPromptString(verb+"> "))
+	if errors.Is(err, fuzzyfinder.ErrAbort) {
+		return nil, fmt.Errorf("no target selected")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if idx <= 0 { // "all"
+		return reg, nil
+	}
+	return []maintain.Target{reg[idx-1]}, nil
+}
+
+// pickTargetsNumbered prints a numbered menu (0 = all) and returns the choice.
+func pickTargetsNumbered(reg []maintain.Target, verb string, in io.Reader, out io.Writer) ([]maintain.Target, error) {
 	fmt.Fprintf(out, "Select a target to %s:\n", verb)
 	fmt.Fprintln(out, "   0) all")
 	for i, t := range reg {

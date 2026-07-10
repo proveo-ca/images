@@ -9,12 +9,21 @@ CDN_ROOT="${PROVEO_CDN_ROOT:-$REPO_ROOT/apps/cli/public/cli}"
 DIST_DIR="${PROVEO_DIST_DIR:-$REPO_ROOT/dist}"
 OUT_BIN="$CDN_ROOT/bin"
 
+# Every OS/arch we publish host binaries for. Linux covers Ubuntu/Fedora/Debian/…;
+# windows binaries carry a .exe suffix and are consumed by install.ps1.
 platforms=(
   "linux/amd64"
   "linux/arm64"
   "darwin/amd64"
   "darwin/arm64"
+  "freebsd/amd64"
+  "freebsd/arm64"
+  "windows/amd64"
+  "windows/arm64"
 )
+
+# bin_name is the on-disk binary basename inside archives / build dirs for a GOOS.
+bin_name() { [[ "$1" == windows ]] && printf 'proveo.exe\n' || printf 'proveo\n'; }
 
 mkdir -p "$OUT_BIN"
 # Drop legacy bash consumer assets if present. ${CDN_ROOT:?} guards the recursive
@@ -24,35 +33,43 @@ rm -rf "${CDN_ROOT:?}/lib"
 rm -f "$OUT_BIN"/proveo-* "$CDN_ROOT/checksums.txt"
 
 extract_from_dist() {
-  local goos="$1" goarch="$2" dest="$3"
+  local goos="$1" goarch="$2" dest="$3" bin="$4"
   local archive=""
   shopt -s nullglob
   local candidates=(
     "$DIST_DIR"/proveo_*_"${goos}"_"${goarch}".tar.gz
     "$DIST_DIR"/proveo_*_"${goos}"_"${goarch}".tgz
+    "$DIST_DIR"/proveo_*_"${goos}"_"${goarch}".zip
   )
   shopt -u nullglob
   # bash 3.2 (macOS /usr/bin/env bash) errors on "${arr[@]}" for an empty array
   # under `set -u`; guard the expansion so the no-dist path doesn't crash.
   for archive in ${candidates[@]+"${candidates[@]}"}; do
     [[ -f "$archive" ]] || continue
-    if tar -tzf "$archive" 2>/dev/null | grep -qx 'proveo'; then
-      tar -xzf "$archive" -O proveo >"$dest"
-      chmod +x "$dest"
-      return 0
-    fi
-    # Some archives nest the binary
-    local member
-    member="$(tar -tzf "$archive" 2>/dev/null | grep -E '(^|/)proveo$' | head -1 || true)"
-    if [[ -n "$member" ]]; then
-      tar -xzf "$archive" -O "$member" >"$dest"
-      chmod +x "$dest"
-      return 0
-    fi
+    case "$archive" in
+      *.zip)
+        if unzip -Z1 "$archive" 2>/dev/null | grep -qE "(^|/)${bin}$"; then
+          local member
+          member="$(unzip -Z1 "$archive" 2>/dev/null | grep -E "(^|/)${bin}$" | head -1)"
+          unzip -p "$archive" "$member" >"$dest"
+          chmod +x "$dest"
+          return 0
+        fi
+        ;;
+      *)
+        if tar -tzf "$archive" 2>/dev/null | grep -qE "(^|/)${bin}$"; then
+          local member
+          member="$(tar -tzf "$archive" 2>/dev/null | grep -E "(^|/)${bin}$" | head -1)"
+          tar -xzf "$archive" -O "$member" >"$dest"
+          chmod +x "$dest"
+          return 0
+        fi
+        ;;
+    esac
   done
-  # Binary-format goreleaser output
+  # Raw goreleaser build output (dist/proveo_<os>_<arch>_<variant>/<bin>).
   shopt -s nullglob
-  for f in "$DIST_DIR"/proveo-"${goos}"-"${goarch}" "$DIST_DIR"/proveo_"${goos}"_"${goarch}"/proveo; do
+  for f in "$DIST_DIR"/proveo_"${goos}"_"${goarch}"*/"${bin}"; do
     if [[ -f "$f" ]]; then
       cp "$f" "$dest"
       chmod +x "$dest"
@@ -79,10 +96,13 @@ used_dist=0
 for plat in "${platforms[@]}"; do
   goos="${plat%/*}"
   goarch="${plat#*/}"
-  dest="$OUT_BIN/proveo-${goos}-${goarch}"
-  if extract_from_dist "$goos" "$goarch" "$dest"; then
+  ext=""
+  [[ "$goos" == windows ]] && ext=".exe"
+  dest="$OUT_BIN/proveo-${goos}-${goarch}${ext}"
+  bin="$(bin_name "$goos")"
+  if extract_from_dist "$goos" "$goarch" "$dest" "$bin"; then
     used_dist=1
-    echo "staged from dist: proveo-${goos}-${goarch}" >&2
+    echo "staged from dist: proveo-${goos}-${goarch}${ext}" >&2
   elif [[ "${PROVEO_CDN_REQUIRE_DIST:-0}" == "1" ]]; then
     # Release/deploy must publish real goreleaser artifacts, never the dev
     # cross-compile fallback (it stamps `main.version=dev`). Refuse — up front,
@@ -96,7 +116,7 @@ for plat in "${platforms[@]}"; do
     exit 1
   else
     cross_compile "$goos" "$goarch" "$dest"
-    echo "staged via go build: proveo-${goos}-${goarch}" >&2
+    echo "staged via go build: proveo-${goos}-${goarch}${ext}" >&2
   fi
 done
 

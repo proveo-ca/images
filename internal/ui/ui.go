@@ -97,7 +97,7 @@ const BrandBanner = `        ┌───────●                        
         └───────                         ●──────┘`
 
 // BrandTagline is the one-line product blurb under the banner.
-const BrandTagline = "containerized AI engineering harnesses"
+const BrandTagline = "proveo/images: portable, sandboxed AI coding agents"
 
 // WriteBrandBanner writes the branding banner (+ tagline) to w.
 // When fancy is true and w is a TTY-capable fancy printer, the banner is cyan/bold.

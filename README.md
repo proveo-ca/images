@@ -1,5 +1,19 @@
 # Proveo Harness Definitions
 
+Install the `proveo` CLI:
+
+```sh
+# Linux, macOS, FreeBSD
+curl -fsSL https://proveo.ca/cli/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://proveo.ca/cli/install.ps1 | iex
+```
+
+Checksum-verified binaries are published for Linux, macOS, FreeBSD, and Windows (amd64 + arm64).
+
 This repository collects deterministic Docker-based coding and debugging harnesses for AI-assisted engineering workflows.
 
 The project is intentionally centered on repeatable command surfaces rather than one-off local setup. Each harness definition captures:

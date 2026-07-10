@@ -54,6 +54,9 @@ if [[ "$release" -eq 1 ]]; then
   printf 'Snapshot artifacts under dist/ (gitignored).\\n'
   PROVEO_CDN_REQUIRE_DIST=1 bash scripts/stage-cli-cdn.sh
 fi
+
+# set -euo pipefail guarantees we only reach here on success.
+printf '\\n✅ build-cli succeeded.\\n'
 """
 
 # ── Tests ───────────────────────────────────────────────────

@@ -41,10 +41,16 @@ download_file() {
 detect_platform() {
   local os arch
   case "$(uname -s)" in
-    Linux) os=linux ;;
+    Linux) os=linux ;;   # Ubuntu, Fedora, Debian, Arch, … all report Linux
     Darwin) os=darwin ;;
+    FreeBSD) os=freebsd ;;
+    MINGW*|MSYS*|CYGWIN*)
+      print_error "detected a Windows shell — use the PowerShell installer instead:"
+      print_error "  irm https://proveo.ca/cli/install.ps1 | iex"
+      exit 1
+      ;;
     *)
-      print_error "unsupported OS: $(uname -s) (need Linux or Darwin)"
+      print_error "unsupported OS: $(uname -s) (need Linux, Darwin, or FreeBSD)"
       exit 1
       ;;
   esac

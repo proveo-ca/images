@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
@@ -76,8 +77,9 @@ func manifestForTarget(target string) (manifest.Manifest, error) {
 
 func main() {
 	root := &cobra.Command{
-		Use:           "proveo",
-		Short:         ui.BrandTagline,
+		Use: "proveo",
+		// Tagline is rendered once, dimmed, under the banner by WriteBrandBanner
+		// (see SetHelpFunc below); leaving Short empty avoids printing it twice.
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -734,13 +736,46 @@ func onPath(dir string) bool {
 // isStdinTTY gates every interactive prompt (scope picker, env wizard). A real
 // ioctl check, not a char-device stat: /dev/null is a character device too and
 // must not count as interactive.
-func isStdinTTY() bool {
-	return term.IsTerminal(int(os.Stdin.Fd()))
+func isStdinTTY() bool { return isReaderTTY(os.Stdin) }
+
+// isReaderTTY reports whether r is an *os.File attached to a terminal. The
+// interactive fuzzy picker only makes sense on a real TTY; when r is piped or a
+// test's strings.Reader we fall back to the numbered prompt (keeps tests + CI
+// hermetic, since the fuzzy finder reads /dev/tty directly).
+func isReaderTTY(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 
 // pickProject prints a numbered menu and returns the chosen sub-project path
 // ("" for the repo root / on any invalid or empty input).
+// pickProject returns the chosen monorepo scope ("" = repo root). On a real TTY
+// it shows an fzf-style arrow-key + type-to-filter picker; otherwise (pipe/test)
+// it falls back to a numbered prompt driven by in.
 func pickProject(projs []workspace.Project, in io.Reader, out io.Writer) string {
+	if isReaderTTY(in) {
+		return fuzzyPickProject(projs)
+	}
+	return pickProjectNumbered(projs, in, out)
+}
+
+// fuzzyPickProject shows an interactive finder with "<repo root>" as entry 0.
+// Esc/Ctrl-C (ErrAbort) or any finder error resolves to repo root.
+func fuzzyPickProject(projs []workspace.Project) string {
+	labels := make([]string, 0, len(projs)+1)
+	labels = append(labels, "<repo root>")
+	for _, p := range projs {
+		labels = append(labels, p.Path)
+	}
+	idx, err := fuzzyfinder.Find(labels, func(i int) string { return labels[i] },
+		fuzzyfinder.WithPromptString("scope> "))
+	if err != nil || idx <= 0 { // ErrAbort, finder failure, or "<repo root>"
+		return ""
+	}
+	return projs[idx-1].Path
+}
+
+func pickProjectNumbered(projs []workspace.Project, in io.Reader, out io.Writer) string {
 	fmt.Fprintln(out, "Monorepo detected — choose a scope:")
 	fmt.Fprintln(out, "   0) <repo root>")
 	for i, p := range projs {
