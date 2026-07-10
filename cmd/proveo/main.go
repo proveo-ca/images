@@ -520,6 +520,13 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 // including on SIGINT/SIGTERM (C4), and removes the broker secret (C2).
 func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, providers []string, dindSidecar *dind.Sidecar) error {
 	r := egress.ExecRunner{Stderr: true}
+	// rq is the quiet runner for best-effort teardown and readiness probes: those
+	// legitimately hit transient docker errors — "No such container" once a --rm
+	// sidecar has self-removed, or "connection refused" while Squid is still
+	// binding :3128 — and we don't want docker's stderr leaking those alarming (but
+	// expected) lines to the user's terminal. Apply keeps Stderr on: its failures
+	// are real and must be seen.
+	rq := egress.ExecRunner{}
 	// Teardown containers/networks, the DinD sidecar, and the injected secret.
 	// Registered before any staging so an early failure still tears down what
 	// doRun already started (the DinD sidecar). Runs exactly once — on normal
@@ -528,7 +535,7 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
-			plan.Teardown(r)
+			plan.Teardown(rq)
 			dindSidecar.Cleanup(dind.ExecRunner{})
 			_ = os.RemoveAll(filepath.Join(egDir, "inject")) // broker.env must not outlive the run
 		})
@@ -571,7 +578,7 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 	// Squid is the internet-facing upstream both other modes transit; wait for it
 	// to accept connections so the agent's first request doesn't race a cold Squid.
 	if plan.SquidContainer != "" {
-		if err := egress.WaitSquidReady(r, plan.SquidContainer, 30*time.Second); err != nil {
+		if err := egress.WaitSquidReady(rq, plan.SquidContainer, 30*time.Second); err != nil {
 			return fmt.Errorf("squid upstream not ready: %w", err)
 		}
 	}
@@ -581,7 +588,7 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 		}
 	}
 	if plan.OllamaContainer != "" {
-		if err := egress.WaitOllamaReady(r, plan.OllamaContainer, 60*time.Second); err != nil {
+		if err := egress.WaitOllamaReady(rq, plan.OllamaContainer, 60*time.Second); err != nil {
 			return fmt.Errorf("ollama sidecar not ready: %w", err)
 		}
 	}
