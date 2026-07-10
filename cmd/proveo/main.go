@@ -551,7 +551,19 @@ func execWithEgress(plan egress.Plan, agent runner.Config, egDir string, provide
 		if err := egress.StageSquidConfig(proveo.SquidConfig, squidCfg, providers, os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS")); err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Join(egDir, "squid", "logs"), 0o755); err != nil {
+		logs := filepath.Join(egDir, "squid", "logs")
+		if err := os.MkdirAll(logs, 0o755); err != nil {
+			return err
+		}
+		// Squid starts as root and drops to its own `proxy` user (uid 13) to write
+		// access.log/cache.log. On Linux, bind mounts preserve host ownership, so a
+		// dir owned by the invoking host uid at 0755 is NOT writable by uid 13 —
+		// Squid then exits on startup, --rm marks it "marked for removal", and the
+		// network-connect in Apply fails. Docker Desktop (macOS) makes bind mounts
+		// permissive, which is why this only reproduces on Linux hosts. World-write
+		// is acceptable for this per-user, per-session state dir (the egress-proxy
+		// dirs stay 0755 because that sidecar runs as the host uid, which owns them).
+		if err := os.Chmod(logs, 0o777); err != nil {
 			return err
 		}
 	}

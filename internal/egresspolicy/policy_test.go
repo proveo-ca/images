@@ -125,13 +125,13 @@ func TestBudget(t *testing.T) {
 	t.Run("cumulative query+body over budget blocks non-allowlisted", func(t *testing.T) {
 		t.Parallel()
 		p := New(Config{MaxOutBytesPerHost: 20})
-		first := p.Decide(newReq(t, "GET", "https://x.com/?q=abcdefghij", "")) // RawQuery "q=abcdefghij" = 12
+		first := p.Decide(newReq(t, "GET", "https://x.com/?q=abcdefghij", "")) // RequestURI "/?q=abcdefghij" = 14
 		if !first.Allow {
-			t.Fatalf("first request (12 <= 20) should allow, got %+v", first)
+			t.Fatalf("first request (14 <= 20) should allow, got %+v", first)
 		}
-		second := p.Decide(newReq(t, "GET", "https://x.com/?q=abcdefghij", "")) // 24 > 20
+		second := p.Decide(newReq(t, "GET", "https://x.com/?q=abcdefghij", "")) // 28 > 20
 		if second.Allow || second.Reason != ReasonBudget {
-			t.Errorf("cumulative 24 > 20 should block budget, got %+v", second)
+			t.Errorf("cumulative 28 > 20 should block budget, got %+v", second)
 		}
 	})
 

@@ -56,7 +56,14 @@ type Config struct {
 	Secrets []string
 	// BlockKnownSecrets enables the generic secret-shape patterns (sk-, AKIA, ...).
 	BlockKnownSecrets bool
-	// BlockEntropy enables the high-entropy-token heuristic.
+	// DecodeScan enables decode-and-rescan: base64/hex tokens in the URL/body are
+	// decoded (one level) and re-checked against the exact-value and pattern
+	// matchers. This is the primary defense against encoding-based DLP evasion and
+	// is low-false-positive (only fires when a token decodes to an actual secret).
+	DecodeScan bool
+	// BlockEntropy enables the high-entropy-token heuristic — an opt-in backstop
+	// that also catches encoded UNKNOWN blobs, at the cost of false positives on
+	// legitimately high-entropy URLs.
 	BlockEntropy bool
 	// MaxOutBytesPerHost caps cumulative (query+body) bytes to a non-allowlisted host
 	// over the policy's lifetime. 0 => unlimited.
@@ -85,7 +92,7 @@ func New(cfg Config) *Policy {
 		providerHosts: normHosts(cfg.ProviderHosts),
 		writeHosts:    normHosts(cfg.WriteHosts),
 		denySinks:     normHosts(cfg.DenySinks),
-		scanner:       newScanner(cfg.Secrets, cfg.BlockKnownSecrets, cfg.BlockEntropy),
+		scanner:       newScanner(cfg.Secrets, cfg.BlockKnownSecrets, cfg.DecodeScan, cfg.BlockEntropy),
 		maxBytes:      cfg.MaxOutBytesPerHost,
 		outByHost:     map[string]int64{},
 	}
@@ -125,9 +132,12 @@ func (p *Policy) Decide(req *http.Request) Decision {
 			return Decision{Reason: ReasonSecret}
 		}
 	}
-	// C(2): outbound byte budget (query + body) for non-allowlisted hosts.
+	// C(2): outbound byte budget for non-allowlisted hosts. Charge the whole
+	// request-target — path AND query — plus body, so data smuggled in the URL
+	// path (GET /<base64…>) is bounded like any other exfil, closing the
+	// path-not-counted budget bypass (F2).
 	if p.maxBytes > 0 && !allowlisted {
-		if p.charge(host, int64(len(req.URL.RawQuery))+bodyLen) {
+		if p.charge(host, int64(len(req.URL.RequestURI()))+bodyLen) {
 			return Decision{Reason: ReasonBudget}
 		}
 	}
