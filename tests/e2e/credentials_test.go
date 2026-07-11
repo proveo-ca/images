@@ -136,7 +136,66 @@ func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) 
 	t.Logf("egress broker.env verified for %d provider keys, byte-for-byte", len(keys))
 }
 
+// TestCursorEgressException asserts the cursor exception: cursor defaults to
+// broker egress (forwarding the REAL CURSOR_API_KEY), because its vendor-pinned
+// TLS can't be brokered by firewall/proxy; an explicit non-broker mode warns that
+// the credential won't reach cursor-agent. Deterministic (--print, no containers).
+func TestCursorEgressException(t *testing.T) {
+	proveoBin := buildProveo(t)
+
+	// Default (no --egress-mode) → broker: real key forwarded, no firewall sentinel.
+	def := runPrint(t, proveoBin, "cursor")
+	defCmd := agentCommandLine(t, def)
+	if strings.Contains(defCmd, "CURSOR_API_KEY="+entrypoint.DefaultSentinel) {
+		t.Error("cursor default should broker the REAL key, not hand the agent the firewall sentinel")
+	}
+	if !hasBareEnv(defCmd, "CURSOR_API_KEY") {
+		t.Errorf("cursor default (broker) should forward a bare -e CURSOR_API_KEY (real value):\n%s", defCmd)
+	}
+	if strings.Contains(defCmd, "--internal") {
+		t.Error("cursor default should not run on a firewall --internal network")
+	}
+
+	// Explicit firewall → warns + hands the agent the sentinel (the broken path).
+	fw := runPrint(t, proveoBin, "cursor", "--egress-mode", "firewall")
+	if !strings.Contains(fw, "invalid API key") {
+		t.Errorf("cursor + firewall should warn it can't broker the credential:\n%s", fw)
+	}
+	if !strings.Contains(agentCommandLine(t, fw), "CURSOR_API_KEY="+entrypoint.DefaultSentinel) {
+		t.Error("cursor + firewall should hand the agent the sentinel")
+	}
+}
+
 // ── helpers ─────────────────────────────────────────────────
+
+// runPrint runs `proveo run <target> [extra] --print` with a probe CURSOR_API_KEY
+// (and real provider keys stripped), returning combined output.
+func runPrint(t *testing.T, proveoBin, target string, extra ...string) string {
+	t.Helper()
+	work := t.TempDir()
+	args := append([]string{"run", target}, extra...)
+	args = append(args, "--print", "--input", work)
+	cmd := exec.Command(proveoBin, args...)
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(envWithoutProviderKeys(), "CURSOR_API_KEY=crsr_test_probe")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("proveo %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+// hasBareEnv reports whether cmd contains `-e KEY` (a bare forward, value from the
+// process env) as opposed to `-e KEY=…`.
+func hasBareEnv(cmd, key string) bool {
+	toks := strings.Fields(cmd)
+	for i := 0; i+1 < len(toks); i++ {
+		if toks[i] == "-e" && toks[i+1] == key {
+			return true
+		}
+	}
+	return false
+}
 
 func requireLiveStack(t *testing.T) {
 	t.Helper()

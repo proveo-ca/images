@@ -146,7 +146,7 @@ func runCmd() *cobra.Command {
 		Use:   "run <target> [-- args...]",
 		Short: "Run a harness against the current repo",
 		Args:  cobra.MinimumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			target := args[0]
 			targets, err := loadTargets()
 			if err != nil {
@@ -158,6 +158,13 @@ func runCmd() *cobra.Command {
 			}
 			if imageOverride != "" {
 				image = imageOverride
+			}
+			// Cursor exception: its inference is vendor-pinned and its TLS to Cursor's
+			// backend is not MITM-brokerable, so only broker mode (which forwards the
+			// real key to the container) authenticates it. Default cursor to broker
+			// unless the user explicitly chose a mode.
+			if target == "cursor" && !cmd.Flags().Changed("egress-mode") {
+				egressMode = "broker"
 			}
 			if !egress.ValidMode(egressMode) {
 				return fmt.Errorf("invalid --egress-mode %q (%s)", egressMode, strings.Join(egress.Modes(), "|"))
@@ -201,6 +208,14 @@ func doRun(p runParams) error {
 	// Cursor CLI has no local-model path — all inference transits Cursor's backend.
 	if p.target == "cursor" && p.localModel != "" {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
+	}
+	// Cursor authenticates only in broker mode: cursor-agent's TLS to api2.cursor.sh
+	// is not MITM-brokerable, so firewall hands it the "proveo-brokered" sentinel and
+	// proxy withholds the key — either way cursor-agent reports "invalid API key".
+	// broker mode forwards the real CURSOR_API_KEY to the container. (This branch only
+	// fires when a non-broker mode was explicitly chosen; cursor defaults to broker.)
+	if p.target == "cursor" && p.mode != "broker" {
+		ui.Warnf("cursor + --egress-mode %s: the credential can't be brokered into cursor-agent's pinned TLS, so it will report \"invalid API key\" — use --egress-mode broker to forward your CURSOR_API_KEY", p.mode)
 	}
 
 	// Monorepo scope: the repo root gives full git/workspace context.
