@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=proveo/base-node:latest
+ARG BASE_IMAGE=proveo/base-node-lsp:latest
 
 FROM golang:1.26-bookworm AS plantuml-lsp-builder
 
@@ -46,15 +46,9 @@ RUN DOCKER_VERSION=26.1.4 \
     && mv /tmp/docker/docker /usr/local/bin/docker \
     && rm -rf /tmp/docker /tmp/docker.tgz
 
-RUN npm install -g \
-    opencode-ai@latest \
-    typescript-language-server \
-    vscode-langservers-extracted \
-    bash-language-server \
-    dockerfile-language-server-nodejs \
-    yaml-language-server \
-    pyright \
-    && npm cache clean --force
+# The workspace language servers now live in proveo/base-node-lsp (shared with
+# claudecode). Only the opencode agent itself is installed here.
+RUN npm install -g opencode-ai@latest && npm cache clean --force
 
 COPY --from=plantuml-lsp-builder /out/plantuml-lsp /usr/local/bin/plantuml-lsp
 

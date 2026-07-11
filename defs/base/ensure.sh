@@ -20,6 +20,7 @@ base_has_floor() {
   docker run --rm --entrypoint sh "$IMAGE" -c '
     command -v git >/dev/null \
       && command -v gh >/dev/null \
+      && command -v jq >/dev/null \
       && test -x /usr/local/bin/proveo-entrypoint
   ' >/dev/null 2>&1
 }

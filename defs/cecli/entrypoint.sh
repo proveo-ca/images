@@ -90,6 +90,26 @@ fi
 
 seed_cecli_subagents
 
+# ── Seed Serena MCP (code intelligence; cecli has no native LSP) ──
+# cecli is an aider fork and reads ~/.cecli.conf.yml (home) alongside a project
+# .cecli.conf.yml, so the Serena MCP server is declared at HOME without touching
+# the mounted repo. Only when serena is installed and no config already declares
+# mcp-servers.
+seed_cecli_serena_mcp() {
+  command -v serena >/dev/null 2>&1 || return 0
+  local home_conf="$HOME/.cecli.conf.yml"
+  [[ -f "$home_conf" ]] && grep -qE '^[[:space:]]*mcp-servers:' "$home_conf" && return 0
+  cat >> "$home_conf" <<'YAML'
+mcp-servers:
+  mcpServers:
+    serena:
+      command: serena
+      args: [start-mcp-server, --context, ide-assistant, --project, /app]
+YAML
+  echo "🧠 Serena MCP (code intelligence) wired in $home_conf"
+}
+seed_cecli_serena_mcp
+
 if [[ -z "${CECLI_AGENT_CONFIG:-}" ]] && ! has_cecli_agent_config; then
   CECLI_AGENT_CONFIG="{\"large_file_token_threshold\":8192,\"skip_cli_confirmations\":false,\"max_sub_agents\":3,\"subagent_paths\":[\"$CECLI_HOME/agents\",\"/app/.cecli/agents\"]}"
   export CECLI_AGENT_CONFIG
@@ -194,20 +214,6 @@ elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi
-
-ensure_node_deps() {
-  if [[ "${CECLI_INSTALL_NODE_DEPS:-0}" != "1" ]]; then
-    return
-  fi
-
-  if ! command -v npm >/dev/null 2>&1; then
-    return
-  fi
-
-  ensure_node_deps_common
-}
-
-ensure_node_deps
 
 ensure_project_tools
 

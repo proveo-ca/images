@@ -53,4 +53,7 @@ echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
 [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] && echo "🧠  Local model: ${PROVEO_LOCAL_MODEL}"
 
 echo "🚀 Launching Claude Code..."
+# Wire workspace LSP servers as an auto-loading Claude Code plugin (native LSP).
+configure_claude_lsp
+
 exec claude --dangerously-skip-permissions "$@"

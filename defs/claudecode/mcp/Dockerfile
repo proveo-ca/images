@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=proveo/base-node:latest
+ARG BASE_IMAGE=proveo/base-node-lsp:latest
 
 # proveo-entrypoint is inherited from proveo/base-node (built once in defs/base).
 FROM ${BASE_IMAGE}

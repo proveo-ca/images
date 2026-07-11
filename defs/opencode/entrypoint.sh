@@ -120,215 +120,48 @@ seed_project_agents_md() {
 }
 seed_project_agents_md
 
-detect_workspace_lsps() {
-  local scan_root="${1:-$(pwd)}"
-
-  SCAN_ROOT="$scan_root" python3 - <<'PY'
-import os
-import shutil
-from collections import Counter, defaultdict
-
-scan_root = os.environ["SCAN_ROOT"]
-skip_dirs = {".git", "node_modules", ".next", "dist", "build", "target", "vendor"}
-
-# Lower rank wins ties when two languages have the same number of detected files.
-popularity = {
-    "typescript": 0,
-    "python": 1,
-    "java": 2,
-    "cpp": 3,
-    "go": 4,
-    "rust": 5,
-    "php": 6,
-    "ruby": 7,
-    "bash": 8,
-    "json": 9,
-    "yaml": 10,
-    "docker": 11,
-    "html": 12,
-    "css": 13,
-    "markdown": 14,
-    "toml": 15,
-    "terraform": 16,
-    "lua": 17,
-    "nix": 18,
-    "zig": 19,
-    "plantuml": 20,
-}
-
-servers = {
-    "typescript": ("typescript-language-server", ["--stdio"]),
-    "python": ("pyright-langserver", ["--stdio"]),
-    "bash": ("bash-language-server", ["start"]),
-    "docker": ("docker-langserver", ["--stdio"]),
-    "yaml": ("yaml-language-server", ["--stdio"]),
-    "json": ("vscode-json-language-server", ["--stdio"]),
-    "html": ("vscode-html-language-server", ["--stdio"]),
-    "css": ("vscode-css-language-server", ["--stdio"]),
-    "markdown": ("marksman", ["server"]),
-    "toml": ("taplo", ["lsp", "stdio"]),
-    "terraform": ("terraform-ls", ["serve"]),
-    "lua": ("lua-language-server", []),
-    "go": ("gopls", []),
-    "rust": ("rust-analyzer", []),
-    "java": ("jdtls", []),
-    "cpp": ("clangd", []),
-    "ruby": ("ruby-lsp", []),
-    "php": ("intelephense", ["--stdio"]),
-    "nix": ("nil", []),
-    "zig": ("zls", []),
-    "plantuml": ("plantuml-lsp", []),
-}
-
-extension_lang = {
-    ".ts": "typescript", ".tsx": "typescript", ".js": "typescript", ".jsx": "typescript",
-    ".mts": "typescript", ".cts": "typescript", ".mjs": "typescript", ".cjs": "typescript",
-    ".vue": "typescript", ".svelte": "typescript",
-    ".py": "python", ".pyi": "python",
-    ".go": "go",
-    ".rs": "rust",
-    ".sh": "bash", ".bash": "bash", ".zsh": "bash", ".ksh": "bash",
-    ".json": "json", ".jsonc": "json",
-    ".yml": "yaml", ".yaml": "yaml",
-    ".html": "html", ".htm": "html",
-    ".css": "css", ".scss": "css", ".sass": "css", ".less": "css",
-    ".md": "markdown", ".mdx": "markdown",
-    ".toml": "toml",
-    ".tf": "terraform", ".tfvars": "terraform",
-    ".lua": "lua",
-    ".java": "java",
-    ".c": "cpp", ".h": "cpp", ".cc": "cpp", ".cpp": "cpp", ".cxx": "cpp", ".hpp": "cpp", ".hh": "cpp",
-    ".rb": "ruby",
-    ".php": "php",
-    ".nix": "nix",
-    ".zig": "zig",
-    ".puml": "plantuml", ".plantuml": "plantuml",
-}
-
-marker_lang = {
-    "package.json": "typescript",
-    "tsconfig.json": "typescript",
-    "jsconfig.json": "typescript",
-    "pyproject.toml": "python",
-    "requirements.txt": "python",
-    "setup.py": "python",
-    "Pipfile": "python",
-    "go.mod": "go",
-    "Cargo.toml": "rust",
-    "Dockerfile": "docker",
-    "Containerfile": "docker",
-    "docker-compose.yml": "docker",
-    "docker-compose.yaml": "docker",
-    "Gemfile": "ruby",
-    "composer.json": "php",
-    ".terraform.lock.hcl": "terraform",
-    "Terraform.lock.hcl": "terraform",
-}
-
-lang_counts = Counter()
-lang_extensions = defaultdict(Counter)
-
-for root, dirs, files in os.walk(scan_root):
-    dirs[:] = [d for d in dirs if d not in skip_dirs]
-    for filename in files:
-        path = os.path.join(root, filename)
-        marker = marker_lang.get(filename)
-        lang = marker
-        filetype = filename if lang in {"docker"} else None
-
-        if lang is None:
-            _, ext = os.path.splitext(filename)
-            lang = extension_lang.get(ext)
-            filetype = ext if lang else None
-
-        if lang is None and ("Dockerfile" in filename or "Containerfile" in filename):
-            lang = "docker"
-            filetype = filename
-
-        if not lang:
-            continue
-
-        # Count readable source files only; broken symlinks or permission errors are ignored.
-        if not os.path.isfile(path):
-            continue
-        lang_counts[lang] += 1
-        if filetype:
-            lang_extensions[lang][filetype] += 1
-
-        # Marker files can imply a project LSP but are also normal typed files.
-        if marker:
-            _, marker_ext = os.path.splitext(filename)
-            marker_ext_lang = extension_lang.get(marker_ext)
-            if marker_ext and marker_ext_lang:
-                lang_counts[marker_ext_lang] += 1
-                lang_extensions[marker_ext_lang][marker_ext] += 1
-
-for lang in sorted(lang_counts, key=lambda item: (-lang_counts[item], popularity.get(item, 999), item)):
-    server = servers.get(lang)
-    if not server:
-        continue
-    command, args = server
-    if not shutil.which(command):
-        continue
-    extensions = sorted(lang_extensions[lang], key=lambda item: (-lang_extensions[lang][item], item))
-    fields = [lang, str(lang_counts[lang]), command, *args, ",".join(extensions)]
-    print("|".join(fields))
-PY
-}
-
+# detect_workspace_lsps + its _lsp_* helpers now live in the shared
+# entrypoint-lib.sh (§8), reused by every LSP-capable harness. This entrypoint
+# only renders its output into opencode's own config format below.
 configure_workspace_lsps() {
   local config_file="${HOME}/.config/opencode/opencode.json"
   local matched_json
 
-  matched_json="$(detect_workspace_lsps "$(pwd)" | python3 -c '
-import json, sys
-result = {}
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    lang, count, command, *args_and_extensions = line.split("|")
-    extension_field = args_and_extensions.pop() if args_and_extensions else ""
-    extensions = extension_field.split(",") if extension_field else []
-    result[lang] = {"command": [command, *args_and_extensions], "extensions": extensions}
-print(json.dumps(result, separators=(",", ":")))
-')"
+  # Parse the detector's "lang|count|cmd|arg…|extcsv" lines into
+  # {lang:{command:[cmd,args…],extensions:[…]}}. command = the fields between the
+  # count and the trailing extension CSV; extensions = that CSV split on ",".
+  matched_json="$(detect_workspace_lsps "$(pwd)" | jq -R -s '
+    split("\n") | map(select(length > 0) | split("|")) | map({
+      key: .[0],
+      value: { command: .[2:-1],
+               extensions: (if (.[-1] | length) > 0 then (.[-1] | split(",")) else [] end) }
+    }) | from_entries
+  ')"
+  [[ -n "$matched_json" ]] || matched_json="{}"
 
   echo "── Workspace LSP Match ──────────────────────────────"
-  if [[ -z "$matched_json" || "$matched_json" == "{}" ]]; then
+  if [[ "$matched_json" == "{}" ]]; then
     echo "🔎 No installed LSP matched files under $(pwd)"
     echo "─────────────────────────────────────────────────────"
     return 0
   fi
 
+  # Merge under .lsp with setdefault semantics (existing entries win), tolerating
+  # a missing/invalid config or a non-object / `true` .lsp value.
   mkdir -p "$(dirname "$config_file")"
-  MATCHED_LSP_JSON="$matched_json" CONFIG_FILE="$config_file" python3 - <<'PY'
-import json, os
-config_file = os.environ["CONFIG_FILE"]
-matched = json.loads(os.environ["MATCHED_LSP_JSON"])
-try:
-    with open(config_file, "r", encoding="utf-8") as fh:
-        config = json.load(fh)
-except Exception:
-    config = {}
-existing = config.get("lsp")
-if existing is True:
-    existing = {}
-elif not isinstance(existing, dict):
-    existing = {}
-for name, value in matched.items():
-    existing.setdefault(name, value)
-config["lsp"] = existing
-with open(config_file, "w", encoding="utf-8") as fh:
-    json.dump(config, fh, indent=2)
-    fh.write("\n")
-PY
+  local existing='{}' tmp
+  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
+  tmp="$(mktemp)"
+  if printf '%s' "$existing" | jq --argjson matched "$matched_json" \
+       '.lsp = ((if (.lsp | type) == "object" then .lsp else {} end) as $cur | $matched + $cur)' > "$tmp"; then
+    mv "$tmp" "$config_file"
+  else
+    rm -f "$tmp"
+    echo "⚠️  Could not update $config_file (jq failed)" >&2
+  fi
 
-  printf '✅ Enabled matching LSPs by workspace popularity:'
-  MATCHED_LSP_JSON="$matched_json" python3 - <<'PY'
-import json, os
-print(' ' + ' '.join(json.loads(os.environ["MATCHED_LSP_JSON"]).keys()))
-PY
+  printf '✅ Enabled matching LSPs by workspace popularity: %s\n' \
+    "$(printf '%s' "$matched_json" | jq -r 'keys_unsorted | join(" ")')"
   echo "Config: $config_file"
   echo "─────────────────────────────────────────────────────"
 }
@@ -397,11 +230,6 @@ if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
   exec sleep infinity
 fi
 
-# ── Ensure node deps if this is a Node project ─────────────
-ensure_node_deps() {
-  ensure_node_deps_common
-}
-ensure_node_deps
 ensure_project_tools
 
 # ── API key detection ──────────────────────────────────────

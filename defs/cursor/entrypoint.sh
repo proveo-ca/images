@@ -74,29 +74,61 @@ seed_defaults
 configure_proxy_compat() {
   [[ -n "${HTTP_PROXY:-}${HTTPS_PROXY:-}${http_proxy:-}${https_proxy:-}" ]] || return 0
   export NODE_USE_ENV_PROXY=1
-  CONFIG_FILE="$CURSOR_HOME/cli-config.json" python3 - <<'PY'
-import json, os
-path = os.environ["CONFIG_FILE"]
-try:
-    with open(path, "r", encoding="utf-8") as fh:
-        config = json.load(fh)
-except Exception:
-    config = {"version": 1}
-# The shipped CLI nests this under "network" (the top-level spelling in older
-# docs is dropped by its config normalizer).
-network = config.get("network")
-if not isinstance(network, dict):
-    network = {}
-    config["network"] = network
-if network.get("useHttp1ForAgent") is not True:
-    network["useHttp1ForAgent"] = True
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(config, fh, indent=2)
-        fh.write("\n")
-PY
-  echo "🛡️  Proxy detected — set network.useHttp1ForAgent=true in $CURSOR_HOME/cli-config.json"
+  local cfg="$CURSOR_HOME/cli-config.json" tmp
+  tmp="$(mktemp)"
+  # Start from the existing config (or a minimal doc if missing/invalid), then set
+  # the nested network.useHttp1ForAgent=true. The shipped CLI's config normalizer
+  # drops the top-level spelling, so it MUST live under "network". jq auto-creates
+  # the object; guard against a non-object "network" value.
+  local base='{"version":1}'
+  if [[ -f "$cfg" ]] && jq -e . "$cfg" >/dev/null 2>&1; then
+    base="$(cat "$cfg")"
+  fi
+  if printf '%s' "$base" \
+       | jq '(.network |= (if type == "object" then . else {} end)) | .network.useHttp1ForAgent = true' > "$tmp"; then
+    mv "$tmp" "$cfg"
+    echo "🛡️  Proxy detected — set network.useHttp1ForAgent=true in $cfg"
+  else
+    rm -f "$tmp"
+    echo "⚠️  Could not set proxy compatibility in $cfg (jq failed)" >&2
+  fi
 }
 configure_proxy_compat
+
+# ── LSP code intelligence via mcp-language-server ──────────
+# Cursor has no native external-LSP config, so LSP-grade tools are exposed
+# through the mcp-language-server MCP bridge (one instance per language server).
+# The SHARED detector (entrypoint-lib.sh §8) selects only the languages present
+# whose static-binary LSP is installed in the image; each is wrapped in an
+# mcp-language-server entry written to the GLOBAL ~/.cursor/mcp.json — never the
+# mounted repo. Existing entries win on merge (don't clobber user config).
+configure_cursor_lsp_mcp() {
+  command -v mcp-language-server >/dev/null 2>&1 || return 0
+  local mcp_file="$CURSOR_HOME/mcp.json" tmp base entries
+  entries="$(detect_workspace_lsps "$(pwd)" | jq -R -s '
+    split("\n") | map(select(length > 0) | split("|")) | map({
+      key: .[0],
+      value: {
+        command: "mcp-language-server",
+        args: (["--workspace", "/app", "--lsp", .[2]]
+               + (.[3:-1] | if length > 0 then ["--"] + . else [] end))
+      }
+    }) | from_entries')"
+  [[ -z "$entries" || "$entries" == "{}" ]] && return 0
+
+  mkdir -p "$CURSOR_HOME"
+  base='{}'
+  [[ -f "$mcp_file" ]] && jq -e . "$mcp_file" >/dev/null 2>&1 && base="$(cat "$mcp_file")"
+  tmp="$(mktemp)"
+  if printf '%s' "$base" | jq --argjson e "$entries" \
+       '.mcpServers = ($e + ((.mcpServers // {}) | if type == "object" then . else {} end))' > "$tmp"; then
+    mv "$tmp" "$mcp_file"
+    echo "🧠 LSP code intelligence via mcp-language-server: $(printf '%s' "$entries" | jq -r 'keys_unsorted | join(" ")')"
+  else
+    rm -f "$tmp"
+  fi
+}
+configure_cursor_lsp_mcp
 
 command_version() {
   command_version_opencode "$@"
@@ -109,14 +141,8 @@ echo "pnpm version:       $(command_version pnpm n/a -v)"
 
 # ── Policy layer report ────────────────────────────────────
 echo "── Policy Layer ─────────────────────────────────────"
-deny_count="$(CONFIG_FILE="$CURSOR_HOME/cli-config.json" python3 -c '
-import json, os
-try:
-    with open(os.environ["CONFIG_FILE"], encoding="utf-8") as fh:
-        print(len(json.load(fh).get("permissions", {}).get("deny", [])))
-except Exception:
-    print(0)
-')"
+deny_count="$(jq -r '(.permissions.deny // []) | length' "$CURSOR_HOME/cli-config.json" 2>/dev/null || echo 0)"
+deny_count="${deny_count:-0}"
 echo "Deny rules (survive --force): ${deny_count} — $CURSOR_HOME/cli-config.json"
 if [[ -f /etc/cursor/hooks.json ]]; then
   echo "Shell audit hook: /etc/cursor/hooks.json (enterprise layer, root-owned, fail-open)"
@@ -190,8 +216,6 @@ fi
 # ── Smoke test mode ────────────────────────────────────────
 run_smoke_test "cursor"
 
-# ── Ensure node deps if this is a Node project ─────────────
-ensure_node_deps_common
 ensure_project_tools
 
 # ── Auth check ─────────────────────────────────────────────

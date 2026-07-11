@@ -11,6 +11,7 @@ IMAGE="${PROVEO_BASE_NODE_IMAGE:-proveo/base-node:latest}"
 node_floor() {
   docker run --rm --entrypoint sh "$IMAGE" -c '
     command -v git >/dev/null \
+      && command -v jq >/dev/null \
       && command -v node >/dev/null \
       && command -v pnpm >/dev/null \
       && test -x /usr/local/bin/proveo-entrypoint

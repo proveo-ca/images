@@ -224,37 +224,13 @@ run_smoke_test() {
  fi
 }
 
-# ── 5. Ensure Node.js Dependencies ──────────────────────────
-ensure_node_deps_common() {
- [[ -f package.json ]] || return 0
- [[ -d node_modules ]] && return 0
+# Note: there is intentionally NO project-dependency auto-install here. The
+# entrypoint is a fail-fast gate that assumes the image already ships the
+# runtimes/toolchains it promises; installing a project's own deps (pnpm install
+# / npm ci) is the coding agent's job at task time (and works under firewall
+# egress, since package downloads are allowed reads).
 
- # Check if directory is writable to avoid permission errors (e.g. root-owned parent directories)
- if [[ ! -w . ]]; then
- echo "🔎 Directory $(pwd) is not writable; skipping auto-install of dependencies."
- return 0
- fi
-
- echo "No node_modules found in $(pwd); installing dependencies..."
- # An explicit lockfile is authoritative — honor it before falling back to
- # the pnpm workspace heuristic (which would otherwise hijack yarn/npm
- # monorepos that happen to use the "workspace:" dependency protocol).
- if [[ -f pnpm-lock.yaml ]]; then
- pnpm install
- elif [[ -f package-lock.json ]]; then
- npm ci
- elif [[ -f yarn.lock ]]; then
- if command -v yarn >/dev/null 2>&1; then yarn install; else npm install; fi
- elif [[ -f pnpm-workspace.yaml ]] || \
- ( grep -q '"packageManager": *"[^"]*pnpm' package.json 2>/dev/null ) || \
- ( find . -maxdepth 4 -name package.json -not -path '*/node_modules/*' -not -path '*/.*/*' -exec grep -q '"workspace:' {} + 2>/dev/null ); then
- pnpm install
- else
- npm install
- fi
-}
-
-# ── 6. Tool Sourcing & Command Version Helpers ──────────────
+# ── 5. Tool Sourcing & Command Version Helpers ──────────────
 # Cecli style command version check (fallback cmd [args])
 command_version_cecli() {
  local fallback="$1"; shift
@@ -272,90 +248,64 @@ command_version_opencode() {
  timeout 5s "$name" "$@" 2>/dev/null || echo "$fallback"
 }
 
-# ── 7. Declarative Env Var Bridges Mapping ──────────────────
+# ── 6. Declarative Env Var Bridges Mapping ──────────────────
+
+# _normalize_model prefixes a bare model id with its provider (mirrors the
+# opencode model registry); an id that already contains "/" is returned as-is.
+_normalize_model() {
+ local m="$1" lower
+ [[ -n "$m" ]] || return 0
+ case "$m" in */*) printf '%s' "$m"; return 0 ;; esac
+ lower="$(printf '%s' "$m" | tr '[:upper:]' '[:lower:]')"
+ # OpenAI reasoning ids are "o" followed by a digit (o1, o3, o4-mini, …).
+ case "$lower" in
+ gpt-* | chatgpt-* | o[0-9]*) printf 'openai/%s' "$m" ;;
+ claude-*) printf 'anthropic/%s' "$m" ;;
+ grok-*) printf 'xai/%s' "$m" ;;
+ gemini-*) printf 'google/%s' "$m" ;;
+ deepseek-*) printf 'deepseek/%s' "$m" ;;
+ *) printf '%s' "$m" ;;
+ esac
+}
+
+# _apply_env_bridge resolves one bridge from→to with an optional fallback var, an
+# optional default (a literal, or "$VAR" to reference another var), and an
+# optional "normalize" transform. Skips when `to` is already set; exports the
+# result so later bridges whose default is "$VAR" can see it. Reads/writes via
+# printenv/export (no indirect expansion) so it is safe under `set -u`.
+_apply_env_bridge() {
+ local from="$1" to="$2" fallback="$3" default="$4" transform="$5" val
+ printenv "$to" >/dev/null 2>&1 && return 0
+ val="$(printenv "$from" 2>/dev/null || true)"
+ [[ -z "$val" && -n "$fallback" ]] && val="$(printenv "$fallback" 2>/dev/null || true)"
+ if [[ -z "$val" && -n "$default" ]]; then
+  case "$default" in
+  '$'*) val="$(printenv "${default#\$}" 2>/dev/null || true)" ;;
+  *) val="$default" ;;
+  esac
+ fi
+ [[ -n "$val" ]] || return 0
+ [[ "$transform" == normalize ]] && val="$(_normalize_model "$val")"
+ export "$to=$val"
+}
+
 apply_env_bridges() {
- local eval_cmds
- eval_cmds=$(python3 - <<'PY'
-import json
-import os
-import re
-import shlex
-
-# Order matters: a bridge whose "default" references "$VAR" sees values
-# resolved by earlier bridges (we feed each resolved export back into the
-# environment below), so bridges that depend on OPENCODE_MODEL / the small
-# model must come after the bridges that produce them.
-bridges_json = """[
- { "from": "ARCHITECT_MODEL", "to": "OPENCODE_MODEL", "fallback": "EDITOR_MODEL", "default": "anthropic/claude-sonnet-4-5", "transform": "normalize" },
- { "from": "EDITOR_MODEL", "to": "OPENCODE_BUILD_MODEL", "default": "$OPENCODE_MODEL", "transform": "normalize" },
- { "from": "EDITOR_MODEL", "to": "OPENCODE_SMALL_MODEL", "fallback": "SMALL_MODEL", "default": "anthropic/claude-haiku-4-5", "transform": "normalize" },
- { "from": "OPENCODE_SMALL_MODEL", "to": "SMALL_MODEL", "transform": "normalize" },
- { "from": "GEMINI_API_KEY", "to": "GOOGLE_GENERATIVE_AI_API_KEY" },
- { "from": "GOOGLE_API_KEY", "to": "GOOGLE_GENERATIVE_AI_API_KEY" }
-]"""
-
-def normalize_model(model):
- if not model:
- return ""
- if "/" in model:
- return model
- model_lower = model.lower
- # OpenAI reasoning models are any "o" followed by a digit (o1, o3, o4-mini, ...)
- if model_lower.startswith("gpt-") or model_lower.startswith("chatgpt-") or re.match(r"o[0-9]", model_lower):
- return f"openai/{model}"
- elif model_lower.startswith("claude-"):
- return f"anthropic/{model}"
- elif model_lower.startswith("grok-"):
- return f"xai/{model}"
- elif model_lower.startswith("gemini-"):
- return f"google/{model}"
- elif model_lower.startswith("deepseek-"):
- return f"deepseek/{model}"
- return model
-
-bridges = json.loads(bridges_json)
-for bridge in bridges:
- # Skip if target already explicitly defined in environment
- if bridge["to"] in os.environ:
- continue
-
- src_val = os.environ.get(bridge["from"], "")
-
- # Check fallback if src is empty
- if not src_val and "fallback" in bridge:
- src_val = os.environ.get(bridge["fallback"], "")
-
- # Check default if still empty
- if not src_val and "default" in bridge:
- d = bridge["default"]
- if d.startswith("$"):
- ref_var = d[1:]
- src_val = os.environ.get(ref_var, "")
- else:
- src_val = d
-
- if src_val:
- # Apply transformation if specified
- if bridge.get("transform") == "normalize":
- src_val = normalize_model(src_val)
-
- target_var = bridge["to"]
- # Feed the resolved value back so later "$VAR" defaults can see it.
- os.environ[target_var] = src_val
- # Emit a shell-safe assignment (shlex.quote prevents the eval below
- # from performing expansion or command substitution on the value).
- print(f"export {target_var}={shlex.quote(src_val)}")
-PY
-)
- eval "$eval_cmds"
+ # Order matters: a bridge whose default references "$VAR" must run AFTER the
+ # bridge that produces VAR (each result is exported as we go).
+ _apply_env_bridge ARCHITECT_MODEL      OPENCODE_MODEL               EDITOR_MODEL "anthropic/claude-sonnet-4-5" normalize
+ _apply_env_bridge EDITOR_MODEL         OPENCODE_BUILD_MODEL         ""           '$OPENCODE_MODEL'            normalize
+ _apply_env_bridge EDITOR_MODEL         OPENCODE_SMALL_MODEL         SMALL_MODEL  "anthropic/claude-haiku-4-5" normalize
+ _apply_env_bridge OPENCODE_SMALL_MODEL SMALL_MODEL                  ""           ""                           normalize
+ _apply_env_bridge GEMINI_API_KEY       GOOGLE_GENERATIVE_AI_API_KEY ""           ""                           ""
+ _apply_env_bridge GOOGLE_API_KEY       GOOGLE_GENERATIVE_AI_API_KEY ""           ""                           ""
 
  # Ensure OPENCODE_SMALL_MODEL matches SMALL_MODEL for consistency
  if [[ -z "${OPENCODE_SMALL_MODEL:-}" && -n "${SMALL_MODEL:-}" ]]; then
- export OPENCODE_SMALL_MODEL="$SMALL_MODEL"
+  export OPENCODE_SMALL_MODEL="$SMALL_MODEL"
  fi
 }
 
-# ── 8. Automatic Project-Level Tools Installer ──────────────
+# ── 7. Automatic Project-Level Tools Installer ──────────────
 ensure_project_tools() {
  # Opt-out: accept the common falsy spellings, case-insensitively. In
  # locked-egress deployments (no outbound network) this should be disabled so
@@ -403,4 +353,151 @@ ensure_project_tools() {
  rm -f "$mise_installer"
  fi
  fi
+}
+
+# ── 8. Workspace LSP Detection (shared) ─────────────────────
+# Detect which languages a workspace uses and which INSTALLED LSP servers cover
+# them, ranked by file count. Pure bash + awk (bash-3.2-safe: no associative
+# arrays). Shared by every agent that supports language servers; each entrypoint
+# renders detect_workspace_lsps output into its own config format
+# (opencode.json "lsp" / Claude Code plugin ".lsp.json"). Agents WITHOUT native
+# LSP use the Serena MCP server instead (wired in their MCP config).
+
+# LSP maps as case-statement lookups (bash-3.2-safe: no associative arrays).
+_lsp_ext_lang() { case "$1" in
+  .ts|.tsx|.js|.jsx|.mts|.cts|.mjs|.cjs|.vue|.svelte) echo typescript ;;
+  .py|.pyi) echo python ;;
+  .go) echo go ;; .rs) echo rust ;;
+  .sh|.bash|.zsh|.ksh) echo bash ;;
+  .json|.jsonc) echo json ;;
+  .yml|.yaml) echo yaml ;;
+  .html|.htm) echo html ;;
+  .css|.scss|.sass|.less) echo css ;;
+  .md|.mdx) echo markdown ;;
+  .toml) echo toml ;;
+  .tf|.tfvars) echo terraform ;;
+  .lua) echo lua ;; .java) echo java ;;
+  .c|.h|.cc|.cpp|.cxx|.hpp|.hh) echo cpp ;;
+  .rb) echo ruby ;; .php) echo php ;; .nix) echo nix ;; .zig) echo zig ;;
+  .puml|.plantuml) echo plantuml ;;
+esac; }
+_lsp_marker_lang() { case "$1" in
+  package.json|tsconfig.json|jsconfig.json) echo typescript ;;
+  pyproject.toml|requirements.txt|setup.py|Pipfile) echo python ;;
+  go.mod) echo go ;; Cargo.toml) echo rust ;;
+  Dockerfile|Containerfile|docker-compose.yml|docker-compose.yaml) echo docker ;;
+  Gemfile) echo ruby ;; composer.json) echo php ;;
+  .terraform.lock.hcl|Terraform.lock.hcl) echo terraform ;;
+esac; }
+_lsp_server() { case "$1" in
+  typescript) echo "typescript-language-server --stdio" ;;
+  python) echo "pyright-langserver --stdio" ;;
+  bash) echo "bash-language-server start" ;;
+  docker) echo "docker-langserver --stdio" ;;
+  yaml) echo "yaml-language-server --stdio" ;;
+  json) echo "vscode-json-language-server --stdio" ;;
+  html) echo "vscode-html-language-server --stdio" ;;
+  css) echo "vscode-css-language-server --stdio" ;;
+  markdown) echo "marksman server" ;;
+  toml) echo "taplo lsp stdio" ;;
+  terraform) echo "terraform-ls serve" ;;
+  lua) echo "lua-language-server" ;;
+  go) echo "gopls" ;;
+  rust) echo "rust-analyzer" ;;
+  java) echo "jdtls" ;;
+  cpp) echo "clangd" ;;
+  ruby) echo "ruby-lsp" ;;
+  php) echo "intelephense --stdio" ;;
+  nix) echo "nil" ;;
+  zig) echo "zls" ;;
+  plantuml) echo "plantuml-lsp" ;;
+esac; }
+
+# _lsp_walk prints "lang<TAB>ftype" for each detected file under scan_root
+# (ftype = the extension, or the filename for Docker; empty when not tracked).
+# A marker file (package.json, go.mod, …) is credited to its marker language AND
+# to its own extension's language, mirroring the original detector.
+_lsp_walk() {
+  local scan_root="$1" f base ext lang marker ftype mext ml
+  while IFS= read -r -d '' f; do
+    base="${f##*/}"
+    lang=""; ftype=""
+    marker="$(_lsp_marker_lang "$base")"
+    if [[ -n "$marker" ]]; then
+      lang="$marker"
+      [[ "$lang" == docker ]] && ftype="$base"
+    fi
+    if [[ -z "$lang" ]]; then
+      if [[ "$base" == *.* ]]; then ext=".${base##*.}"; else ext=""; fi
+      if [[ -n "$ext" ]]; then lang="$(_lsp_ext_lang "$ext")"; [[ -n "$lang" ]] && ftype="$ext"; fi
+    fi
+    if [[ -z "$lang" && ( "$base" == *Dockerfile* || "$base" == *Containerfile* ) ]]; then
+      lang=docker; ftype="$base"
+    fi
+    [[ -n "$lang" ]] || continue
+    printf '%s\t%s\n' "$lang" "$ftype"
+    if [[ -n "$marker" && "$base" == *.* ]]; then
+      mext=".${base##*.}"
+      ml="$(_lsp_ext_lang "$mext")"
+      [[ -n "$ml" ]] && printf '%s\t%s\n' "$ml" "$mext"
+    fi
+  done < <(find "$scan_root" \
+             \( -name .git -o -name node_modules -o -name .next -o -name dist \
+                -o -name build -o -name target -o -name vendor \) -prune \
+             -o -type f -print0 2>/dev/null)
+}
+
+# detect_workspace_lsps prints "lang|count|cmd|arg…|ext1,ext2" per language whose
+# LSP server is installed, ranked by file count desc, then popularity, then name.
+detect_workspace_lsps() {
+  local scan_root="${1:-$(pwd)}"
+  local tab; tab="$(printf '\t')"
+  _lsp_walk "$scan_root" | awk -F'\t' '
+    BEGIN {
+      n = split("typescript python java cpp go rust php ruby bash json yaml docker html css markdown toml terraform lua nix zig plantuml", P, " ")
+      for (i = 1; i <= n; i++) pop[P[i]] = i - 1
+    }
+    {
+      total[$1]++
+      if ($2 != "" && !((k = $1 SUBSEP $2) in seen)) { seen[k] = 1; e[$1] = (e[$1] == "" ? $2 : e[$1] "," $2) }
+    }
+    END { for (l in total) printf "%d\t%d\t%s\t%s\n", total[l], (l in pop ? pop[l] : 999), l, e[l] }
+  ' | sort -t"$tab" -k1,1nr -k2,2n -k3,3 | while IFS="$tab" read -r cnt _pop lang extcsv; do
+    local server cmd
+    server="$(_lsp_server "$lang")"
+    [[ -n "$server" ]] || continue
+    cmd="${server%% *}"
+    command -v "$cmd" >/dev/null 2>&1 || continue
+    # Deterministic (sorted, unique) extension list regardless of filesystem order.
+    extcsv="$(printf '%s' "$extcsv" | tr ',' '\n' | sort -u | paste -sd, -)"
+    printf '%s|%s|%s|%s\n' "$lang" "$cnt" "${server// /|}" "$extcsv"
+  done
+}
+
+# configure_claude_lsp renders the shared detector output into a Claude Code
+# skills-directory plugin (~/.claude/skills/proveo-lsp/) declaring the workspace's
+# installed LSP servers via .lsp.json. Skills-dir plugins auto-load on the next
+# session (no marketplace), and claudecode runs --dangerously-skip-permissions so
+# it loads headlessly. No-op when nothing is detected.
+configure_claude_lsp() {
+  command -v jq >/dev/null 2>&1 || return 0
+  local scan="${1:-$(pwd)}" lsp_json plugdir="${HOME}/.claude/skills/proveo-lsp"
+  lsp_json="$(detect_workspace_lsps "$scan" | jq -R -s '
+    split("\n") | map(select(length > 0) | split("|")) | map(. as $f | {
+      key: $f[0],
+      value: {
+        command: $f[2],
+        args: $f[3:-1],
+        extensionToLanguage: (($f[-1] | split(",") | map(select(length > 0)))
+          | map({key: ., value: $f[0]}) | from_entries)
+      }
+    }) | from_entries')"
+  [ -z "$lsp_json" ] && lsp_json="{}"
+  [ "$lsp_json" = "{}" ] && return 0
+
+  mkdir -p "$plugdir/.claude-plugin"
+  printf '{"name":"proveo-lsp","description":"Workspace language servers (auto-detected)","version":"1.0.0"}\n' \
+    > "$plugdir/.claude-plugin/plugin.json"
+  printf '%s\n' "$lsp_json" > "$plugdir/.lsp.json"
+  echo "🧠 LSP code intelligence (Claude Code plugin): $(printf '%s' "$lsp_json" | jq -r 'keys_unsorted | join(" ")')"
 }
