@@ -320,10 +320,15 @@ func doRun(p runParams) error {
 	}
 
 	// Local-model sidecar is an opt-in add-on: resolve its (config-driven) host
-	// models dir only when --local-model is requested.
+	// models dir only when --local-model is requested. Alongside it, decide where
+	// inference runs: the host's GPU Ollama (macOS, where a container can't reach
+	// the GPU) or a sidecar, GPU-accelerated when the Docker host supports it.
 	var modelsDir string
+	var hostOllama, ollamaGPU bool
 	if p.localModel != "" {
 		modelsDir = ollamaModelsDir()
+		hostOllama = preferHostOllama()
+		ollamaGPU = sidecarOllamaGPU()
 	}
 
 	// Declared env: bare `-e NAME` for non-secrets. Secrets: broker forwards real
@@ -375,6 +380,7 @@ func doRun(p runParams) error {
 	plan, agent, err := assemble(assembleInput{
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
 		modelsDir: modelsDir, provider: providerName, brokerFile: brokerFile,
+		hostOllama: hostOllama, ollamaGPU: ollamaGPU,
 		mounts: mounts, workdir: workdir, env: env,
 		providerDomains: os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"),
 		squidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
@@ -474,6 +480,7 @@ type assembleInput struct {
 	sid, egDir                          string
 	uid, gid                            string
 	modelsDir, provider, brokerFile     string
+	hostOllama, ollamaGPU               bool
 	mounts                              []runner.Mount
 	workdir                             string
 	env                                 []string // declared env var names to forward (bare -e)
@@ -488,6 +495,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 	plan, err := egress.BuildPlan(egress.Options{
 		Mode: in.params.mode, SessionID: in.sid, AgentName: in.params.target, UID: in.uid, GID: in.gid,
 		LocalModel: in.params.localModel, ModelsDir: in.modelsDir, Provider: in.provider, BrokerEnvFile: in.brokerFile,
+		HostOllama: in.hostOllama, OllamaGPU: in.ollamaGPU,
 		ProviderDomains: in.providerDomains,
 		ConfDir:         filepath.Join(in.egDir, "mitmproxy", "confdir"),
 		FlowsDir:        filepath.Join(in.egDir, "mitmproxy", "flows"),
@@ -647,6 +655,31 @@ func ollamaModelsDir() string {
 		return ""
 	}
 	return filepath.Join(home, ".ollama", "models")
+}
+
+// preferHostOllama reports whether --local-model should target the host's Ollama
+// (host.docker.internal) instead of a sidecar. On macOS a Linux container can't
+// reach the Metal GPU, so a sidecar runs CPU-only and is unusably slow; the host
+// Ollama is GPU-accelerated. Honored only in broker mode (egress.buildBroker);
+// the locked modes keep the isolated sidecar regardless. Override with
+// PROVEO_LOCAL_MODEL_SIDECAR=1 to force the in-network sidecar even on macOS.
+func preferHostOllama() bool {
+	if os.Getenv("PROVEO_LOCAL_MODEL_SIDECAR") == "1" {
+		return false
+	}
+	return runtime.GOOS == "darwin"
+}
+
+// sidecarOllamaGPU reports whether the Ollama sidecar can be GPU-accelerated:
+// Linux with the NVIDIA container runtime registered in Docker (so `--gpus all`
+// is valid). Adding the flag without the runtime would make the sidecar fail to
+// start, so we probe `docker info` and only enable it on a positive match.
+func sidecarOllamaGPU() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	out, err := exec.Command("docker", "info", "--format", "{{json .Runtimes}}").Output()
+	return err == nil && strings.Contains(string(out), "nvidia")
 }
 
 func waitForFile(path string, timeout time.Duration) error {

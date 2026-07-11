@@ -55,12 +55,24 @@ type Options struct {
 	SquidLogDir    string // mounted at /var/log/squid
 	// Image overrides.
 	SquidImage, ProxyImage, OllamaImage string
+	// HostOllama routes --local-model at the host's Ollama (host.docker.internal)
+	// in broker mode instead of a CPU-only sidecar — for hosts (macOS) that can't
+	// pass a GPU into a Linux container, where a sidecar would be unusably slow. The
+	// locked modes (proxy/firewall) ignore it and keep the isolated sidecar.
+	HostOllama bool
+	// OllamaGPU adds `--gpus all` to the Ollama sidecar so it is GPU-accelerated
+	// (Linux + NVIDIA container runtime). Without it the sidecar runs on CPU.
+	OllamaGPU bool
 }
 
 const (
 	caContainerPath = "/etc/proveo/mitmproxy-ca-cert.pem"
 	squidUpstream   = "http://squid:3128"
 	inspectProxyURL = "http://mitm:8888"
+	// Ollama endpoint roots for --local-model: the in-network sidecar alias, or the
+	// host gateway for the host-GPU path (macOS, broker mode).
+	sidecarOllamaBase = "http://ollama:11434"
+	hostOllamaBase    = "http://host.docker.internal:11434"
 	// dnsBlackhole is the agent's DNS upstream in proxy/firewall modes. The
 	// agent resolves nothing itself (the proxy resolves target hosts), so
 	// pointing external resolution at a dead address closes the DNS-tunneling
@@ -151,14 +163,17 @@ func (b *builder) sidecar(cmd Command, name string) {
 }
 
 // attachLocalModel adds the optional Ollama sidecar + its agent env on net.
-// Shared by all three modes so the local-model wiring can't drift (D1).
+// Shared by all three modes so the local-model wiring can't drift (D1). The
+// sidecar path is unconditional here; the host-Ollama alternative (macOS) is a
+// broker-only branch in buildBroker, since the locked modes must not reach the
+// host.
 func (b *builder) attachLocalModel(net string) {
 	if b.o.LocalModel == "" {
 		return
 	}
 	b.sidecar(ollamaRun(b.o, net), ollamaName(b.o))
 	b.p.OllamaContainer = ollamaName(b.o)
-	b.p.AgentArgs = append(b.p.AgentArgs, localModelArgs(b.o.LocalModel)...)
+	b.p.AgentArgs = append(b.p.AgentArgs, localModelArgs(b.o.LocalModel, sidecarOllamaBase)...)
 }
 
 func (b *builder) done() Plan {
@@ -171,6 +186,15 @@ func buildBroker(o Options) Plan {
 	// and only when a local model sidecar must be resolvable by name.
 	if o.LocalModel == "" {
 		return Plan{AgentArgs: []string{"--network=bridge", "--add-host=host.docker.internal:127.0.0.1"}}
+	}
+	// Host-Ollama path (e.g. macOS): a Linux container can't reach the host's GPU,
+	// so a sidecar would run CPU-only. Broker is the non-locked mode, so reaching
+	// the host's GPU Ollama over the bridge is acceptable here (and only here — the
+	// locked modes keep the isolated sidecar). No sidecar; map host.docker.internal
+	// to the real host gateway and point the local-model env at it.
+	if o.HostOllama {
+		args := []string{"--network=bridge", "--add-host=host.docker.internal:host-gateway"}
+		return Plan{AgentArgs: append(args, localModelArgs(o.LocalModel, hostOllamaBase)...)}
 	}
 	b := newBuilder(o)
 	net := o.SessionID + "-" + o.safeAgent() + "-broker-net"
@@ -303,8 +327,15 @@ func ollamaRun(o Options, net string) Command {
 	c := Command{"run", "-d", "--rm", "--name", ollamaName(o), "--label", label(o.SessionID)}
 	c = append(c, capDropAll)
 	c = append(c, sidecarHardening()...)
+	if o.OllamaGPU { // Linux + NVIDIA runtime: GPU-accelerate local inference
+		c = append(c, "--gpus", "all")
+	}
 	c = append(c, "--network", net, "--network-alias", "ollama",
-		"-e", "OLLAMA_HOST=0.0.0.0:11434", "-e", "OLLAMA_MODELS=/models")
+		"-e", "OLLAMA_HOST=0.0.0.0:11434", "-e", "OLLAMA_MODELS=/models",
+		// Agentic coding needs a large context window; Ollama's small default
+		// (2–4k) truncates tool schemas + repo context and breaks every
+		// local-capable harness. 32k is the agentic floor the vendor docs recommend.
+		"-e", "OLLAMA_CONTEXT_LENGTH=32768")
 	if o.ModelsDir != "" { // serve the host's pulled models read-only (cf. defs/lib/egress.sh)
 		c = append(c, "-v", o.ModelsDir+":/models:ro")
 	}
@@ -332,15 +363,33 @@ func caTrustArgs(confDir string) []string {
 	}
 }
 
-func localModelArgs(model string) []string {
-	const base = "http://ollama:11434"
+// localModelArgs is the agent-agnostic env for --local-model: a SUPERSET each
+// harness consumes selectively, so the wiring can't drift per agent (D1). It
+// speaks three provider dialects at the same Ollama sidecar, one per harness
+// family:
+//   - OpenAI-compatible (opencode's ollama provider): OPENAI_BASE_URL + …/v1
+//   - litellm/Ollama (cecli/aider): OLLAMA_API_BASE + ollama_chat/<model>
+//   - Anthropic Messages (Claude Code): ANTHROPIC_BASE_URL at Ollama's native
+//     Anthropic endpoint (Ollama >=0.14), a dummy auth token, and the model-name
+//     overrides so `claude` requests <model> instead of a claude-* id. Empty
+//     ANTHROPIC_API_KEY forces the local path over any inherited cloud key.
+//
+// Cursor is intentionally absent: its inference is vendor-pinned (see run wiring).
+//
+// base is the Ollama endpoint root: the sidecar alias (sidecarOllamaBase) or the
+// host gateway (hostOllamaBase) for the macOS host-GPU path.
+func localModelArgs(model, base string) []string {
 	return []string{
 		"-e", "PROVEO_LOCAL_MODEL=" + model,
 		"-e", "OLLAMA_HOST=" + base, "-e", "OLLAMA_API_BASE=" + base,
 		"-e", "OPENAI_BASE_URL=" + base + "/v1", "-e", "OPENAI_API_KEY=ollama",
 		"-e", "ARCHITECT_MODEL=ollama/" + model, "-e", "EDITOR_MODEL=ollama/" + model,
 		"-e", "SMALL_MODEL=ollama/" + model,
-		"-e", "NO_PROXY=ollama,localhost,127.0.0.1", "-e", "no_proxy=ollama,localhost,127.0.0.1",
+		"-e", "ANTHROPIC_BASE_URL=" + base, "-e", "ANTHROPIC_AUTH_TOKEN=ollama",
+		"-e", "ANTHROPIC_API_KEY=",
+		"-e", "ANTHROPIC_MODEL=" + model, "-e", "ANTHROPIC_SMALL_FAST_MODEL=" + model,
+		"-e", "NO_PROXY=ollama,host.docker.internal,localhost,127.0.0.1",
+		"-e", "no_proxy=ollama,host.docker.internal,localhost,127.0.0.1",
 	}
 }
 

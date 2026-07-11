@@ -104,6 +104,41 @@ seed_defaults() {
 }
 seed_defaults
 
+# ── Local model (Ollama) provider ─────────────────────────
+# opencode resolves `ollama/<model>` only when an `ollama` provider is defined;
+# without it opencode silently falls back to its default cloud model (the bug the
+# agent-E2E caught). When the harness is launched with --local-model, the run
+# wiring exports PROVEO_LOCAL_MODEL + OLLAMA_API_BASE and bridges
+# OPENCODE_MODEL=ollama/<model>; here we register the matching OpenAI-compatible
+# provider pointing at the Ollama sidecar so that reference resolves.
+configure_opencode_local_model() {
+  [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
+  command -v jq >/dev/null 2>&1 || { echo "⚠️  jq missing; cannot wire Ollama provider" >&2; return 0; }
+  local config_file="${HOME}/.config/opencode/opencode.json"
+  local base="${OLLAMA_API_BASE:-http://ollama:11434}"
+  local model="${PROVEO_LOCAL_MODEL}"
+  mkdir -p "$(dirname "$config_file")"
+  local existing='{}' tmp
+  [[ -f "$config_file" ]] && jq -e . "$config_file" >/dev/null 2>&1 && existing="$(cat "$config_file")"
+  tmp="$(mktemp)"
+  if printf '%s' "$existing" | jq \
+       --arg base "${base%/}/v1" --arg model "$model" '
+         .provider.ollama = {
+           npm: "@ai-sdk/openai-compatible",
+           name: "Ollama (local)",
+           options: { baseURL: $base, apiKey: "ollama" },
+           models: { ($model): { name: ($model + " (local)") } }
+         }
+       ' >"$tmp"; then
+    mv "$tmp" "$config_file"
+    echo "🧩 Wired Ollama provider (ollama/$model → $base) into $config_file"
+  else
+    rm -f "$tmp"
+    echo "⚠️  Could not wire Ollama provider (jq failed)" >&2
+  fi
+}
+configure_opencode_local_model
+
 # ── Seed project-level AGENTS.md if missing ───────────────
 seed_project_agents_md() {
   local src="/opt/opencode/defaults/AGENTS.md"

@@ -63,6 +63,69 @@ func withBroker(o Options, p, f string) Options {
 	return o
 }
 
+// TestLocalModelRouting covers where --local-model inference runs: the host's
+// Ollama (macOS, broker) vs an in-network sidecar, GPU-accelerated or not.
+func TestLocalModelRouting(t *testing.T) {
+	t.Parallel()
+
+	t.Run("host ollama (broker) spawns no sidecar and reaches the host gateway", func(t *testing.T) {
+		t.Parallel()
+		o := withModel(baseOpts("broker"), "gemma4")
+		o.HostOllama = true
+		p, err := BuildPlan(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.OllamaContainer != "" || len(p.Sidecars) != 0 {
+			t.Fatalf("host-Ollama must not spawn a sidecar; container=%q sidecars=%d", p.OllamaContainer, len(p.Sidecars))
+		}
+		args := strings.Join(p.AgentArgs, " ")
+		for _, want := range []string{
+			"--add-host=host.docker.internal:host-gateway",
+			"OLLAMA_API_BASE=http://host.docker.internal:11434",
+			"ANTHROPIC_BASE_URL=http://host.docker.internal:11434",
+		} {
+			if !strings.Contains(args, want) {
+				t.Errorf("host-Ollama agent args missing %q\nargs: %s", want, args)
+			}
+		}
+	})
+
+	t.Run("default broker uses the in-network sidecar, no GPU", func(t *testing.T) {
+		t.Parallel()
+		p, err := BuildPlan(withModel(baseOpts("broker"), "gemma4"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.OllamaContainer == "" {
+			t.Fatal("default local-model broker must spawn an Ollama sidecar")
+		}
+		render := p.Render()
+		if !strings.Contains(render, "--network-alias ollama") {
+			t.Errorf("sidecar should register the ollama alias\n%s", render)
+		}
+		if strings.Contains(render, "--gpus") {
+			t.Errorf("sidecar must not request a GPU unless OllamaGPU is set\n%s", render)
+		}
+		if !strings.Contains(strings.Join(p.AgentArgs, " "), "OLLAMA_API_BASE=http://ollama:11434") {
+			t.Error("sidecar env must point at the ollama alias")
+		}
+	})
+
+	t.Run("OllamaGPU adds --gpus all to the sidecar", func(t *testing.T) {
+		t.Parallel()
+		o := withModel(baseOpts("broker"), "gemma4")
+		o.OllamaGPU = true
+		p, err := BuildPlan(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(p.Render(), "--gpus all") {
+			t.Errorf("OllamaGPU must add --gpus all to the sidecar\n%s", p.Render())
+		}
+	})
+}
+
 func TestBuildPlanUnknownMode(t *testing.T) {
 	t.Parallel()
 	if _, err := BuildPlan(Options{Mode: "nope"}); err == nil {

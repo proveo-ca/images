@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -82,18 +83,32 @@ func fuzzyPickTargets(reg []maintain.Target, verb string) ([]maintain.Target, er
 	for _, t := range reg {
 		labels = append(labels, t.Name)
 	}
-	idx, err := fuzzyfinder.Find(labels, func(i int) string { return labels[i] },
-		fuzzyfinder.WithPromptString(verb+"> "))
+	// FindMulti: type to filter, Tab toggles multiple targets, Enter confirms
+	// (space is reserved for the filter query, so Tab is the multi-select key).
+	// With nothing toggled, Enter selects the target under the cursor.
+	idxs, err := fuzzyfinder.FindMulti(labels, func(i int) string { return labels[i] },
+		fuzzyfinder.WithPromptString(verb+" [tab=multi]> "))
 	if errors.Is(err, fuzzyfinder.ErrAbort) {
 		return nil, fmt.Errorf("no target selected")
 	}
 	if err != nil {
 		return nil, err
 	}
-	if idx <= 0 { // "all"
-		return reg, nil
+	// Return in registry order (bases before the harnesses that build FROM them),
+	// NOT the Tab-selection order — build order matters. Labels are ["all"] + reg,
+	// so ascending index == registry order.
+	sort.Ints(idxs)
+	out := make([]maintain.Target, 0, len(idxs))
+	for _, i := range idxs {
+		if i == 0 { // "all" selected (alone or alongside others) → every target
+			return reg, nil
+		}
+		out = append(out, reg[i-1])
 	}
-	return []maintain.Target{reg[idx-1]}, nil
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no target selected")
+	}
+	return out, nil
 }
 
 // pickTargetsNumbered prints a numbered menu (0 = all) and returns the choice.

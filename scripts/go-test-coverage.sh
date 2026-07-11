@@ -71,7 +71,7 @@ run_e2e() {
     echo "set PROVEO_LLM_TEST=1 to run Layer 4" >&2
     exit 1
   fi
-  go test -tags=e2e ./internal/tmux/ -count=1 -timeout 360s "$@"
+  go test -tags=e2e ./tests/e2e/ -count=1 -timeout 420s "$@"
 }
 
 case "$mode" in

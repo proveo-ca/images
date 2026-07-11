@@ -21,6 +21,16 @@ ensure_runtime_user() {
  fi
 }
 
+# Guarantee a writable HOME in THIS shell, at source time, for every entrypoint —
+# not just the bash-fallback branch. The Go prelude (`proveo-entrypoint prep`)
+# runs as a subprocess and can only set HOME within its own process, so a shell
+# whose run-as uid has no passwd entry keeps HOME='/' (unwritable) and any later
+# `mkdir "$HOME/.<tool>"` fails ("cannot create directory '//.cursor'"). Sourced
+# before the prelude, this makes ~/… seeding work for an arbitrary uid.
+if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
+ export HOME=/tmp
+fi
+
 # ── 1. Set Working Directory ────────────────────────────────
 set_working_directory() {
  local default_dir="${1:-/app}"

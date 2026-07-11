@@ -77,6 +77,17 @@ if [[ -n "${SMALL_MODEL:-}" ]]; then
   export AIDER_WEAK_MODEL="${AIDER_WEAK_MODEL:-$SMALL_MODEL}"
 fi
 
+# Local model: cecli reaches Ollama through litellm. The ollama_chat/ prefix (not
+# the plain ollama/ one bridged from ARCHITECT_MODEL) selects the chat+tools
+# formatter that agentic edits need; OLLAMA_API_BASE (set by --local-model) points
+# litellm at the sidecar. cecli reads the CECLI_ env prefix (auto_env_var_prefix),
+# so the AIDER_ aliases above are unnecessary here — override every model tier.
+if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
+  export CECLI_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
+  export CECLI_EDITOR_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
+  export CECLI_WEAK_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
+fi
+
 case "${DARK_MODE:-}" in
   true|TRUE|True|1|yes|YES|Yes)
     export CECLI_DARK_MODE="${CECLI_DARK_MODE:-true}"

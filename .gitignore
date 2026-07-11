@@ -69,7 +69,7 @@ Thumbs.db
 .claude/
 
 # --- Sample monorepo (self-contained for testing) ---
-samples/
+!tests/e2e/samples/
 
 
 # --- Logs ---
