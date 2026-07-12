@@ -4,15 +4,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VARIANT="all"
 TAG="latest"
+BROWSER=0
 NO_CACHE=""
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./build.sh [--variant mcp|solo|sol|all] [--tag <tag>] [--no-cache]
+  ./build.sh [--variant mcp|solo|sol|all] [--browser] [--tag <tag>] [--no-cache]
 
 Builds the claudecode harness images. Defaults to all variants.
 sol = mcp + the Solidity/security toolchain (Foundry, solc, solhint, semgrep).
+--browser = the mcp image FROM proveo/base-node-browser (Playwright + Chromium),
+tagged proveo/claudecode-browser.
 EOF
 }
 
@@ -22,6 +25,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "--variant requires a value" >&2; exit 1; }
       VARIANT="$2"
       shift 2
+      ;;
+    --browser)
+      BROWSER=1
+      shift
       ;;
     --tag)
       [[ $# -ge 2 ]] || { echo "--tag requires a value" >&2; exit 1; }
@@ -47,9 +54,19 @@ done
 build_variant() {
   local variant="$1"
   local image="$2"
-  echo "Building $image:$TAG from $variant..."
-  docker build ${NO_CACHE:+$NO_CACHE} -t "$image:$TAG" -f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/../.."
+  local base="${3:-proveo/base-node-lsp:latest}"
+  echo "Building $image:$TAG from $variant (base $base)..."
+  docker build ${NO_CACHE:+$NO_CACHE} --build-arg BASE_IMAGE="$base" \
+    -t "$image:$TAG" -f "$SCRIPT_DIR/$variant/Dockerfile" "$SCRIPT_DIR/../.."
 }
+
+# Browser variant: the mcp image FROM base-node-browser (Playwright + Chromium),
+# short-circuiting the variant matrix below.
+if [[ "$BROWSER" == 1 ]]; then
+  "$SCRIPT_DIR/../base-node-browser/ensure.sh"
+  build_variant mcp proveo/claudecode-browser proveo/base-node-browser:latest
+  exit 0
+fi
 
 # sol layers the Solidity/security toolchain (Foundry, solc, solhint, semgrep)
 # on the mcp image: ensure the same-tag parent exists, then build FROM it.

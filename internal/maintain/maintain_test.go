@@ -25,8 +25,8 @@ func TestRegistry(t *testing.T) {
 
 	// Stable order: base, harness (sorted), then the sidecars last.
 	wantOrder := []string{
-		"base", "base-node", "base-node-lsp", "cecli", "cecli-node", "claudecode", "claudecode-sol",
-		"claudecode-solo", "egress-proxy", "mitmproxy",
+		"base", "base-node", "base-node-lsp", "base-node-browser", "cecli", "cecli-node", "claudecode",
+		"claudecode-sol", "claudecode-solo", "egress-proxy", "mitmproxy",
 	}
 	if len(got) != len(wantOrder) {
 		t.Fatalf("got %d targets, want %d: %+v", len(got), len(wantOrder), got)
@@ -44,6 +44,7 @@ func TestRegistry(t *testing.T) {
 		{"base", KindBase, "proveo/base", "/d/base"},
 		{"base-node", KindBase, "proveo/base-node", "/d/base-node"},
 		{"base-node-lsp", KindBase, "proveo/base-node-lsp", "/d/base-node-lsp"},
+		{"base-node-browser", KindBase, "proveo/base-node-browser", "/d/base-node-browser"},
 		{"cecli", KindHarness, "proveo/cecli", "/d/cecli"},
 		{"cecli-node", KindHarness, "proveo/cecli-node", "/d/cecli"}, // shares cecli's def dir
 		{"claudecode", KindHarness, "proveo/claudecode", "/d/claudecode"},

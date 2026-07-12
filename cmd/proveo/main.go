@@ -271,25 +271,49 @@ func doRun(p runParams) error {
 	}
 	lookup := providerLookup(hostEnvFile)
 
-	// DinD offer before the env wizard: cursor declares CURSOR_API_KEY and the
-	// wizard may attach a bufio.Reader to stdin, which would starve the DinD prompt.
+	// Optional capabilities, offered before the env wizard as a Tab-multiselect on a
+	// TTY (the wizard may attach a bufio.Reader to stdin, which would starve an
+	// interactive picker). This replaces the standalone DinD y/N prompt: DinD is now
+	// one capability among any others the harness supports (e.g. the browser
+	// variant). Non-interactively, capabilities come from the explicit -browser
+	// target and PROVEO_DIND (below).
 	dindScope := wsSpec.InputDir
 	if dindScope == "" {
 		dindScope = start
 	}
-	// DinD is only compatible with broker egress. Under proxy/firewall the agent
-	// runs on an --internal network the daemon cannot be reached across, and
-	// attaching an internet-capable daemon to it would defeat egress enforcement —
-	// so offer it only in broker mode, and warn (rather than silently no-op) if it
-	// was explicitly requested in an incompatible mode.
 	wantDind := false
-	switch {
-	case p.printOnly:
-	case dind.ModeSupported(p.mode):
-		wantDind = dind.ShouldStart(man.Dind, dindScope, isStdinTTY(), func() bool {
-			return dind.PromptYesNo(os.Stdin, os.Stderr)
-		})
-	case man.Dind && dind.EnvEnabled() && dind.ScopeHasDockerfiles(dindScope):
+	browserImage := man.Images[p.target+"-browser"]         // the -browser variant, if this harness has one
+	dindOfferable := man.Dind && dind.ModeSupported(p.mode) // DinD needs broker egress (see ModeSupported)
+	if !p.printOnly && isStdinTTY() {
+		var caps []capability
+		if browserImage != "" && p.image != browserImage {
+			caps = append(caps, capability{"browser", "browser  — Playwright + Chromium"})
+		}
+		if dindOfferable {
+			caps = append(caps, capability{"dind", "DinD     — Docker-in-Docker sidecar"})
+		}
+		if len(caps) > 0 {
+			sel, err := pickRunCapabilities(p.target, caps)
+			if err != nil {
+				return err
+			}
+			if sel["browser"] {
+				p.image = browserImage
+				ui.Iconf("🌐", "capability: browser → %s", browserImage)
+			}
+			if sel["dind"] {
+				wantDind = true
+				ui.Iconf("🐳", "capability: DinD")
+			}
+		}
+	} else if !p.printOnly {
+		// Non-interactive: DinD stays env-gated (PROVEO_DIND); the browser variant is
+		// selected by running `proveo run <target>-browser` explicitly.
+		wantDind = dindOfferable && dind.ShouldStart(man.Dind, dindScope, false, nil)
+	}
+	// Warn (rather than silently no-op) if DinD was explicitly requested in a mode
+	// that cannot expose a daemon without defeating egress enforcement.
+	if man.Dind && !dind.ModeSupported(p.mode) && dind.EnvEnabled() && dind.ScopeHasDockerfiles(dindScope) {
 		ui.Warnf("PROVEO_DIND is set but --egress-mode %s cannot expose a Docker daemon to the agent without defeating egress enforcement; skipping DinD (use --egress-mode broker for in-container Docker)", p.mode)
 	}
 
@@ -840,6 +864,41 @@ func fuzzyPickProject(projs []workspace.Project) string {
 		return ""
 	}
 	return projs[idx-1].Path
+}
+
+// capability is one optional harness add-on offered in the run picker.
+type capability struct {
+	key   string // "browser" | "dind"
+	label string
+}
+
+// pickRunCapabilities shows the harness's optional capabilities as an arrow list
+// where Tab toggles multiple and Enter confirms. A leading "continue" sentinel
+// makes Enter-with-nothing-toggled mean "no capabilities" (FindMulti otherwise
+// returns the item under the cursor). Returns the set of chosen capability keys;
+// Esc/Ctrl-C aborts to the empty set (run with no add-ons).
+func pickRunCapabilities(target string, caps []capability) (map[string]bool, error) {
+	labels := make([]string, 0, len(caps)+1)
+	labels = append(labels, "continue — no extra capabilities")
+	for _, c := range caps {
+		labels = append(labels, c.label)
+	}
+	idxs, err := fuzzyfinder.FindMulti(labels, func(i int) string { return labels[i] },
+		fuzzyfinder.WithPromptString(target+" — press tab to add an option, or enter to continue> "))
+	if errors.Is(err, fuzzyfinder.ErrAbort) {
+		return map[string]bool{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	sel := map[string]bool{}
+	for _, i := range idxs {
+		if i == 0 {
+			continue // the "continue" sentinel
+		}
+		sel[caps[i-1].key] = true
+	}
+	return sel, nil
 }
 
 func pickProjectNumbered(projs []workspace.Project, in io.Reader, out io.Writer) string {

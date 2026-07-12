@@ -6,6 +6,7 @@ dind: true
 stability: candidate
 images:
   opencode: proveo/opencode:latest
+  opencode-browser: proveo/opencode-browser:latest
 workspace:
   layout: app
   configDir: .opencode

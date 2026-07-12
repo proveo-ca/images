@@ -7,6 +7,7 @@ provider: cursor
 stability: candidate
 images:
   cursor: proveo/cursor:latest
+  cursor-browser: proveo/cursor-browser:latest
 workspace:
   layout: app
   configDir: .cursor

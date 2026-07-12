@@ -19,22 +19,32 @@ It is `FROM debian:bookworm-slim` and lands at ~200 MB.
   `opencode`/`claudecode` are Node. Node lives in the thin `proveo/base-node`
   intermediate (`defs/base-node`), which the Node harnesses build FROM; Python
   is added by the one harness that needs it (`cecli`).
-- **No browsers.** No harness's runtime drives a browser; Playwright/Chromium was
-  a speculative "agent runs browser e2e in the mounted repo" capability that
-  fattened the shared floor to multiple GB. It is now install-on-demand: inside a
-  harness run `npx playwright install chromium` (Node) or
-  `python -m playwright install chromium` (cecli) into a mounted cache dir.
+- **No browsers in the base floor.** Playwright/Chromium fattened the shared floor
+  to multiple GB, so it is not universal. Browser-capable Node harnesses build FROM
+  the opt-in `proveo/base-node-browser` layer (`defs/base-node-browser`:
+  base-node-lsp + Playwright + a Chromium browser under a world-readable
+  `PLAYWRIGHT_BROWSERS_PATH`) as `<harness>-browser` variants
+  (`opencode-browser`, `claudecode-browser`, `cursor-browser`), selected at run
+  time from the `proveo run` capability picker (Tab to add). Default images stay
+  slim; Chromium is downloaded once in `base-node-browser` and shared by every
+  variant. (cecli/Python remains install-on-demand: `python -m playwright install
+  chromium` into a mounted cache dir.)
 
 ## FROM tree
 
 ```
 debian:bookworm-slim
-└── proveo/base                git/gh/curl/dumb-init/bash/proveo-entrypoint/harden
-     ├── cursor                cursor-agent binary; no runtime
-     ├── cecli                 + python3-venv (aider fork)
-     └── proveo/base-node      + Node 22 LTS + pnpm
-          ├── opencode
-          └── claudecode (mcp) ├── claudecode-solo   └── claudecode-sol
+└── proveo/base                    git/gh/jq/curl/dumb-init/bash/proveo-entrypoint/harden
+     ├── cursor                    cursor-agent binary; no runtime
+     ├── cecli                     + python3-venv (aider fork)
+     └── proveo/base-node          + Node 22 LTS + pnpm
+          └── proveo/base-node-lsp        + workspace language servers
+               ├── opencode
+               ├── claudecode (mcp)  ├── claudecode-solo   └── claudecode-sol
+               └── proveo/base-node-browser   + Playwright + Chromium  (opt-in)
+                    ├── opencode-browser
+                    ├── claudecode-browser
+                    └── cursor-browser        (cursor-agent atop the browser floor)
 ```
 
 ## Rules

@@ -43,9 +43,12 @@ var sidecars = []string{"egress-proxy", "mitmproxy"}
 // claudecode ships three images from one def: mcp is the base "claudecode"
 // image, solo drops MCP, sol layers a Solidity/security toolchain on mcp.
 var variantArgs = map[string][]string{
-	"claudecode":      {"--variant", "mcp"},
-	"claudecode-solo": {"--variant", "solo"},
-	"claudecode-sol":  {"--variant", "sol"},
+	"claudecode":         {"--variant", "mcp"},
+	"claudecode-solo":    {"--variant", "solo"},
+	"claudecode-sol":     {"--variant", "sol"},
+	"claudecode-browser": {"--browser"},
+	"opencode-browser":   {"--browser"},
+	"cursor-browser":     {"--browser"},
 }
 
 // Registry returns the maintainer targets in stable order: the base image, then
@@ -58,6 +61,7 @@ func Registry(ms []manifest.Manifest, defsDir string) []Target {
 		{Name: "base", Kind: KindBase, Image: "proveo/base", DefDir: filepath.Join(defsDir, "base")},
 		{Name: "base-node", Kind: KindBase, Image: "proveo/base-node", DefDir: filepath.Join(defsDir, "base-node")},
 		{Name: "base-node-lsp", Kind: KindBase, Image: "proveo/base-node-lsp", DefDir: filepath.Join(defsDir, "base-node-lsp")},
+		{Name: "base-node-browser", Kind: KindBase, Image: "proveo/base-node-browser", DefDir: filepath.Join(defsDir, "base-node-browser")},
 	}
 
 	var harness []Target
