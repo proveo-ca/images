@@ -5,372 +5,509 @@
 # Wrappers launch containers with `--user $(id -u):$(id -g)`; give that uid a
 # passwd entry and a writable HOME without root. Call first in every entrypoint.
 ensure_runtime_user() {
-  local uid gid
-  uid="$(id -u)"; gid="$(id -g)"
+ local uid gid
+ uid="$(id -u)"; gid="$(id -g)"
 
-  # Synthesize a passwd entry so getpwuid()-based tooling doesn't choke on
-  # "I have no name!"; only possible when /etc/passwd is writable.
-  if ! getent passwd "$uid" >/dev/null 2>&1 && [[ -w /etc/passwd ]]; then
-    printf 'agent:x:%s:%s:agent:%s:/bin/bash\n' "$uid" "$gid" "${HOME:-/tmp}" >> /etc/passwd
-  fi
+ # Synthesize a passwd entry so getpwuid-based tooling doesn't choke on
+ # "I have no name!"; only possible when /etc/passwd is writable.
+ if ! getent passwd "$uid" >/dev/null 2>&1 && [[ -w /etc/passwd ]]; then
+ printf 'agent:x:%s:%s:agent:%s:/bin/bash\n' "$uid" "$gid" "${HOME:-/tmp}" >> /etc/passwd
+ fi
 
-  # Guarantee a writable HOME. The baked home (owned by the build user) is not
-  # writable by a different uid until the deferred chmod lands, so fall back.
-  if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
-    export HOME=/tmp
-  fi
+ # Guarantee a writable HOME. The baked home (owned by the build user) is not
+ # writable by a different uid until the deferred chmod lands, so fall back.
+ if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
+ export HOME=/tmp
+ fi
 }
+
+# Guarantee a writable HOME in THIS shell, at source time, for every entrypoint —
+# not just the bash-fallback branch. The Go prelude (`proveo-entrypoint prep`)
+# runs as a subprocess and can only set HOME within its own process, so a shell
+# whose run-as uid has no passwd entry keeps HOME='/' (unwritable) and any later
+# `mkdir "$HOME/.<tool>"` fails ("cannot create directory '//.cursor'"). Sourced
+# before the prelude, this makes ~/… seeding work for an arbitrary uid.
+if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
+ export HOME=/tmp
+fi
 
 # ── 1. Set Working Directory ────────────────────────────────
 set_working_directory() {
-  local default_dir="${1:-/app}"
-  if [[ -d "$default_dir" ]]; then
-    cd "$default_dir"
-  fi
+ local default_dir="${1:-/app}"
+ if [[ -d "$default_dir" ]]; then
+ cd "$default_dir"
+ fi
 }
 
 # ── 2. Find and Load .env ───────────────────────────────────
 find_env_file() {
-  # 1. Check current working directory
-  if [[ -f .env ]]; then
-    printf '%s/.env' "$(pwd)"
-    return 0
-  fi
+ # 1. Check current working directory
+ if [[ -f .env ]]; then
+ printf '%s/.env' "$(pwd)"
+ return 0
+ fi
 
-  # 2. Check git root via git command (if available)
-  if command -v git >/dev/null 2>&1; then
-    local git_root
-    git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-    if [[ -n "$git_root" && -f "$git_root/.env" ]]; then
-      printf '%s' "$git_root/.env"
-      return 0
-    fi
-  fi
+ # 2. Check git root via git command (if available)
+ if command -v git >/dev/null 2>&1; then
+ local git_root
+ git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+ if [[ -n "$git_root" && -f "$git_root/.env" ]]; then
+ printf '%s' "$git_root/.env"
+ return 0
+ fi
+ fi
 
-  # 3. Check git root via directory traversal (pure Bash fallback)
-  local dir; dir="$(pwd)"
-  while [[ "$dir" != "/" ]]; do
-    if [[ -d "$dir/.git" && -f "$dir/.env" ]]; then
-      printf '%s/.env' "$dir"
-      return 0
-    fi
-    dir="$(dirname "$dir")"
-  done
+ # 3. Check git root via directory traversal (pure Bash fallback)
+ local dir; dir="$(pwd)"
+ while [[ "$dir" != "/" ]]; do
+ if [[ -d "$dir/.git" && -f "$dir/.env" ]]; then
+ printf '%s/.env' "$dir"
+ return 0
+ fi
+ dir="$(dirname "$dir")"
+ done
 
-  # 4. Check for any .env inside any subdirectories (maxdepth 5)
-  local sub_env
-  sub_env=$(find . -maxdepth 5 -name .env -not -path '*/node_modules/*' -not -path '*/.*/*' -print -quit 2>/dev/null)
-  if [[ -n "$sub_env" && -f "$sub_env" ]]; then
-    printf '%s/%s' "$(pwd)" "${sub_env#./}"
-    return 0
-  fi
+ # 4. Check for any .env inside any subdirectories (maxdepth 5)
+ local sub_env
+ sub_env=$(find . -maxdepth 5 -name .env -not -path '*/node_modules/*' -not -path '*/.*/*' -print -quit 2>/dev/null)
+ if [[ -n "$sub_env" && -f "$sub_env" ]]; then
+ printf '%s/%s' "$(pwd)" "${sub_env#./}"
+ return 0
+ fi
 
-  return 1
+ return 1
 }
 
 load_env() {
-  # In proxy/firewall the wrapper masks /app/.env and keeps secrets on the host
-  # / broker. Skip sourcing so a leaked or unmasked file cannot re-export keys
-  # into the agent process. Non-secret harness flags should be passed via -e.
-  case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
-    proxy|firewall)
-      echo "🔒 Skipping .env load (egress mode ${PROVEO_EGRESS_MODE} — secrets stay on host / broker)"
-      return 0
-      ;;
-  esac
+ # Prefer the Go prelude when baked into the image.
+ if command -v proveo-entrypoint >/dev/null 2>&1; then
+ proveo-entrypoint prep "${PROVEO_SMOKE_TARGET:-harness}" || true
+ return 0
+ fi
 
-  local env_path; env_path="$(find_env_file || true)"
-  if [[ -n "$env_path" ]]; then
-    echo "✅ Found .env at $env_path"
-    set -a
-    source "$env_path"
-    set +a
-    echo "✅ Loaded environment variables from .env"
-  else
-    echo "🔎 No .env found"
-  fi
+ # In proxy/firewall the wrapper masks /app/.env and keeps secrets on the host
+ # / broker. Skip sourcing so a leaked or unmasked file cannot re-export keys
+ # into the agent process. Non-secret harness flags should be passed via -e.
+ case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
+ proxy|firewall)
+ echo "🔒 Skipping .env load (egress mode ${PROVEO_EGRESS_MODE} — secrets stay on host / broker)"
+ apply_broker_sentinel
+ return 0
+ ;;
+ esac
 
-  # Bridge Google/Gemini API key aliases
-  if [[ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
-    if [[ -n "${GEMINI_API_KEY:-}" ]]; then
-      export GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY"
-    elif [[ -n "${GOOGLE_API_KEY:-}" ]]; then
-      export GOOGLE_GENERATIVE_AI_API_KEY="$GOOGLE_API_KEY"
-    fi
-  fi
+ local env_path; env_path="$(find_env_file || true)"
+ if [[ -n "$env_path" ]]; then
+ echo "✅ Found .env at $env_path"
+ set -a
+ source "$env_path"
+ set +a
+ echo "✅ Loaded environment variables from .env"
+ else
+ echo "🔎 No .env found"
+ fi
 
-  # Reverse bridge for tools expecting GEMINI_API_KEY or GOOGLE_API_KEY
-  if [[ -n "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
-    export GEMINI_API_KEY="${GEMINI_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
-    export GOOGLE_API_KEY="${GOOGLE_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
-  fi
+ # Bridge Google/Gemini API key aliases
+ if [[ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
+ if [[ -n "${GEMINI_API_KEY:-}" ]]; then
+ export GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY"
+ elif [[ -n "${GOOGLE_API_KEY:-}" ]]; then
+ export GOOGLE_GENERATIVE_AI_API_KEY="$GOOGLE_API_KEY"
+ fi
+ fi
+
+ # Reverse bridge for tools expecting GEMINI_API_KEY or GOOGLE_API_KEY
+ if [[ -n "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
+ export GEMINI_API_KEY="${GEMINI_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
+ export GOOGLE_API_KEY="${GOOGLE_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
+ fi
+
+ apply_broker_sentinel
+}
+
+# Rewrite brokered credential env vars to a sentinel so the agent process never
+# holds the real key (MITM injects the real secret). firewall mode only.
+apply_broker_sentinel() {
+ case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
+ firewall) ;;
+ *) return 0 ;;
+ esac
+ local keys="${PROVEO_CREDENTIAL_BROKER_KEYS:-}"
+ [[ -n "$keys" ]] || return 0
+ local sentinel="${PROVEO_BROKER_SENTINEL:-proveo-brokered}"
+ local k IFS=','
+ for k in $keys; do
+ k="$(printf '%s' "$k" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+ [[ -n "$k" ]] || continue
+ if [[ -n "${!k:-}" && "${!k}" != "$sentinel" ]]; then
+ export "$k=$sentinel"
+ fi
+ done
+ echo "🔒 Broker sentinel applied to: $keys"
 }
 
 # ── 2b. Git Identity from Environment ───────────────────────
 # Bridge GIT_AUTHOR_*/GIT_COMMITTER_* env into git's config-env (GIT_CONFIG_*) so
 # config reads resolve file-free; existing identity wins. Optional arg: repo dir.
 bridge_git_identity() {
-  command -v git >/dev/null 2>&1 || return 0
+ command -v git >/dev/null 2>&1 || return 0
 
-  local dir="${1:-$(pwd)}"
-  local name email idx
-  name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-}}"
-  email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-}}"
-  idx="${GIT_CONFIG_COUNT:-0}"
+ local dir="${1:-$(pwd)}"
+ local name email idx
+ name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-}}"
+ email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-}}"
+ idx="${GIT_CONFIG_COUNT:-0}"
 
-  if [[ -n "$name" ]] && ! git -C "$dir" config --get user.name >/dev/null 2>&1; then
-    export "GIT_CONFIG_KEY_${idx}=user.name" "GIT_CONFIG_VALUE_${idx}=$name"
-    idx=$((idx + 1))
-  fi
+ if [[ -n "$name" ]] && ! git -C "$dir" config --get user.name >/dev/null 2>&1; then
+ export "GIT_CONFIG_KEY_${idx}=user.name" "GIT_CONFIG_VALUE_${idx}=$name"
+ idx=$((idx + 1))
+ fi
 
-  if [[ -n "$email" ]] && ! git -C "$dir" config --get user.email >/dev/null 2>&1; then
-    export "GIT_CONFIG_KEY_${idx}=user.email" "GIT_CONFIG_VALUE_${idx}=$email"
-    idx=$((idx + 1))
-  fi
+ if [[ -n "$email" ]] && ! git -C "$dir" config --get user.email >/dev/null 2>&1; then
+ export "GIT_CONFIG_KEY_${idx}=user.email" "GIT_CONFIG_VALUE_${idx}=$email"
+ idx=$((idx + 1))
+ fi
 
-  if (( idx > ${GIT_CONFIG_COUNT:-0} )); then
-    export GIT_CONFIG_COUNT="$idx"
-  fi
+ if (( idx > ${GIT_CONFIG_COUNT:-0} )); then
+ export GIT_CONFIG_COUNT="$idx"
+ fi
 }
 
 # ── 2c. Git Context Report ──────────────────────────────────
 # Read-only startup report: repo/remote status, commit identity, gh session.
 # Call after load_env/bridge_git_identity. Optional arg: directory to inspect.
 report_git_context() {
-  command -v git >/dev/null 2>&1 || return 0
+ command -v git >/dev/null 2>&1 || return 0
 
-  local dir="${1:-$(pwd)}"
+ local dir="${1:-$(pwd)}"
 
-  if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    echo "✅ Git repository at $(git -C "$dir" rev-parse --show-toplevel)"
-    local origin
-    if origin="$(git -C "$dir" remote get-url origin 2>/dev/null)" && [[ -n "$origin" ]]; then
-      echo "✅ Remote origin: $origin"
-    else
-      echo "🔎 Not tracking a remote repo"
-    fi
-  else
-    echo "🔎 Not a git repository: $dir"
-  fi
+ if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+ echo "✅ Git repository at $(git -C "$dir" rev-parse --show-toplevel)"
+ local origin
+ if origin="$(git -C "$dir" remote get-url origin 2>/dev/null)" && [[ -n "$origin" ]]; then
+ echo "✅ Remote origin: $origin"
+ else
+ echo "🔎 Not tracking a remote repo"
+ fi
+ else
+ echo "🔎 Not a git repository: $dir"
+ fi
 
-  local id_name id_email
-  id_name="$(git -C "$dir" config --get user.name 2>/dev/null || true)"
-  id_email="$(git -C "$dir" config --get user.email 2>/dev/null || true)"
-  if [[ -n "$id_name" || -n "$id_email" ]]; then
-    echo "✅ Git identity: ${id_name:-unset} <${id_email:-unset}>"
-  else
-    echo "🔎 No git identity (provide GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL)"
-  fi
+ local id_name id_email
+ id_name="$(git -C "$dir" config --get user.name 2>/dev/null || true)"
+ id_email="$(git -C "$dir" config --get user.email 2>/dev/null || true)"
+ if [[ -n "$id_name" || -n "$id_email" ]]; then
+ echo "✅ Git identity: ${id_name:-unset} <${id_email:-unset}>"
+ else
+ echo "🔎 No git identity (provide GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL)"
+ fi
 
-  if command -v gh >/dev/null 2>&1; then
-    # `gh auth status` validates GH_TOKEN/config sessions over the network;
-    # cap it so locked-down egress modes can't stall startup.
-    if timeout 5s gh auth status >/dev/null 2>&1; then
-      echo "✅ gh session authenticated"
-    else
-      echo "🔎 gh session not authenticated (set GH_TOKEN or GITHUB_TOKEN)"
-    fi
-  fi
+ if command -v gh >/dev/null 2>&1; then
+ # `gh auth status` validates GH_TOKEN/config sessions over the network;
+ # cap it so locked-down egress modes can't stall startup.
+ if timeout 5s gh auth status >/dev/null 2>&1; then
+ echo "✅ gh session authenticated"
+ else
+ echo "🔎 gh session not authenticated (set GH_TOKEN or GITHUB_TOKEN)"
+ fi
+ fi
 }
 
 # ── 3. Attach RTK Repository ────────────────────────────────
 attach_rtk() {
-  if [[ "${ATTACH_RTK:-0}" =~ ^(1|true|yes|on)$ && ! -d rtk ]]; then
-    if [[ ! -w . ]]; then
-      echo "⚠️  Current directory $(pwd) is not writable; skipping RTK attachment."
-      return 0
-    fi
-    echo "🔄 Attaching RTK repository..."
-    git clone --depth 1 https://github.com/rtk-ai/rtk.git rtk || true
-  fi
+ if [[ "${ATTACH_RTK:-0}" =~ ^(1|true|yes|on)$ && ! -d rtk ]]; then
+ if [[ ! -w . ]]; then
+ echo "⚠️ Current directory $(pwd) is not writable; skipping RTK attachment."
+ return 0
+ fi
+ echo "🔄 Attaching RTK repository..."
+ git clone --depth 1 https://github.com/rtk-ai/rtk.git rtk || true
+ fi
 }
 
 # ── 4. Smoke Test Mode ──────────────────────────────────────
 run_smoke_test() {
-  local target_name="$1"
-  if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
-    echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-$target_name}"
-    exec sleep infinity
-  fi
+ local target_name="$1"
+ if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
+ echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-$target_name}"
+ exec sleep infinity
+ fi
 }
 
-# ── 5. Ensure Node.js Dependencies ──────────────────────────
-ensure_node_deps_common() {
-  [[ -f package.json ]] || return 0
-  [[ -d node_modules ]] && return 0
+# Note: there is intentionally NO project-dependency auto-install here. The
+# entrypoint is a fail-fast gate that assumes the image already ships the
+# runtimes/toolchains it promises; installing a project's own deps (pnpm install
+# / npm ci) is the coding agent's job at task time (and works under firewall
+# egress, since package downloads are allowed reads).
 
-  # Check if directory is writable to avoid permission errors (e.g. root-owned parent directories)
-  if [[ ! -w . ]]; then
-    echo "🔎 Directory $(pwd) is not writable; skipping auto-install of dependencies."
-    return 0
-  fi
-
-  echo "No node_modules found in $(pwd); installing dependencies..."
-  # An explicit lockfile is authoritative — honor it before falling back to
-  # the pnpm workspace heuristic (which would otherwise hijack yarn/npm
-  # monorepos that happen to use the "workspace:" dependency protocol).
-  if [[ -f pnpm-lock.yaml ]]; then
-    pnpm install
-  elif [[ -f package-lock.json ]]; then
-    npm ci
-  elif [[ -f yarn.lock ]]; then
-    if command -v yarn >/dev/null 2>&1; then yarn install; else npm install; fi
-  elif [[ -f pnpm-workspace.yaml ]] || \
-       ( grep -q '"packageManager": *"[^"]*pnpm' package.json 2>/dev/null ) || \
-       ( find . -maxdepth 4 -name package.json -not -path '*/node_modules/*' -not -path '*/.*/*' -exec grep -q '"workspace:' {} + 2>/dev/null ); then
-    pnpm install
-  else
-    npm install
-  fi
-}
-
-# ── 6. Tool Sourcing & Command Version Helpers ──────────────
+# ── 5. Tool Sourcing & Command Version Helpers ──────────────
 # Cecli style command version check (fallback cmd [args])
 command_version_cecli() {
-  local fallback="$1"; shift
-  timeout 5s "$@" 2>/dev/null || echo "$fallback"
+ local fallback="$1"; shift
+ timeout 5s "$@" 2>/dev/null || echo "$fallback"
 }
 
 # Opencode style command version check (cmd fallback [args])
 command_version_opencode() {
-  local name="$1"; shift
-  local fallback="${1:-n/a}"; shift || true
-  if ! command -v "$name" >/dev/null 2>&1; then
-    echo "$fallback"
-    return 0
-  fi
-  timeout 5s "$name" "$@" 2>/dev/null || echo "$fallback"
+ local name="$1"; shift
+ local fallback="${1:-n/a}"; shift || true
+ if ! command -v "$name" >/dev/null 2>&1; then
+ echo "$fallback"
+ return 0
+ fi
+ timeout 5s "$name" "$@" 2>/dev/null || echo "$fallback"
 }
 
-# ── 7. Declarative Env Var Bridges Mapping ──────────────────
-apply_env_bridges() {
-  local eval_cmds
-  eval_cmds=$(python3 - <<'PY'
-import json
-import os
-import re
-import shlex
+# ── 6. Declarative Env Var Bridges Mapping ──────────────────
 
-# Order matters: a bridge whose "default" references "$VAR" sees values
-# resolved by earlier bridges (we feed each resolved export back into the
-# environment below), so bridges that depend on OPENCODE_MODEL / the small
-# model must come after the bridges that produce them.
-bridges_json = """[
-  { "from": "ARCHITECT_MODEL", "to": "OPENCODE_MODEL", "fallback": "EDITOR_MODEL", "default": "anthropic/claude-sonnet-4-5", "transform": "normalize" },
-  { "from": "EDITOR_MODEL", "to": "OPENCODE_BUILD_MODEL", "default": "$OPENCODE_MODEL", "transform": "normalize" },
-  { "from": "EDITOR_MODEL", "to": "OPENCODE_SMALL_MODEL", "fallback": "SMALL_MODEL", "default": "anthropic/claude-haiku-4-5", "transform": "normalize" },
-  { "from": "OPENCODE_SMALL_MODEL", "to": "SMALL_MODEL", "transform": "normalize" },
-  { "from": "GEMINI_API_KEY", "to": "GOOGLE_GENERATIVE_AI_API_KEY" },
-  { "from": "GOOGLE_API_KEY", "to": "GOOGLE_GENERATIVE_AI_API_KEY" }
-]"""
-
-def normalize_model(model):
-    if not model:
-        return ""
-    if "/" in model:
-        return model
-    model_lower = model.lower()
-    # OpenAI reasoning models are any "o" followed by a digit (o1, o3, o4-mini, ...)
-    if model_lower.startswith("gpt-") or model_lower.startswith("chatgpt-") or re.match(r"o[0-9]", model_lower):
-        return f"openai/{model}"
-    elif model_lower.startswith("claude-"):
-        return f"anthropic/{model}"
-    elif model_lower.startswith("grok-"):
-        return f"xai/{model}"
-    elif model_lower.startswith("gemini-"):
-        return f"google/{model}"
-    elif model_lower.startswith("deepseek-"):
-        return f"deepseek/{model}"
-    return model
-
-bridges = json.loads(bridges_json)
-for bridge in bridges:
-    # Skip if target already explicitly defined in environment
-    if bridge["to"] in os.environ:
-        continue
-
-    src_val = os.environ.get(bridge["from"], "")
-
-    # Check fallback if src is empty
-    if not src_val and "fallback" in bridge:
-        src_val = os.environ.get(bridge["fallback"], "")
-
-    # Check default if still empty
-    if not src_val and "default" in bridge:
-        d = bridge["default"]
-        if d.startswith("$"):
-            ref_var = d[1:]
-            src_val = os.environ.get(ref_var, "")
-        else:
-            src_val = d
-
-    if src_val:
-        # Apply transformation if specified
-        if bridge.get("transform") == "normalize":
-            src_val = normalize_model(src_val)
-
-        target_var = bridge["to"]
-        # Feed the resolved value back so later "$VAR" defaults can see it.
-        os.environ[target_var] = src_val
-        # Emit a shell-safe assignment (shlex.quote prevents the eval below
-        # from performing expansion or command substitution on the value).
-        print(f"export {target_var}={shlex.quote(src_val)}")
-PY
-)
-  eval "$eval_cmds"
-
-  # Ensure OPENCODE_SMALL_MODEL matches SMALL_MODEL for consistency
-  if [[ -z "${OPENCODE_SMALL_MODEL:-}" && -n "${SMALL_MODEL:-}" ]]; then
-    export OPENCODE_SMALL_MODEL="$SMALL_MODEL"
-  fi
+# _normalize_model prefixes a bare model id with its provider (mirrors the
+# opencode model registry); an id that already contains "/" is returned as-is.
+_normalize_model() {
+ local m="$1" lower
+ [[ -n "$m" ]] || return 0
+ case "$m" in */*) printf '%s' "$m"; return 0 ;; esac
+ lower="$(printf '%s' "$m" | tr '[:upper:]' '[:lower:]')"
+ # OpenAI reasoning ids are "o" followed by a digit (o1, o3, o4-mini, …).
+ case "$lower" in
+ gpt-* | chatgpt-* | o[0-9]*) printf 'openai/%s' "$m" ;;
+ claude-*) printf 'anthropic/%s' "$m" ;;
+ grok-*) printf 'xai/%s' "$m" ;;
+ gemini-*) printf 'google/%s' "$m" ;;
+ deepseek-*) printf 'deepseek/%s' "$m" ;;
+ *) printf '%s' "$m" ;;
+ esac
 }
 
-# ── 8. Automatic Project-Level Tools Installer ──────────────
-ensure_project_tools() {
-  # Opt-out: accept the common falsy spellings, case-insensitively. In
-  # locked-egress deployments (no outbound network) this should be disabled so
-  # startup never blocks on a registry/CDN fetch.
-  case "$(printf '%s' "${PROVEO_AUTO_INSTALL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in
-    false|0|no|off|disable|disabled) return 0 ;;
+# _apply_env_bridge resolves one bridge from→to with an optional fallback var, an
+# optional default (a literal, or "$VAR" to reference another var), and an
+# optional "normalize" transform. Skips when `to` is already set; exports the
+# result so later bridges whose default is "$VAR" can see it. Reads/writes via
+# printenv/export (no indirect expansion) so it is safe under `set -u`.
+_apply_env_bridge() {
+ local from="$1" to="$2" fallback="$3" default="$4" transform="$5" val
+ printenv "$to" >/dev/null 2>&1 && return 0
+ val="$(printenv "$from" 2>/dev/null || true)"
+ [[ -z "$val" && -n "$fallback" ]] && val="$(printenv "$fallback" 2>/dev/null || true)"
+ if [[ -z "$val" && -n "$default" ]]; then
+  case "$default" in
+  '$'*) val="$(printenv "${default#\$}" 2>/dev/null || true)" ;;
+  *) val="$default" ;;
   esac
+ fi
+ [[ -n "$val" ]] || return 0
+ [[ "$transform" == normalize ]] && val="$(_normalize_model "$val")"
+ export "$to=$val"
+}
 
-  # Bounded network so a blackholed egress can't hang the container at startup.
-  local -a npm_net=(--fetch-timeout=60000 --fetch-retries=1)
+apply_env_bridges() {
+ # Order matters: a bridge whose default references "$VAR" must run AFTER the
+ # bridge that produces VAR (each result is exported as we go).
+ _apply_env_bridge ARCHITECT_MODEL      OPENCODE_MODEL               EDITOR_MODEL "anthropic/claude-sonnet-4-5" normalize
+ _apply_env_bridge EDITOR_MODEL         OPENCODE_BUILD_MODEL         ""           '$OPENCODE_MODEL'            normalize
+ _apply_env_bridge EDITOR_MODEL         OPENCODE_SMALL_MODEL         SMALL_MODEL  "anthropic/claude-haiku-4-5" normalize
+ _apply_env_bridge OPENCODE_SMALL_MODEL SMALL_MODEL                  ""           ""                           normalize
+ _apply_env_bridge GEMINI_API_KEY       GOOGLE_GENERATIVE_AI_API_KEY ""           ""                           ""
+ _apply_env_bridge GOOGLE_API_KEY       GOOGLE_GENERATIVE_AI_API_KEY ""           ""                           ""
 
-  # Add user-local bin to PATH for prefix-based installations
-  mkdir -p "${HOME}/.local/bin"
-  export PATH="${HOME}/.local/bin:${PATH}"
+ # Ensure OPENCODE_SMALL_MODEL matches SMALL_MODEL for consistency
+ if [[ -z "${OPENCODE_SMALL_MODEL:-}" && -n "${SMALL_MODEL:-}" ]]; then
+  export OPENCODE_SMALL_MODEL="$SMALL_MODEL"
+ fi
+}
 
-  # 1. NX Detection & Installation
-  if [[ -f nx.json ]]; then
-    if ! command -v nx >/dev/null 2>&1; then
-      echo "📦 Detected nx.json. Dynamically installing nx..."
-      npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" nx@latest || echo "⚠️ Failed to dynamically install nx"
+# ── 7. Automatic Project-Level Tools Installer ──────────────
+ensure_project_tools() {
+ # Opt-out: accept the common falsy spellings, case-insensitively. In
+ # locked-egress deployments (no outbound network) this should be disabled so
+ # startup never blocks on a registry/CDN fetch.
+ case "$(printf '%s' "${PROVEO_AUTO_INSTALL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in
+ false|0|no|off|disable|disabled) return 0 ;;
+ esac
+
+ # Bounded network so a blackholed egress can't hang the container at startup.
+ local -a npm_net=(--fetch-timeout=60000 --fetch-retries=1)
+
+ # Add user-local bin to PATH for prefix-based installations
+ mkdir -p "${HOME}/.local/bin"
+ export PATH="${HOME}/.local/bin:${PATH}"
+
+ # 1. NX Detection & Installation
+ if [[ -f nx.json ]]; then
+ if ! command -v nx >/dev/null 2>&1; then
+ echo "📦 Detected nx.json. Dynamically installing nx..."
+ npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" nx@latest || echo "⚠️ Failed to dynamically install nx"
+ fi
+ fi
+
+ # 2. Turbo Detection & Installation
+ if [[ -f turbo.json ]]; then
+ if ! command -v turbo >/dev/null 2>&1; then
+ echo "📦 Detected turbo.json. Dynamically installing turbo..."
+ npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" turbo@latest || echo "⚠️ Failed to dynamically install turbo"
+ fi
+ fi
+
+ # 3. Mise Detection & Installation
+ if [[ -f mise.toml || -f mise.local.toml || -f .mise.toml || -f .mise.local.toml || -d mise || -d .mise || -f .tool-versions ]]; then
+ if ! command -v mise >/dev/null 2>&1; then
+ echo "📦 Detected mise config or .tool-versions. Dynamically installing mise..."
+ # Download first so a blocked/timed-out fetch is detected via curl's own
+ # exit status (piping straight to sh masks it: an empty body exits 0).
+ local mise_installer
+ mise_installer="$(mktemp)"
+ if curl -fsSL --connect-timeout 5 --max-time 120 https://mise.run -o "$mise_installer"; then
+ MISE_INSTALL_PATH="${HOME}/.local/bin/mise" sh "$mise_installer" || echo "⚠️ mise install script failed"
+ else
+ npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" @jdx/mise@latest || echo "⚠️ Failed to dynamically install mise"
+ fi
+ rm -f "$mise_installer"
+ fi
+ fi
+}
+
+# ── 8. Workspace LSP Detection (shared) ─────────────────────
+# Detect which languages a workspace uses and which INSTALLED LSP servers cover
+# them, ranked by file count. Pure bash + awk (bash-3.2-safe: no associative
+# arrays). Shared by every agent that supports language servers; each entrypoint
+# renders detect_workspace_lsps output into its own config format
+# (opencode.json "lsp" / Claude Code plugin ".lsp.json"). Agents WITHOUT native
+# LSP use the Serena MCP server instead (wired in their MCP config).
+
+# LSP maps as case-statement lookups (bash-3.2-safe: no associative arrays).
+_lsp_ext_lang() { case "$1" in
+  .ts|.tsx|.js|.jsx|.mts|.cts|.mjs|.cjs|.vue|.svelte) echo typescript ;;
+  .py|.pyi) echo python ;;
+  .go) echo go ;; .rs) echo rust ;;
+  .sh|.bash|.zsh|.ksh) echo bash ;;
+  .json|.jsonc) echo json ;;
+  .yml|.yaml) echo yaml ;;
+  .html|.htm) echo html ;;
+  .css|.scss|.sass|.less) echo css ;;
+  .md|.mdx) echo markdown ;;
+  .toml) echo toml ;;
+  .tf|.tfvars) echo terraform ;;
+  .lua) echo lua ;; .java) echo java ;;
+  .c|.h|.cc|.cpp|.cxx|.hpp|.hh) echo cpp ;;
+  .rb) echo ruby ;; .php) echo php ;; .nix) echo nix ;; .zig) echo zig ;;
+  .puml|.plantuml) echo plantuml ;;
+esac; }
+_lsp_marker_lang() { case "$1" in
+  package.json|tsconfig.json|jsconfig.json) echo typescript ;;
+  pyproject.toml|requirements.txt|setup.py|Pipfile) echo python ;;
+  go.mod) echo go ;; Cargo.toml) echo rust ;;
+  Dockerfile|Containerfile|docker-compose.yml|docker-compose.yaml) echo docker ;;
+  Gemfile) echo ruby ;; composer.json) echo php ;;
+  .terraform.lock.hcl|Terraform.lock.hcl) echo terraform ;;
+esac; }
+_lsp_server() { case "$1" in
+  typescript) echo "typescript-language-server --stdio" ;;
+  python) echo "pyright-langserver --stdio" ;;
+  bash) echo "bash-language-server start" ;;
+  docker) echo "docker-langserver --stdio" ;;
+  yaml) echo "yaml-language-server --stdio" ;;
+  json) echo "vscode-json-language-server --stdio" ;;
+  html) echo "vscode-html-language-server --stdio" ;;
+  css) echo "vscode-css-language-server --stdio" ;;
+  markdown) echo "marksman server" ;;
+  toml) echo "taplo lsp stdio" ;;
+  terraform) echo "terraform-ls serve" ;;
+  lua) echo "lua-language-server" ;;
+  go) echo "gopls" ;;
+  rust) echo "rust-analyzer" ;;
+  java) echo "jdtls" ;;
+  cpp) echo "clangd" ;;
+  ruby) echo "ruby-lsp" ;;
+  php) echo "intelephense --stdio" ;;
+  nix) echo "nil" ;;
+  zig) echo "zls" ;;
+  plantuml) echo "plantuml-lsp" ;;
+esac; }
+
+# _lsp_walk prints "lang<TAB>ftype" for each detected file under scan_root
+# (ftype = the extension, or the filename for Docker; empty when not tracked).
+# A marker file (package.json, go.mod, …) is credited to its marker language AND
+# to its own extension's language, mirroring the original detector.
+_lsp_walk() {
+  local scan_root="$1" f base ext lang marker ftype mext ml
+  while IFS= read -r -d '' f; do
+    base="${f##*/}"
+    lang=""; ftype=""
+    marker="$(_lsp_marker_lang "$base")"
+    if [[ -n "$marker" ]]; then
+      lang="$marker"
+      [[ "$lang" == docker ]] && ftype="$base"
     fi
-  fi
-
-  # 2. Turbo Detection & Installation
-  if [[ -f turbo.json ]]; then
-    if ! command -v turbo >/dev/null 2>&1; then
-      echo "📦 Detected turbo.json. Dynamically installing turbo..."
-      npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" turbo@latest || echo "⚠️ Failed to dynamically install turbo"
+    if [[ -z "$lang" ]]; then
+      if [[ "$base" == *.* ]]; then ext=".${base##*.}"; else ext=""; fi
+      if [[ -n "$ext" ]]; then lang="$(_lsp_ext_lang "$ext")"; [[ -n "$lang" ]] && ftype="$ext"; fi
     fi
-  fi
-
-  # 3. Mise Detection & Installation
-  if [[ -f mise.toml || -f mise.local.toml || -f .mise.toml || -f .mise.local.toml || -d mise || -d .mise || -f .tool-versions ]]; then
-    if ! command -v mise >/dev/null 2>&1; then
-      echo "📦 Detected mise config or .tool-versions. Dynamically installing mise..."
-      # Download first so a blocked/timed-out fetch is detected via curl's own
-      # exit status (piping straight to sh masks it: an empty body exits 0).
-      local mise_installer
-      mise_installer="$(mktemp)"
-      if curl -fsSL --connect-timeout 5 --max-time 120 https://mise.run -o "$mise_installer"; then
-        MISE_INSTALL_PATH="${HOME}/.local/bin/mise" sh "$mise_installer" || echo "⚠️ mise install script failed"
-      else
-        npm install -g "${npm_net[@]}" --prefix "${HOME}/.local" @jdx/mise@latest || echo "⚠️ Failed to dynamically install mise"
-      fi
-      rm -f "$mise_installer"
+    if [[ -z "$lang" && ( "$base" == *Dockerfile* || "$base" == *Containerfile* ) ]]; then
+      lang=docker; ftype="$base"
     fi
-  fi
+    [[ -n "$lang" ]] || continue
+    printf '%s\t%s\n' "$lang" "$ftype"
+    if [[ -n "$marker" && "$base" == *.* ]]; then
+      mext=".${base##*.}"
+      ml="$(_lsp_ext_lang "$mext")"
+      [[ -n "$ml" ]] && printf '%s\t%s\n' "$ml" "$mext"
+    fi
+  done < <(find "$scan_root" \
+             \( -name .git -o -name node_modules -o -name .next -o -name dist \
+                -o -name build -o -name target -o -name vendor \) -prune \
+             -o -type f -print0 2>/dev/null)
+}
+
+# detect_workspace_lsps prints "lang|count|cmd|arg…|ext1,ext2" per language whose
+# LSP server is installed, ranked by file count desc, then popularity, then name.
+detect_workspace_lsps() {
+  local scan_root="${1:-$(pwd)}"
+  local tab; tab="$(printf '\t')"
+  _lsp_walk "$scan_root" | awk -F'\t' '
+    BEGIN {
+      n = split("typescript python java cpp go rust php ruby bash json yaml docker html css markdown toml terraform lua nix zig plantuml", P, " ")
+      for (i = 1; i <= n; i++) pop[P[i]] = i - 1
+    }
+    {
+      total[$1]++
+      if ($2 != "" && !((k = $1 SUBSEP $2) in seen)) { seen[k] = 1; e[$1] = (e[$1] == "" ? $2 : e[$1] "," $2) }
+    }
+    END { for (l in total) printf "%d\t%d\t%s\t%s\n", total[l], (l in pop ? pop[l] : 999), l, e[l] }
+  ' | sort -t"$tab" -k1,1nr -k2,2n -k3,3 | while IFS="$tab" read -r cnt _pop lang extcsv; do
+    local server cmd
+    server="$(_lsp_server "$lang")"
+    [[ -n "$server" ]] || continue
+    cmd="${server%% *}"
+    command -v "$cmd" >/dev/null 2>&1 || continue
+    # Deterministic (sorted, unique) extension list regardless of filesystem order.
+    extcsv="$(printf '%s' "$extcsv" | tr ',' '\n' | sort -u | paste -sd, -)"
+    printf '%s|%s|%s|%s\n' "$lang" "$cnt" "${server// /|}" "$extcsv"
+  done
+}
+
+# configure_claude_lsp renders the shared detector output into a Claude Code
+# skills-directory plugin (~/.claude/skills/proveo-lsp/) declaring the workspace's
+# installed LSP servers via .lsp.json. Skills-dir plugins auto-load on the next
+# session (no marketplace), and claudecode runs --dangerously-skip-permissions so
+# it loads headlessly. No-op when nothing is detected.
+configure_claude_lsp() {
+  command -v jq >/dev/null 2>&1 || return 0
+  local scan="${1:-$(pwd)}" lsp_json plugdir="${HOME}/.claude/skills/proveo-lsp"
+  lsp_json="$(detect_workspace_lsps "$scan" | jq -R -s '
+    split("\n") | map(select(length > 0) | split("|")) | map(. as $f | {
+      key: $f[0],
+      value: {
+        command: $f[2],
+        args: $f[3:-1],
+        extensionToLanguage: (($f[-1] | split(",") | map(select(length > 0)))
+          | map({key: ., value: $f[0]}) | from_entries)
+      }
+    }) | from_entries')"
+  [ -z "$lsp_json" ] && lsp_json="{}"
+  [ "$lsp_json" = "{}" ] && return 0
+
+  mkdir -p "$plugdir/.claude-plugin"
+  printf '{"name":"proveo-lsp","description":"Workspace language servers (auto-detected)","version":"1.0.0"}\n' \
+    > "$plugdir/.claude-plugin/plugin.json"
+  printf '%s\n' "$lsp_json" > "$plugdir/.lsp.json"
+  echo "🧠 LSP code intelligence (Claude Code plugin): $(printf '%s' "$lsp_json" | jq -r 'keys_unsorted | join(" ")')"
 }

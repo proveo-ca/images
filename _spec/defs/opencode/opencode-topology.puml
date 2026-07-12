@@ -13,32 +13,32 @@ actor "Human (HITL)" as Human
 actor "Primary Agent\n(Team Lead)" as Lead
 
 package "Harness Layer" as Harness {
-  component "entrypoint.sh" as Entrypoint <<script>>
-  component ".env + model normalization" as Env <<logic>>
-  component "LSP auto-detect" as Lsp <<logic>>
-  component "seed defaults + subagents" as Seed <<logic>>
-  component "AGENTS.md\n(team rules)" as AgentsMd <<prompt>>
+ component "entrypoint.sh" as Entrypoint <<script>>
+ component ".env + model normalization" as Env <<logic>>
+ component "LSP auto-detect" as Lsp <<logic>>
+ component "seed defaults + subagents" as Seed <<logic>>
+ component "AGENTS.md\n(team rules)" as AgentsMd <<prompt>>
 }
 
 package "Primary Agents" as Primaries {
-  component "plan\n(read-only, temp=0.1)" as Plan <<agent>>
-  component "build\n(edit+ask bash, temp=0.2)" as Build <<agent>>
+ component "plan\n(read-only, temp=0.1)" as Plan <<agent>>
+ component "build\n(edit+ask bash, temp=0.2)" as Build <<agent>>
 }
 
 package "Subagent Crew" as Crew {
-  component "@architect\n(design before code)" as Architect <<subagent>>
-  component "@backend / @frontend\n(domain implementers)" as Domain <<subagent>>
-  component "@devops / @sre" as Ops <<subagent>>
-  component "@adversarial-reviewer\n(find bugs, no fixes)" as Reviewer <<subagent>>
-  component "@security-reviewer" as Security <<subagent>>
-  component "@spec-keeper\n(_spec/ changes)" as SpecKeeper <<subagent>>
-  component "@systems-design\n@monorepo-coordinator" as Systems <<subagent>>
+ component "@architect\n(design before code)" as Architect <<subagent>>
+ component "@backend / @frontend\n(domain implementers)" as Domain <<subagent>>
+ component "@devops / @sre" as Ops <<subagent>>
+ component "@adversarial-reviewer\n(find bugs, no fixes)" as Reviewer <<subagent>>
+ component "@security-reviewer" as Security <<subagent>>
+ component "@spec-keeper\n(_spec/ changes)" as SpecKeeper <<subagent>>
+ component "@systems-design\n@monorepo-coordinator" as Systems <<subagent>>
 }
 
 package "Verification Layer" as Verify {
-  component "detect test/lint/build cmds" as Detect <<logic>>
-  component "context rot/drift mitigation" as Context <<logic>>
-  component "review gates\nBLOCKER/HIGH stop completion" as Gates <<logic>>
+ component "detect test/lint/build cmds" as Detect <<logic>>
+ component "context rot/drift mitigation" as Context <<logic>>
+ component "review gates\nBLOCKER/HIGH stop completion" as Gates <<logic>>
 }
 
 Human --> Entrypoint : launch

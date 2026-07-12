@@ -2,22 +2,21 @@
 # SPEC: _spec/defs/cecli/cecli-topology.puml, _spec/defs/cecli/cecli.paradigm.md
 set -euo pipefail
 
-# Source shared entrypoint library if present
 if [[ -f /entrypoint-lib.sh ]]; then
+  # shellcheck source=/dev/null
   source /entrypoint-lib.sh
 fi
 
-# ── Make the run-as UID usable (root-free) ─────────────────
-# The wrapper runs us as the caller's host uid via `docker run --user`; give
-# that uid a passwd entry and a writable HOME (shared across harnesses).
-ensure_runtime_user
-
-set_working_directory "/app"
+if command -v proveo-entrypoint >/dev/null 2>&1; then
+  export PROVEO_SMOKE_TARGET=cecli
+  proveo-entrypoint prep cecli || true
+else
+  ensure_runtime_user
+  set_working_directory "/app"
+fi
 
 : "${CECLI_HOME:=/app/.cecli}"
-
 export CECLI_HOME
-
 mkdir -p "$CECLI_HOME" 2>/dev/null || true
 
 seed_cecli_subagents() {
@@ -56,26 +55,13 @@ has_cecli_agent_config() {
   return 1
 }
 
-load_env
+if ! command -v proveo-entrypoint >/dev/null 2>&1; then
+  load_env
+  bridge_git_identity
+  report_git_context
+fi
 
-# ── Git identity from environment ──────────────────────────
-# Bridge env-provided identity into git's config-env so cecli's `git config
-# --get` reads resolve file-free instead of seeding placeholders into .git/config.
-bridge_git_identity
-
-# ── Git context (repo / remote / identity / gh session) ────
-report_git_context
-
-# ── Environment Variable Bridge ────────────────────────────
-# Standardized vars:
-#   ARCHITECT_MODEL -> CECLI_MODEL / AIDER_MODEL
-#   EDITOR_MODEL    -> CECLI_EDITOR_MODEL / AIDER_EDITOR_MODEL
-#   SMALL_MODEL     -> CECLI_WEAK_MODEL / AIDER_WEAK_MODEL
-#   DARK_MODE=true  -> CECLI_DARK_MODE / AIDER_DARK_MODE
-#   CODE_THEME      -> CECLI_CODE_THEME
-#
-# CECLI is an aider fork, so both CECLI_* and AIDER_* names are exported
-# unless the caller already set a more specific value.
+# CECLI is an aider fork: export CECLI_* and AIDER_* aliases.
 if [[ -n "${ARCHITECT_MODEL:-}" ]]; then
   export CECLI_MODEL="${CECLI_MODEL:-$ARCHITECT_MODEL}"
   export AIDER_MODEL="${AIDER_MODEL:-$ARCHITECT_MODEL}"
@@ -91,6 +77,17 @@ if [[ -n "${SMALL_MODEL:-}" ]]; then
   export AIDER_WEAK_MODEL="${AIDER_WEAK_MODEL:-$SMALL_MODEL}"
 fi
 
+# Local model: cecli reaches Ollama through litellm. The ollama_chat/ prefix (not
+# the plain ollama/ one bridged from ARCHITECT_MODEL) selects the chat+tools
+# formatter that agentic edits need; OLLAMA_API_BASE (set by --local-model) points
+# litellm at the sidecar. cecli reads the CECLI_ env prefix (auto_env_var_prefix),
+# so the AIDER_ aliases above are unnecessary here — override every model tier.
+if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
+  export CECLI_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
+  export CECLI_EDITOR_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
+  export CECLI_WEAK_MODEL="ollama_chat/${PROVEO_LOCAL_MODEL}"
+fi
+
 case "${DARK_MODE:-}" in
   true|TRUE|True|1|yes|YES|Yes)
     export CECLI_DARK_MODE="${CECLI_DARK_MODE:-true}"
@@ -103,6 +100,26 @@ if [[ -n "${CODE_THEME:-}" ]]; then
 fi
 
 seed_cecli_subagents
+
+# ── Seed Serena MCP (code intelligence; cecli has no native LSP) ──
+# cecli is an aider fork and reads ~/.cecli.conf.yml (home) alongside a project
+# .cecli.conf.yml, so the Serena MCP server is declared at HOME without touching
+# the mounted repo. Only when serena is installed and no config already declares
+# mcp-servers.
+seed_cecli_serena_mcp() {
+  command -v serena >/dev/null 2>&1 || return 0
+  local home_conf="$HOME/.cecli.conf.yml"
+  [[ -f "$home_conf" ]] && grep -qE '^[[:space:]]*mcp-servers:' "$home_conf" && return 0
+  cat >> "$home_conf" <<'YAML'
+mcp-servers:
+  mcpServers:
+    serena:
+      command: serena
+      args: [start-mcp-server, --context, ide-assistant, --project, /app]
+YAML
+  echo "🧠 Serena MCP (code intelligence) wired in $home_conf"
+}
+seed_cecli_serena_mcp
 
 if [[ -z "${CECLI_AGENT_CONFIG:-}" ]] && ! has_cecli_agent_config; then
   CECLI_AGENT_CONFIG="{\"large_file_token_threshold\":8192,\"skip_cli_confirmations\":false,\"max_sub_agents\":3,\"subagent_paths\":[\"$CECLI_HOME/agents\",\"/app/.cecli/agents\"]}"
@@ -190,30 +207,24 @@ echo "────────────────────────�
 run_smoke_test "cecli"
 
 # ── Verification command discovery ────────────────────────
-if [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
+# Prefer Go proveo-entrypoint verify; fall back to thin detect-verify.sh wrapper.
+if command -v proveo-entrypoint >/dev/null 2>&1; then
+  echo "── Verification Commands ────────────────────────────"
+  proveo-entrypoint verify "$(pwd)" | while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    printf '  %s\n' "$line"
+  done
+  echo "─────────────────────────────────────────────────────"
+elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
   # shellcheck source=/dev/null
   source /opt/proveo/lib/detect-verify.sh
   echo "── Verification Commands ────────────────────────────"
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    cat <<< "  $line"
+    printf '  %s\n' "$line"
   done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi
-
-ensure_node_deps() {
-  if [[ "${CECLI_INSTALL_NODE_DEPS:-0}" != "1" ]]; then
-    return
-  fi
-
-  if ! command -v npm >/dev/null 2>&1; then
-    return
-  fi
-
-  ensure_node_deps_common
-}
-
-ensure_node_deps
 
 ensure_project_tools
 

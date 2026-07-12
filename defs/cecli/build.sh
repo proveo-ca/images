@@ -1,31 +1,32 @@
 #!/usr/bin/env bash
+# Build the single cecli image: the aider fork (cecli-dev) in a Python venv on
+# proveo/base. Context is the repo root (the Dockerfile COPYs packages/lib +
+# defs/cecli from there). Deduped — the old MCR playwright/python "cecli:python"
+# lineage and the cecli-node alias are gone.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE_NAME="${IMAGE_NAME:-proveo/cecli}"
-NODE_IMAGE_NAME="${NODE_IMAGE_NAME:-proveo/cecli-node}"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Copy shared library before building
-cp -f "$SCRIPT_DIR/../../packages/lib/entrypoint-lib.sh" "$SCRIPT_DIR/"
-trap 'rm -f "$SCRIPT_DIR/entrypoint-lib.sh"' EXIT
+IMAGE="${PROVEO_CECLI_IMAGE:-proveo/cecli:latest}"
+TAG=""
+NO_CACHE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tag) TAG="$2"; shift 2 ;;
+    --image) IMAGE="$2"; shift 2 ;;
+    --no-cache) NO_CACHE="--no-cache"; shift ;;
+    -h|--help) echo "Usage: build.sh [--image NAME] [--tag TAG] [--no-cache]"; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; exit 1 ;;
+  esac
+done
+[[ -n "$TAG" ]] && IMAGE="${IMAGE%%:*}:$TAG"
 
-# The node variant builds FROM proveo/base
 "$SCRIPT_DIR/../base/ensure.sh"
 
-echo "Building $IMAGE_NAME:python..."
-docker build -t "$IMAGE_NAME:python" -f "$SCRIPT_DIR/Dockerfile.python" "$SCRIPT_DIR/../.."
-
-echo "Building $NODE_IMAGE_NAME:latest..."
-docker build -t "$NODE_IMAGE_NAME:latest" -f "$SCRIPT_DIR/Dockerfile.node" "$SCRIPT_DIR/../.."
-
-echo "Tagging $NODE_IMAGE_NAME:latest as $IMAGE_NAME:latest..."
-docker tag "$NODE_IMAGE_NAME:latest" "$IMAGE_NAME:latest"
-
-echo "Tagging $NODE_IMAGE_NAME:latest as $IMAGE_NAME:local..."
-docker tag "$NODE_IMAGE_NAME:latest" "$IMAGE_NAME:local"
-
-echo "✅ Built:"
-echo "  $IMAGE_NAME:python"
-echo "  $NODE_IMAGE_NAME:latest"
-echo "  $IMAGE_NAME:latest"
-echo "  $IMAGE_NAME:local"
+echo "🔨 building $IMAGE (context: $REPO_ROOT)"
+exec docker build \
+  ${NO_CACHE:+$NO_CACHE} \
+  -f "$SCRIPT_DIR/Dockerfile" \
+  -t "$IMAGE" \
+  "$REPO_ROOT"

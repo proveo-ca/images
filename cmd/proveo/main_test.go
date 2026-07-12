@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/egress"
+	"github.com/proveo-ca/proveo/internal/entrypoint"
+	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -48,25 +51,39 @@ func TestPickProject(t *testing.T) {
 
 func TestBrokerProvider(t *testing.T) {
 	t.Parallel()
+	cursorMan := manifest.Manifest{Provider: "cursor"}
 	tests := []struct {
 		name     string
 		mode     string
+		man      manifest.Manifest
 		detected []string
+		lookup   func(string) string
 		on       bool
 		want     string
 	}{
-		{"firewall + 1 provider + on", "firewall", []string{"anthropic"}, true, "anthropic"},
-		{"broker mode never brokers", "broker", []string{"anthropic"}, true, ""},
-		{"proxy mode never brokers", "proxy", []string{"anthropic"}, true, ""},
-		{"two providers → ambiguous, skip", "firewall", []string{"anthropic", "openai"}, true, ""},
-		{"zero providers", "firewall", nil, true, ""},
-		{"broker disabled", "firewall", []string{"anthropic"}, false, ""},
+		{"firewall + 1 provider + on", "firewall", manifest.Manifest{}, []string{"anthropic"}, nil, true, "anthropic"},
+		{"broker mode never brokers", "broker", manifest.Manifest{}, []string{"anthropic"}, nil, true, ""},
+		{"proxy mode never brokers", "proxy", manifest.Manifest{}, []string{"anthropic"}, nil, true, ""},
+		{"two providers → ambiguous, skip", "firewall", manifest.Manifest{}, []string{"anthropic", "openai"}, nil, true, ""},
+		{"zero providers", "firewall", manifest.Manifest{}, nil, nil, true, ""},
+		{"broker disabled", "firewall", manifest.Manifest{}, []string{"anthropic"}, nil, false, ""},
+		{"cursor pin + multi-detect + host key", "firewall", cursorMan, []string{"anthropic", "openai", "cursor"}, func(k string) string {
+			if k == "CURSOR_API_KEY" {
+				return "sk-cursor"
+			}
+			return ""
+		}, true, "cursor"},
+		{"cursor pin without key", "firewall", cursorMan, []string{"anthropic", "openai"}, func(string) string { return "" }, true, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := brokerProvider(tc.mode, tc.detected, tc.on); got != tc.want {
-				t.Errorf("brokerProvider(%q, %v, %v) = %q, want %q", tc.mode, tc.detected, tc.on, got, tc.want)
+			lookup := tc.lookup
+			if lookup == nil {
+				lookup = func(string) string { return "" }
+			}
+			if got := brokerProvider(tc.mode, tc.man, tc.detected, lookup, tc.on); got != tc.want {
+				t.Errorf("brokerProvider(...) = %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -173,12 +190,50 @@ func TestAssembleAndDispatch(t *testing.T) {
 		}
 	})
 
+	t.Run("firewall sentinel + broker mount from host .env key", func(t *testing.T) {
+		t.Parallel()
+		plan, agent, err := assemble(assembleInput{
+			params: runParams{mode: "firewall", target: "cursor", image: "img"},
+			sid:    "s", egDir: "/st", uid: "1", gid: "1",
+			provider: "cursor", brokerFile: "/st/inject/broker.env",
+			env: []string{
+				"CURSOR_API_KEY=" + entrypoint.DefaultSentinel,
+				"PROVEO_CREDENTIAL_BROKER_KEYS=CURSOR_API_KEY",
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		argv := strings.Join(runner.DockerRunArgs(agent), " ")
+		if !strings.Contains(argv, "CURSOR_API_KEY="+entrypoint.DefaultSentinel) {
+			t.Errorf("firewall agent must get sentinel CURSOR_API_KEY: %s", argv)
+		}
+		if !strings.Contains(argv, "PROVEO_CREDENTIAL_BROKER_KEYS=CURSOR_API_KEY") {
+			t.Errorf("firewall agent must get broker key list: %s", argv)
+		}
+		sidecar := strings.Join(flattenSidecars(plan), " ")
+		if !strings.Contains(sidecar, "PROVEO_EGRESS_PROVIDER=cursor") {
+			t.Errorf("proxy must pin cursor: %s", sidecar)
+		}
+		if !strings.Contains(sidecar, "/broker:ro") {
+			t.Errorf("proxy must mount broker dir: %s", sidecar)
+		}
+	})
+
 	t.Run("unknown mode errors", func(t *testing.T) {
 		t.Parallel()
 		if _, _, err := assemble(assembleInput{params: runParams{mode: "nope"}, sid: "s", egDir: "/st"}); err == nil {
 			t.Error("assemble with an unknown mode must error")
 		}
 	})
+}
+
+func flattenSidecars(p egress.Plan) []string {
+	var out []string
+	for _, c := range p.Sidecars {
+		out = append(out, c...)
+	}
+	return out
 }
 
 // C6 regression: only the agent's own exit propagates as a bare exit code.
@@ -262,5 +317,83 @@ func TestWriteBrokerEnvFromHostFile(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "CURSOR_API_KEY=from-file") {
 		t.Errorf("broker.env should include host-file key, got %q", b)
+	}
+}
+
+func TestProviderDetectFromHostDotEnvOnly(t *testing.T) {
+	for _, k := range provider.KeyVars() {
+		t.Setenv(k, "")
+	}
+	envPath := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envPath, []byte("CURSOR_API_KEY=from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lookup := providerLookup(envPath)
+	detected := provider.Detect(lookup)
+	if len(detected) != 1 || detected[0] != "cursor" {
+		t.Fatalf("Detect(lookup) = %v, want [cursor]", detected)
+	}
+	if got := brokerProvider("firewall", manifest.Manifest{Provider: "cursor"}, detected, lookup, true); got != "cursor" {
+		t.Fatalf("brokerProvider = %q, want cursor", got)
+	}
+}
+
+func TestProviderDetectFromInvocationDotEnv(t *testing.T) {
+	for _, k := range provider.KeyVars() {
+		t.Setenv(k, "")
+	}
+	root := t.TempDir()
+	scope := filepath.Join(root, "scope")
+	if err := os.MkdirAll(scope, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(root, ".env")
+	if err := os.WriteFile(envPath, []byte("CURSOR_API_KEY=from-pwd\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hostEnv := workspace.EnvFileSource(root, scope, "")
+	lookup := providerLookup(hostEnv)
+	detected := provider.Detect(lookup)
+	if len(detected) != 1 || detected[0] != "cursor" {
+		t.Fatalf("Detect(lookup from pwd .env) = %v, want [cursor]", detected)
+	}
+}
+
+func TestCursorBrokerWithMultiProviderDotEnv(t *testing.T) {
+	for _, k := range provider.KeyVars() {
+		t.Setenv(k, "")
+	}
+	t.Setenv("CURSOR_API_KEY", "sk-cursor-host-only")
+	envPath := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envPath, []byte("ANTHROPIC_API_KEY=sk-ant\nOPENAI_API_KEY=sk-oai\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lookup := providerLookup(envPath)
+	detected := provider.Detect(lookup)
+	if len(detected) < 2 {
+		t.Fatalf("Detect(lookup) = %v, want multiple providers", detected)
+	}
+	if got := brokerProvider("firewall", manifest.Manifest{Provider: "cursor"}, detected, lookup, true); got != "cursor" {
+		t.Fatalf("brokerProvider = %q, want cursor", got)
+	}
+	path, err := writeBrokerEnv(filepath.Join(t.TempDir(), "inject"), lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "CURSOR_API_KEY=sk-cursor-host-only") {
+		t.Errorf("broker.env = %q, want host CURSOR_API_KEY", b)
+	}
+}
+
+func TestHydrateProcessEnvFromLookup(t *testing.T) {
+	t.Setenv("CURSOR_API_KEY", "")
+	lookup := func(string) string { return "from-file" }
+	hydrateProcessEnv("CURSOR_API_KEY", lookup)
+	if got := os.Getenv("CURSOR_API_KEY"); got != "from-file" {
+		t.Fatalf("CURSOR_API_KEY = %q, want from-file", got)
 	}
 }

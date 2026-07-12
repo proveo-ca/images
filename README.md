@@ -1,5 +1,19 @@
 # Proveo Harness Definitions
 
+Install the `proveo` CLI:
+
+```sh
+# Linux, macOS, FreeBSD
+curl -fsSL https://proveo.ca/cli/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://proveo.ca/cli/install.ps1 | iex
+```
+
+Checksum-verified binaries are published for Linux, macOS, FreeBSD, and Windows (amd64 + arm64).
+
 This repository collects deterministic Docker-based coding and debugging harnesses for AI-assisted engineering workflows.
 
 The project is intentionally centered on repeatable command surfaces rather than one-off local setup. Each harness definition captures:
@@ -15,21 +29,20 @@ The current repo is still personal-tooling oriented, but the direction is toward
 ## Repository Layout
 
 ```txt
-bin/
-  proveo                        # Transitional maintainer wrapper; delegates toward defs/* commands
+cmd/proveo # Host orchestrator (Go): list / run / projects / setup
+cmd/proveo-egress # MITM + credential broker
+internal/ # runner, workspace mounts, egress plan, dind, manifests
+.goreleaser.yaml # Multi-arch release config (optional: mise run build-cli -- --release)
 
-apps/
-  cli/                          # Cloudflare-hosted consumer CLI installer/assets
+apps/cli/ # Optional CDN / transitional bash list+help surface
 
 defs/
-  cecli/                        # Cecli runner, with Python and Node image variants
-  mitmproxy/                    # Headless mitmproxy egress inspector definition
-  claudecode/                  # Claude Code solo and MCP-enabled harnesses
-  opencode/                    # opencode runner with baked-in agents/defaults
+ */harness.manifest # Registration (embedded in proveo)
+ */run.sh # Thin shims → proveo run <target>
+ cecli/ · claudecode/ · opencode/ · cursor/
+ sidecars/ # squid config, egress-proxy, mitmproxy (legacy), dind
 
-_spec/                         # PlantUML architecture/spec diagrams only (*.puml)
-packages/                       # Reserved for future shared libraries/utilities
-skills/                         # Planned: portable agent skills/prompts for other harnesses
+_spec/ # Architecture specs (*.puml + paradigms/testing)
 ```
 
 ## Harness Definitions
@@ -49,16 +62,16 @@ Each mature definition should eventually expose a consistent contract:
 
 ```txt
 defs/<name>/
-  Dockerfile or Dockerfile.*
-  entrypoint.sh
-  build.sh
-  run.sh
-  test.sh
-  debug.sh, optional
-  help.sh, optional
-  README.md
-  sample config files
-  tests/, if applicable
+ Dockerfile or Dockerfile.*
+ entrypoint.sh
+ build.sh
+ run.sh
+ test.sh
+ debug.sh, optional
+ help.sh, optional
+ README.md
+ sample config files
+ tests/, if applicable
 ```
 
 ## Deterministic Commands
@@ -68,29 +81,46 @@ The preferred interaction model is to use committed commands rather than retypin
 Examples:
 
 ```bash
-# Definition-local commands are preferred
-./defs/cecli/run.sh
-./defs/opencode/test.sh
+# Preferred: Go CLI on PATH (local: mise run build-cli → GOPATH/bin)
+mise run build-cli
+proveo list
+proveo run opencode
+proveo run cursor --egress-mode firewall
+proveo run claudecode --local-model gemma4 --print
+
+# Definition-local run.sh shims exec proveo run
+./defs/opencode/run.sh
 ./defs/claudecode/run.sh --variant solo
-./defs/sidecars/mitmproxy/run.sh
 
-# Run every committed test suite, including detached Docker image smoke tests
-mise run test
-
-# Maintainer build / test / debug / deploy via mise tasks (sourcing lib/*.sh)
+# Maintainer build / test / deploy via mise
+mise run test                 # fast gate (= test-go)
+mise run test-images          # Docker/image + consumer CLI suites
+mise run test-all             # test-go then test-images
 mise run test-defs claudecode
-mise run debug claudecode-solo
+mise run debug cursor         # depends on build-cli; uses that proveo
+mise run build cursor
 mise run deploy claudecode --tag latest
-
-# Egress/sidecar images (mitmproxy) build from their def, not the target list
-defs/sidecars/mitmproxy/build.sh --tag latest
+mise run build-cli -- --release  # goreleaser → dist/ + stage CDN binaries
+mise run deploy-cli              # stage binaries + Wrangler → proveo.ca/cli
 ```
 
 The smoke suite generates and mounts a temporary `.env` with dummy non-secret
 model/API values to keep CLIs from falling into authentication prompts before the
 smoke-ready log is emitted.
 
-The distributed `proveo` command under `apps/cli/public/cli/bin/proveo` is the consumer base CLI. Maintainer workflows with extra powers (build, test, debug, deploy) run via `mise` tasks that source the reusable `lib/*.sh` helpers. Maintainer behavior may extend or override the consumer surface, but consumer install/uninstall should only manage the distributed `~/.proveo` install.
+**CLI vs CDN:** `mise run build-cli` installs Go binaries into `$(go env GOPATH)/bin`
+for local use. Pass `-- --release` to also run goreleaser into `dist/` and stage
+CDN assets. `mise run deploy-cli` stages checksummed
+`proveo-{os}-{arch}` binaries plus `install.sh` and publishes them to Cloudflare (`proveo.ca/cli`).
+Consumers run:
+
+```bash
+curl -fsSL https://proveo.ca/cli/install.sh | bash
+```
+
+which verifies SHA-256 and installs the Go `proveo` to `~/.proveo/bin`. Maintainer
+image workflows (`build`, `test-defs`, `debug`, `deploy`) still use `lib/*.sh` and
+`lib/manifest-enum.sh` (not shipped on the CDN).
 
 New deterministic harness behavior should live under `defs/<name>/` first, with the `mise` tasks and `lib/*.sh` helpers delegating where useful.
 
@@ -159,13 +189,11 @@ Preferred pattern:
 
 **Current pragmatic behavior (not isolation):** when the whole repo is bind-mounted at `/app`, `.env` at the repo root is visible inside the container unless you exclude it. Wrappers may also overlay a **symlink-resolved** `.env` at `/app/.env` so entrypoint autoload works when the project symlink points outside the mount — that overlay is a **functional** convenience, not a security control. `proveo run` warns when a mounted `.env` and a detected provider key coincide.
 
-See [`plans/01-security-credential-broker.md`](plans/01-security-credential-broker.md) for the broker design and honest limits (mounted files remain readable; the broker prevents **egress** exfiltration, not in-container reads).
-
 ### Credential isolation by egress mode
 
 | Mode | Bare-minimum credential mounts (target) | Achievable today? | Notes |
 | --- | --- | --- | --- |
-| **firewall** | Real secrets only in `broker.env` on the egress sidecar (`proveo-egress`); agent gets no secret file and no real secret env | **Yes** (sentinel still pending) | `.env` masked; `load_env` skipped; secret `-e` withheld; host `.env` → `broker.env` |
+| **firewall** | Real secrets only in `broker.env` on the egress sidecar (`proveo-egress`); agent gets no secret file and no real secret env | **Yes** | `.env` masked; `load_env` skipped; secret env sent as sentinel; host `.env` → `broker.env` |
 | **proxy** | Same broker-style isolation | **No** (without topology change) | Squid sees `CONNECT host:443` only; it cannot decrypt TLS or inject auth headers. Agent must hold credentials in-process for HTTPS APIs |
 | **broker** | Same broker-style isolation | **No** (by design) | Direct bridge; container boundary only. Dev-oriented path with in-process secret exposure. You can still avoid mounting `.env` as a file |
 
@@ -181,7 +209,7 @@ See [`plans/01-security-credential-broker.md`](plans/01-security-credential-brok
 2. ~~**Entrypoint always sources `.env`**~~ — **closed:** `load_env` skips when `PROVEO_EGRESS_MODE` is `proxy` or `firewall`.
 3. ~~**Go CLI forwards secrets in all modes**~~ — **closed:** manifest `secret: true` vars are forwarded as `-e` only in `broker`.
 4. ~~**Broker reads host env only**~~ — **closed:** host-side project `.env` / `PROVEO_EGRESS_ENV_FILE` feeds `broker.env` without mounting into the agent.
-5. **Sentinel replacement not shipped** — brokered keys forwarded via `-e` are not yet rewritten to a sentinel inside the agent after `.env` load (Plan 4 Ph3). Remaining defense-in-depth item.
+5. ~~**Sentinel replacement**~~ — **closed:** firewall mode injects sentinel values + `PROVEO_CREDENTIAL_BROKER_KEYS`; `proveo-entrypoint` / `apply_broker_sentinel` rewrite residuals.
 
 **Proxy and broker modes**
 

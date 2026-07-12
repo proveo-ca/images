@@ -68,6 +68,73 @@ func TestMountPlanAppWholeRepoFirewallMasksEnv(t *testing.T) {
 	}
 }
 
+// maskedEnvSet returns the set of container paths masked with a /dev/null:ro bind.
+func maskedEnvSet(mounts []runner.Mount) map[string]bool {
+	out := map[string]bool{}
+	for _, m := range mounts {
+		if m.Host == "/dev/null" && m.ReadOnly {
+			out[m.Container] = true
+		}
+	}
+	return out
+}
+
+func TestMountPlanInputOutputFirewallMasksNestedEnv(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, ".env"))
+	touch(t, filepath.Join(root, "svc", "api", ".env")) // nested
+	touch(t, filepath.Join(root, ".env.local"))
+	touch(t, filepath.Join(root, ".env.example"))              // template: must stay readable
+	touch(t, filepath.Join(root, "node_modules", "p", ".env")) // pruned
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "input-output"}, InputDir: root, OutputDir: filepath.Join(root, "reports"), EgressMode: "firewall"}.Plan()
+
+	masked := maskedEnvSet(got)
+	for _, want := range []string{"/workspace/input/.env", "/workspace/input/svc/api/.env", "/workspace/input/.env.local"} {
+		if !masked[want] {
+			t.Errorf("expected %s masked, got masks=%v", want, masked)
+		}
+	}
+	if masked["/workspace/input/.env.example"] {
+		t.Error(".env.example is a template and must stay readable (not masked)")
+	}
+	if masked["/workspace/input/node_modules/p/.env"] {
+		t.Error("node_modules must be pruned from env masking")
+	}
+}
+
+func TestMountPlanAppFirewallMasksNestedEnv(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	touch(t, filepath.Join(root, ".env"))
+	touch(t, filepath.Join(root, "packages", "worker", ".env")) // nested per-package
+	touch(t, filepath.Join(root, "node_modules", "x", ".env"))  // pruned
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, EgressMode: "firewall"}.Plan()
+
+	masked := maskedEnvSet(got)
+	if !masked["/app/.env"] || !masked["/app/packages/worker/.env"] {
+		t.Errorf("nested .env not fully masked: %v", masked)
+	}
+	if masked["/app/node_modules/x/.env"] {
+		t.Error("node_modules must be pruned")
+	}
+}
+
+func TestMountPlanAppSubdirFirewallMasksEnv(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	scope := filepath.Join(root, "apps", "web")
+	touch(t, filepath.Join(scope, ".env"))
+	touch(t, filepath.Join(scope, "sub", ".env"))
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: scope, EgressMode: "firewall"}.Plan()
+
+	// The scope is mounted at /app/apps/web; its .env files are masked under that base.
+	masked := maskedEnvSet(got)
+	if !masked["/app/apps/web/.env"] || !masked["/app/apps/web/sub/.env"] {
+		t.Errorf("subdir .env not masked at scope base: %v", masked)
+	}
+}
+
 func TestMountPlanAppWholeRepoSymlinkEnv(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -102,8 +169,8 @@ func TestMountPlanAppSubdir(t *testing.T) {
 	touch(t, filepath.Join(scope, "package.json")) // scope has its own package.json
 
 	got, wd := MountSpec{
-		Workspace:  manifest.Workspace{Layout: "app", ConfigDir: ".cursor", GitMode: "rw"},
-		RepoRoot:   root, InputDir: scope,
+		Workspace: manifest.Workspace{Layout: "app", ConfigDir: ".cursor", GitMode: "rw"},
+		RepoRoot:  root, InputDir: scope,
 		EgressMode: "broker",
 	}.Plan()
 
@@ -171,5 +238,43 @@ func TestMountPlanAppNonRepoReadOnly(t *testing.T) {
 	}
 	if wd != "/app" {
 		t.Errorf("workdir = %q, want /app", wd)
+	}
+}
+
+func TestEnvFileSourcePrefersRepoRoot(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	sub := filepath.Join(root, "apps", "web")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(root, ".env")
+	if err := os.WriteFile(envPath, []byte("CURSOR_API_KEY=x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := EnvFileSource(sub, sub, root)
+	if got != envPath {
+		t.Fatalf("EnvFileSource(sub, sub, root) = %q, want %q", got, envPath)
+	}
+}
+
+func TestEnvFileSourcePrefersInvocationWD(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	scope := filepath.Join(root, "scope")
+	if err := os.MkdirAll(scope, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pwdEnv := filepath.Join(root, ".env")
+	if err := os.WriteFile(pwdEnv, []byte("CURSOR_API_KEY=from-pwd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scopeEnv := filepath.Join(scope, ".env")
+	if err := os.WriteFile(scopeEnv, []byte("CURSOR_API_KEY=from-scope\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := EnvFileSource(root, scope, "")
+	if got != pwdEnv {
+		t.Fatalf("EnvFileSource(pwd, scope, \"\") = %q, want pwd %q", got, pwdEnv)
 	}
 }

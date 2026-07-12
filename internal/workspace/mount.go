@@ -1,10 +1,12 @@
 package workspace
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
 )
@@ -30,7 +32,11 @@ type MountSpec struct {
 	OutputDir          string
 	// EgressMode controls whether a project .env is bind-mounted into the agent.
 	// broker (default/empty when unset): mount resolved .env at /app/.env:ro when present.
-	// proxy|firewall: never mount secrets; mask .env paths with /dev/null.
+	// proxy|firewall: mask EVERY dotenv secrets file under the mounted tree
+	// (recursively, both layouts) with /dev/null, so a hostile/injected agent can't
+	// read a real credential off disk — the structural complement to the broker
+	// header-strip + egress DLP. Templates (.env.example/.sample/.template/.dist)
+	// stay readable.
 	EgressMode string
 }
 
@@ -39,10 +45,15 @@ type MountSpec struct {
 // root files / config dir / .env) exactly as the Bash did.
 func (w MountSpec) Plan() (mounts []runner.Mount, workdir string) {
 	if w.Layout == "input-output" {
-		return []runner.Mount{
+		mounts := []runner.Mount{
 			{Host: w.InputDir, Container: "/workspace/input", ReadOnly: true},
 			{Host: w.OutputDir, Container: "/workspace/output"},
-		}, ""
+		}
+		// The whole repo is mounted read-only here; mask its .env files too.
+		if w.isolateEnv() {
+			mounts = append(mounts, maskEnvMounts(w.InputDir, "/workspace/input")...)
+		}
+		return mounts, ""
 	}
 
 	ro := w.Mode == "ro"
@@ -101,30 +112,85 @@ func (w MountSpec) isolateEnv() bool {
 	return false
 }
 
-// envMounts returns .env-related mounts. In broker mode, overlay the resolved
-// host file at /app/.env. In proxy/firewall, mask any .env that a bind would
-// expose so secrets stay on the host / broker sidecar.
+// envMounts returns .env-related mounts for the app-layout tree (host = InputDir,
+// mounted at containerBase = /app[/<relativeScope>]). In broker mode it overlays
+// the resolved host .env at /app/.env. In proxy/firewall it masks every dotenv
+// secrets file under the mounted tree with /dev/null so a hostile/injected agent
+// can't read a real credential off disk — the structural complement to the broker
+// header-strip and the egress DLP (see internal/broker, internal/egresspolicy).
+//
+// The separately-mounted repo-root files (rootFiles) and configDir are not walked:
+// rootFiles is a fixed non-secret allowlist, and configDir is a tool-config dir —
+// neither is a conventional secrets location.
 func (w MountSpec) envMounts(relativeScope string) []runner.Mount {
 	if w.isolateEnv() {
-		var out []runner.Mount
+		base := "/app"
 		if relativeScope != "" {
-			if exists(filepath.Join(w.InputDir, ".env")) {
-				out = append(out, runner.Mount{Host: "/dev/null", Container: "/app/" + relativeScope + "/.env", ReadOnly: true})
-			}
-			if w.RepoRoot != "" && exists(filepath.Join(w.RepoRoot, ".env")) {
-				out = append(out, runner.Mount{Host: "/dev/null", Container: "/app/.env", ReadOnly: true})
-			}
-			return out
+			base += "/" + relativeScope
 		}
-		if exists(filepath.Join(w.InputDir, ".env")) || (w.RepoRoot != "" && exists(filepath.Join(w.RepoRoot, ".env"))) {
-			out = append(out, runner.Mount{Host: "/dev/null", Container: "/app/.env", ReadOnly: true})
-		}
-		return out
+		return maskEnvMounts(w.InputDir, base)
 	}
 	if env := envMountSource(w.InputDir, w.RepoRoot); env != "" {
 		return []runner.Mount{{Host: env, Container: "/app/.env", ReadOnly: true}}
 	}
 	return nil
+}
+
+// envMaskPrune are directories skipped when hunting for dotenv files to mask:
+// huge and never the project's own secrets.
+var envMaskPrune = map[string]bool{".git": true, "node_modules": true}
+
+// secretEnvFile reports whether basename is a dotenv secrets file that must not be
+// readable inside the agent. Matches ".env" and ".env.*" but leaves the
+// conventional non-secret templates readable (agents legitimately consult them).
+func secretEnvFile(name string) bool {
+	if name != ".env" && !strings.HasPrefix(name, ".env.") {
+		return false
+	}
+	switch {
+	case strings.HasSuffix(name, ".example"), strings.HasSuffix(name, ".sample"),
+		strings.HasSuffix(name, ".template"), strings.HasSuffix(name, ".dist"):
+		return false
+	}
+	return true
+}
+
+// maskEnvMounts walks hostDir (pruning .git/node_modules; WalkDir does not follow
+// symlinks, so no loops and a symlinked .env is still masked at its container
+// path) and returns a /dev/null:ro mask for every dotenv secrets file, at its
+// path under containerBase. Best-effort by design — a read error on any entry is
+// skipped rather than aborting the run.
+func maskEnvMounts(hostDir, containerBase string) []runner.Mount {
+	if hostDir == "" {
+		return nil
+	}
+	root := filepath.Clean(hostDir)
+	var masks []runner.Mount
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // unreadable entry: skip it, never abort the plan
+		}
+		if d.IsDir() {
+			if p != root && envMaskPrune[d.Name()] {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !secretEnvFile(d.Name()) {
+			return nil
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return nil
+		}
+		masks = append(masks, runner.Mount{
+			Host:      "/dev/null",
+			Container: containerBase + "/" + filepath.ToSlash(rel),
+			ReadOnly:  true,
+		})
+		return nil
+	})
+	return masks
 }
 
 func envMountSource(inputDir, repoRoot string) string {
@@ -163,7 +229,40 @@ func resolveRegularFile(path string) string {
 }
 
 // EnvFileSource returns a host-side .env path for broker ingestion (never for
-// agent mounts in proxy/firewall). Prefers inputDir, then repoRoot.
-func EnvFileSource(inputDir, repoRoot string) string {
-	return envMountSource(inputDir, repoRoot)
+// agent mounts in proxy/firewall). Matches the legacy egress.sh order:
+// invocationWD (host PWD) first, then scope inputDir / repoRoot, then
+// proveo-entrypoint's git-root / walk-up search.
+func EnvFileSource(invocationWD, inputDir, repoRoot string) string {
+	if invocationWD != "" {
+		if p := resolveRegularFile(filepath.Join(invocationWD, ".env")); p != "" {
+			return p
+		}
+	}
+	if p := envMountSource(inputDir, repoRoot); p != "" {
+		return p
+	}
+	for _, dir := range []string{inputDir, invocationWD} {
+		if dir == "" {
+			continue
+		}
+		if p := findEnvFileResolved(dir); p != "" {
+			return p
+		}
+	}
+	return ""
+}
+
+func findEnvFileResolved(dir string) string {
+	p := entrypoint.FindEnvFile(dir)
+	if p == "" {
+		return ""
+	}
+	if resolved := resolveRegularFile(p); resolved != "" {
+		return resolved
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	return abs
 }

@@ -2,9 +2,12 @@
 name: cursor
 description: Policy-gated autonomous loop (Cursor CLI, --force + native deny rules)
 egress: true
+dind: true
+provider: cursor
 stability: candidate
 images:
   cursor: proveo/cursor:latest
+  cursor-browser: proveo/cursor-browser:latest
 workspace:
   layout: app
   configDir: .cursor

@@ -1,12 +1,13 @@
 @startuml TestingLayer4Components
 ' SPEC source: internal/tmux/e2e_test.go
 ' Layer 4 — the promptful agent-E2E topology (headless tmux + local model).
+' Build tag: //go:build e2e — not compiled by default go test ./...
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 
-title Layer 4 · Agent E2E (promptful) — components (PROVEO_LLM_TEST=1)
+title Layer 4 · Agent E2E (promptful) — components\n(-tags=e2e + PROVEO_LLM_TEST=1)
 
 actor "E2E test / CI" as Test <<actor>>
 
@@ -36,7 +37,8 @@ over the OpenAI-compatible endpoint — so the test asserts the **side effect**.
 end note
 
 note right of Test
-Skips unless tmux + docker + Ollama(model) present.
+Requires -tags=e2e. Skips unless tmux + docker + Ollama(model) present.
+Tear down tmux + egress on every exit (t.Cleanup).
 Real harnesses via PROVEO_TEST_TARGET; default is the
 defs/tests/echo-agent fixture (no vendor image needed).
 end note

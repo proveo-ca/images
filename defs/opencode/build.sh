@@ -2,15 +2,17 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE_NAME="${PROVEO_OPENCODE_IMAGE:-proveo/opencode:latest}"
+TAG="latest"
+BROWSER=0
 NO_CACHE=""
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./build.sh [--tag <tag>] [--no-cache]
+  ./build.sh [--tag <tag>] [--browser] [--no-cache]
 
-Builds the opencode harness image.
+Builds the opencode harness image. --browser builds the opencode-browser variant
+FROM proveo/base-node-browser (Playwright + Chromium) instead of base-node-lsp.
 EOF
 }
 
@@ -18,8 +20,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)
       [[ $# -ge 2 ]] || { echo "--tag requires a value" >&2; exit 1; }
-      IMAGE_NAME="proveo/opencode:$2"
+      TAG="$2"
       shift 2
+      ;;
+    --browser)
+      BROWSER=1
+      shift
       ;;
     --no-cache)
       NO_CACHE="--no-cache"
@@ -37,5 +43,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-"$SCRIPT_DIR/../base/ensure.sh"
-docker build ${NO_CACHE:+$NO_CACHE} -t "$IMAGE_NAME" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR/../.."
+if [[ "$BROWSER" == 1 ]]; then
+  IMAGE_NAME="${PROVEO_OPENCODE_BROWSER_IMAGE:-proveo/opencode-browser:$TAG}"
+  BASE_IMAGE="proveo/base-node-browser:latest"
+  "$SCRIPT_DIR/../base-node-browser/ensure.sh"
+else
+  IMAGE_NAME="${PROVEO_OPENCODE_IMAGE:-proveo/opencode:$TAG}"
+  BASE_IMAGE="proveo/base-node-lsp:latest"
+  "$SCRIPT_DIR/../base-node-lsp/ensure.sh"
+fi
+
+docker build ${NO_CACHE:+$NO_CACHE} \
+  --build-arg BASE_IMAGE="$BASE_IMAGE" \
+  -t "$IMAGE_NAME" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR/../.."

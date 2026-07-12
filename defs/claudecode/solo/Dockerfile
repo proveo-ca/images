@@ -1,4 +1,6 @@
-ARG BASE_IMAGE=proveo/base:latest
+ARG BASE_IMAGE=proveo/base-node-lsp:latest
+
+# proveo-entrypoint is inherited from proveo/base-node (built once in defs/base).
 FROM ${BASE_IMAGE}
 
 ARG USER_ID=1000
@@ -24,9 +26,9 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
 # python3/dumb-init/pnpm and the hardening pass). The Solidity/security
 # toolchain (Foundry, solc, solhint, semgrep) lives in the sol variant.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget python3-pip \
+    wget python3 python3-pip \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-    && /usr/local/sbin/proveo-harden
+    && /usr/local/sbin/proveo-harden /usr /opt
 
 # Install basic Python tools
 RUN pip3 install --no-cache-dir --break-system-packages \

@@ -8,7 +8,7 @@ A collection of compressed prompt inputs used to architect, scale, and communica
 
 This is a generic blueprint. Drop it into any project's `_spec/` directory and adapt the examples — the conventions below are deliberately project-agnostic so diagrams look and read the same everywhere.
 
-Prose companions to the diagrams live alongside them: [`paradigms.md`](paradigms.md) (per-harness working modes + the egress/credential boundaries) and [`testing.md`](testing.md) (the four-layer testing approach, including the headless-tmux + local-model agent-E2E pattern).
+Prose companions to the diagrams live alongside them: [`paradigms.md`](paradigms.md) (per-harness working modes + the egress/credential boundaries), [`testing.md`](testing.md) (the four-layer testing approach, including the headless-tmux + local-model agent-E2E pattern), and [`egress-policy.md`](egress-policy.md) (MITM read-allow / write-deny / DLP — see linked `.puml` files).
 
 ## SPEC references
 

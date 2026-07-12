@@ -1,10 +1,13 @@
 // Package broker is the credential broker for the firewall egress
-// mode (Plan 1). It imports omnigent's credential_proxy principle — "inject
+// mode. It imports omnigent's credential_proxy principle — "inject
 // keys, never expose" — adapted to the fact that the *vendor CLI*, not this
 // harness, makes the model call. The real provider secret is confined to the
 // egress proxy (this process); on the pinned-provider host it injects the auth
-// header, and on every other host it strips credential headers so a key the
-// agent read from a mounted .env is useless for exfiltration.
+// header, and on every other host it strips the known credential headers so a key
+// the agent read from a mounted .env cannot leave via those headers. That blocks
+// the common exfil path but is not absolute on its own — a secret re-encoded into
+// a request body evades header-strip; the egress DLP scan (internal/egresspolicy)
+// is the complementary layer, and neither is a hard guarantee.
 //
 // This package is intentionally stdlib-only (operates on *http.Request) so the
 // security-critical classification and header logic is unit-testable without

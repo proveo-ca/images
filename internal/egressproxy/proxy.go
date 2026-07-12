@@ -1,6 +1,6 @@
 // SPEC: _spec/defs/claudecode/claudecode-egress-topology.puml
 //
-// Package egressproxy is the Go egress inspection proxy (Plan 4 Phase 2): a
+// Package egressproxy is the Go egress inspection proxy: a
 // TLS-terminating MITM proxy built on github.com/google/martian/v3 that records
 // flows, brokers credentials (internal/broker), and forwards to Squid upstream.
 // It replaces the Python mitmproxy sidecar on the firewall path.

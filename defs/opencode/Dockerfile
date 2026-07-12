@@ -1,9 +1,11 @@
-ARG BASE_IMAGE=proveo/base:latest
+ARG BASE_IMAGE=proveo/base-node-lsp:latest
 
-FROM golang:1.22-bookworm AS plantuml-lsp-builder
+FROM golang:1.26-bookworm AS plantuml-lsp-builder
 
 RUN GOBIN=/out go install github.com/ptdewey/plantuml-lsp@latest
 
+# proveo-entrypoint (shared in-container prelude) is inherited from
+# proveo/base-node — built once in defs/base, no per-harness rebuild.
 FROM ${BASE_IMAGE}
 
 ARG USER_ID=1000
@@ -44,15 +46,9 @@ RUN DOCKER_VERSION=26.1.4 \
     && mv /tmp/docker/docker /usr/local/bin/docker \
     && rm -rf /tmp/docker /tmp/docker.tgz
 
-RUN npm install -g \
-    opencode-ai@latest \
-    typescript-language-server \
-    vscode-langservers-extracted \
-    bash-language-server \
-    dockerfile-language-server-nodejs \
-    yaml-language-server \
-    pyright \
-    && npm cache clean --force
+# The workspace language servers now live in proveo/base-node-lsp (shared with
+# claudecode). Only the opencode agent itself is installed here.
+RUN npm install -g opencode-ai@latest && npm cache clean --force
 
 COPY --from=plantuml-lsp-builder /out/plantuml-lsp /usr/local/bin/plantuml-lsp
 

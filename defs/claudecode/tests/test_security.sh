@@ -69,12 +69,12 @@ for image in $(images_to_test); do
     '{{json .Config.Entrypoint}}' \
     "dumb-init"
 
-  # Node version is v20.x
+  # Node version is v22.x (proveo/base-node LTS floor)
   assert_output_matches \
-    "[$tag] node version is v20.x" \
+    "[$tag] node version is v22.x" \
     "$image" \
     "node --version" \
-    "^v20\."
+    "^v22\."
 
   # Docker USER is non-root
   assert_inspect \

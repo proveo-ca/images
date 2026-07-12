@@ -87,3 +87,33 @@ func Notef(format string, a ...any) { Default.Notef(format, a...) }
 
 // Iconf writes an icon-decorated line on Default.
 func Iconf(icon, format string, a ...any) { Default.Iconf(icon, format, a...) }
+
+// BrandBanner is the Proveo Solutions box art from the legacy bash help.sh.
+const BrandBanner = `        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘`
+
+// BrandTagline is the one-line product blurb under the banner.
+const BrandTagline = "proveo/images: portable, sandboxed AI coding agents"
+
+// WriteBrandBanner writes the branding banner (+ tagline) to w.
+// When fancy is true and w is a TTY-capable fancy printer, the banner is cyan/bold.
+func WriteBrandBanner(w io.Writer) {
+	p := New(w)
+	fmt.Fprintln(w)
+	if !p.Plain {
+		fmt.Fprint(w, "\033[1m\033[36m") // bold cyan
+	}
+	fmt.Fprintln(w, BrandBanner)
+	if !p.Plain {
+		fmt.Fprint(w, "\033[0m")
+	}
+	if p.Plain {
+		fmt.Fprintf(w, "  %s\n\n", BrandTagline)
+	} else {
+		fmt.Fprintf(w, "  \033[2m%s\033[0m\n\n", BrandTagline) // dim
+	}
+}

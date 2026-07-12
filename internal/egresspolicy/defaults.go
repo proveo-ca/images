@@ -2,8 +2,9 @@ package egresspolicy
 
 // DefaultSinks are domain suffixes that exist to RECEIVE exfil; denied for all
 // methods (so even a GET to webhook.site is blocked). Curated starter set,
-// refreshable later (see plans/egress-policy.md). Operators extend/override via
-// PROVEO_EGRESS_* config.
+// refreshable later. Operators extend/override via PROVEO_EGRESS_* config.
+//
+// SPEC: _spec/egress-policy-layers.puml
 var DefaultSinks = []string{
 	// paste bins
 	"pastebin.com", "hastebin.com", "paste.ee", "ix.io", "0x0.st", "dpaste.com", "ghostbin.com",

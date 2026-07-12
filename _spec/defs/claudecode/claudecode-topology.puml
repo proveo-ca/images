@@ -13,25 +13,25 @@ actor "Human" as Human
 actor "Claude Code" as Claude
 
 package "Harness Layer" as Harness {
-  component "entrypoint.sh\n(docker)" as Entrypoint <<script>>
-  component ".env loader\nmodel bridge" as EnvLoader <<logic>>
-  component "smoke-test mode" as Smoke <<mode>>
-  component "CLAUDE.md\n(loop spec)" as ClaudeMd <<prompt>>
+ component "entrypoint.sh\n(docker)" as Entrypoint <<script>>
+ component ".env loader\nmodel bridge" as EnvLoader <<logic>>
+ component "smoke-test mode" as Smoke <<mode>>
+ component "CLAUDE.md\n(loop spec)" as ClaudeMd <<prompt>>
 }
 
 package "Execution Loop" as Loop {
-  component "Spec / Goal" as Spec <<step>>
-  component "Plan + Acceptance Criteria" as Plan <<step>>
-  component "Implement (edit)" as Implement <<step>>
-  component "Verify (run tests/lint)" as Verify <<step>>
-  component "Inspect Failure → Adjust" as Inspect <<step>>
+ component "Spec / Goal" as Spec <<step>>
+ component "Plan + Acceptance Criteria" as Plan <<step>>
+ component "Implement (edit)" as Implement <<step>>
+ component "Verify (run tests/lint)" as Verify <<step>>
+ component "Inspect Failure → Adjust" as Inspect <<step>>
 }
 
 package "Container Sandbox" as Sandbox {
-  component "--dangerously-skip-permissions" as Perms <<flag>>
-  component "tmpfs mounts\n/workspace/{input,output,temp}" as Mounts <<storage>>
-  component "network egress layer\nbroker|proxy|firewall" as Net <<security>>
-  component "runs as host uid\n(non-root)" as User <<security>>
+ component "--dangerously-skip-permissions" as Perms <<flag>>
+ component "tmpfs mounts\n/workspace/{input,output,temp}" as Mounts <<storage>>
+ component "network egress layer\nbroker|proxy|firewall" as Net <<security>>
+ component "runs as host uid\n(non-root)" as User <<security>>
 }
 
 Human --> Entrypoint : starts container

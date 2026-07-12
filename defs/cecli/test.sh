@@ -22,7 +22,7 @@ docker run --rm --user 4242:4242 --entrypoint bash \
       && [ "$(git config --get user.email)" = "dev@proveo.test" ]'
 echo "✅ git + gh baked in, env git identity resolves via git config"
 
-docker run --rm "$IMAGE_NAME" bash -c 'python3 --version && cecli --version && timeout 10s pnpm -v && test -f /opt/cecli/defaults/agents/adversarial-reviewer.md && test -f /opt/cecli/defaults/agents/security-reviewer.md && python3 - <<"PY"
+docker run --rm "$IMAGE_NAME" bash -c 'python3 --version && cecli --version && test -f /opt/cecli/defaults/agents/adversarial-reviewer.md && test -f /opt/cecli/defaults/agents/security-reviewer.md && python3 - <<"PY"
 from cecli.helpers.agents.service import AgentService
 AgentService._global_registry = {}
 AgentService.build_registry(["/opt/cecli/defaults/agents"])

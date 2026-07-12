@@ -1,0 +1,52 @@
+@startuml EgressPolicyLayers
+' SPEC source: internal/egresspolicy/policy.go, internal/egresspolicy/defaults.go
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+title Egress Policy — three layers (A / B / C)
+
+package "Layer A · Method pin" as A {
+  component "GET HEAD OPTIONS\n→ allow any non-denied host\n(doc scraping)" as Read <<app>>
+  component "POST PUT PATCH DELETE\n→ write-allowlist only\n(providers + github… +\nPROVEO_EGRESS_*)" as Write <<app>>
+}
+
+package "Layer B · Exfil-sink denylist" as B {
+  component "paste / webhook / tunnel\nchat-webhook / doh / shortener" as Sinks <<app>>
+  component "all methods blocked\neven GET webhook.site" as SinkRule <<app>>
+}
+
+package "Layer C · DLP + volume" as C {
+  component "known provider secrets\n+ shape heuristics\n+ high entropy tokens" as Secrets <<app>>
+  component "outbound byte budget\nper non-allowlisted host\n(default 8k / run)" as Budget <<app>>
+}
+
+package "Config (defaults + override)" as Cfg {
+  component "embedded default policy" as Def <<config>>
+  component "--egress-policy file\nPROVEO_EGRESS_POLICY" as Override <<config>>
+}
+
+Def ..> A
+Def ..> B
+Def ..> C
+Override ..> A
+Override ..> B
+Override ..> C
+
+note bottom of A
+Intended Squid ""unsafe_methods"" behavior,
+enforced where the method is visible (MITM).
+end note
+
+note bottom of B
+Curated starter list in defaults; refreshable.
+Optional future layer D: reputation / freshness.
+end note
+
+note bottom of C
+Scans URL path+query and body. Blocks (default)
+or redacts. Closes ""GET ?key=secret"" that A misses.
+end note
+
+@enduml

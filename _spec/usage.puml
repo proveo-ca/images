@@ -6,109 +6,92 @@ skinparam packageStyle rectangle
 
 left to right direction
 
-title Proveo Command Entrypoints and Component Usage
+title Proveo Command Entrypoints
 
 actor "Consumer" as Consumer
 actor "Maintainer" as Maintainer
 
-package "Consumer Entrypoint\napps/cli/public/images/bin" as ConsumerEntrypoint {
-  component "proveo" as ConsumerCli <<app>>
-  component "help\nlist\nrun <target>\nuninstall" as ConsumerCommands <<commands>>
-  component "help.sh\nuninstall.sh" as ConsumerScripts <<script>>
+package "Consumer / maintainer entrypoint\ncmd/proveo (static binary)" as Entrypoint {
+ component "proveo" as Proveo <<app>>
+ component "version · list · run · projects · setup" as Commands <<commands>>
+ component "run flags\n--egress-mode · --local-model\n--scope · --shell · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
 }
 
-package "Maintainer Entrypoint\nmise + lib/" as MaintainerEntrypoint {
-  component "mise run <task>\nlib/*.sh helpers" as MaintainerCli <<internal>>
-  component "build <target>\ntest-defs <target>\ndebug <target>\ndeploy <target>" as MaintainerCommands <<commands>>
+package "Installer" as Install {
+ component "dist/install.sh\npin release + sha256 verify" as InstallSh <<script>>
+ component "goreleaser artifacts\nlinux/darwin × amd64/arm64" as Artifacts <<image>>
 }
 
-package "Definition-Local Entrypoints\ndefs/<target>/" as DefinitionEntrypoints {
-  component "build.sh\nrun.sh\ntest.sh / tests/\ndebug.sh" as DefinitionCommands <<script>>
+package "Definition shims\ndefs/<target>/" as Shims {
+ component "run.sh → proveo run <target>" as RunShim <<script>>
+ component "build.sh · test.sh" as BuildTest <<script>>
 }
 
-package "Definitions and Defaults\ndefs/" as Definitions {
-  component "Dockerfile*\nentrypoint.sh / start scripts" as DefinitionRuntime <<definition>>
-  component "sample configs\ndefault agents\ndefinition tests" as DefinitionAssets <<asset>>
+package "Maintainer\nmise + lib/" as Maint {
+ component "mise build|test|deploy" as Mise <<internal>>
+ component "lib/build.sh · deploy.sh" as MaintLib <<script>>
 }
 
-package "Monorepo Discovery" as Monorepo {
-  component "git repo root\npnpm-workspace.yaml\nscope picker" as ScopeSelection <<logic>>
+package "Registration" as Reg {
+ component "defs/*/harness.manifest\n(embedded in binary)" as Manifests <<config>>
 }
 
-package "Egress Layer (claudecode run/debug)\ndefs/lib/egress.sh" as Egress {
-  component "modes\nbroker|proxy|firewall" as EgressModes <<logic>>
-  component "--local-model NAME\n(Ollama sidecar)" as EgressLocal <<logic>>
-  component "provider allowlist\nauto-detected from API key" as EgressProvider <<logic>>
-  component "Squid + mitmproxy + ollama sidecars\nreports/egress/<session>/report" as EgressSidecars <<runtime>>
+package "Orchestration packages\ninternal/" as Orch {
+ component "workspace mounts\napp | input-output" as Mounts <<logic>>
+ component "egress BuildPlan\nbroker|proxy|firewall" as Egress <<logic>>
+ component "dind (if dind: true)" as Dind <<logic>>
+ component "runner hardened argv" as Runner <<logic>>
 }
 
-package "Runtime and Artifacts" as Runtime {
-  component "Docker CLI" as DockerCli <<runtime>>
-  component "local images\nproveo/*" as LocalImages <<image>>
-  component "remote registry\nproveo/*" as Registry <<external>>
-  component "selected workspace\nreports / sessions / config dirs" as RuntimeMounts <<storage>>
+package "Runtime" as Runtime {
+ component "Docker CLI" as Docker <<runtime>>
+ component "proveo/* images" as Images <<image>>
+ component "sidecars\nsquid · proveo-egress · ollama · dind" as Sidecars <<runtime>>
+ component "workspace + state dir" as Storage <<storage>>
 }
 
-Consumer --> ConsumerEntrypoint : installed usage
-Maintainer --> MaintainerEntrypoint : repo-local wrapper
-Maintainer --> DefinitionEntrypoints : direct deterministic commands
+Consumer --> Install : first-time install
+Install --> Artifacts
+Install --> Proveo : places binary on PATH
 
-ConsumerEntrypoint --> Runtime : run uses Docker and images
-ConsumerEntrypoint --> Monorepo : run selects workspace scope
-ConsumerEntrypoint --> ConsumerScripts : help and uninstall delegate here
+Consumer --> Proveo : day-to-day
+Maintainer --> Proveo : run / --print / list
+Maintainer --> Mise : image lifecycle
+Maintainer --> Shims : optional direct scripts
 
-MaintainerEntrypoint --> DefinitionEntrypoints : build, test, run, debug delegate where possible
-MaintainerEntrypoint --> Definitions : build/test fallback and target metadata
-MaintainerEntrypoint --> Runtime : deploy pushes images; run/debug use images and mounts
-MaintainerEntrypoint --> Monorepo : run/debug select workspace scope
-MaintainerEntrypoint --> ConsumerScripts : uninstall delegates here
+Proveo --> Commands
+Commands --> RunFlags
+Proveo --> Manifests : enumerate targets
+Proveo --> Orch : compose plan
+Orch --> Docker
+Orch --> Images
+Orch --> Sidecars
+Orch --> Storage
 
-DefinitionEntrypoints --> Definitions : scripts consume definition files and defaults
-DefinitionEntrypoints --> Runtime : build/run/test/debug use Docker, images, and mounts
+RunShim ..> Proveo : exec
+Mise ..> BuildTest
+Mise ..> MaintLib
+Mise ..> Proveo : run/list when needed
+BuildTest --> Images
 
-Definitions --> Runtime : produces proveo/* images
-Monorepo --> Runtime : resolves selected workspace mount
-
-ConsumerEntrypoint ..> Egress : run claudecode --egress-mode
-MaintainerEntrypoint --> Egress : run/debug claudecode --egress-mode
-DefinitionEntrypoints --> Egress : defs/claudecode/run.sh sources egress.sh
-Egress --> Runtime : sidecars, mounts, and egress report
-EgressModes --> EgressSidecars
-EgressLocal --> EgressSidecars
-EgressProvider --> EgressSidecars
-
-note right of ConsumerEntrypoint
-Consumer commands:
-- help: prints packaged help
-- list: prints packaged target list
-- run: pulls/runs proveo/* images
-- uninstall: runs packaged uninstall script
+note right of Proveo
+**Product CLI is Go only.**
+No installed bash lib/*.sh runners.
+""PROVEO_DEFS_DIR"" overrides embeds for dev.
 end note
 
-note right of MaintainerEntrypoint
-Maintainer commands:
-- help/list: embedded command metadata
-- build/test/run/debug: use defs/<target>/ scripts
-- deploy: pushes a tagged local image
-- uninstall: reuses consumer lifecycle script
-end note
-
-note bottom of Definitions
-Reusable agent definitions currently live as
-definition defaults. A future packages/subagents
-boundary can feed these defaults into CLIs/images.
+note right of RunFlags
+""proveo run <target>"" applies to every
+harness with a manifest (cecli, claudecode*,
+opencode, cursor). Egress and DinD follow
+manifest ""egress:"" / ""dind:"" flags.
 end note
 
 note bottom of Egress
-claudecode run/debug can wrap the agent in a network
-egress layer (defs/lib/egress.sh):
-- open: direct bridge (default)
-- proxy: Squid enforcement (HTTP/HTTPS only, non-web blocked)
-- firewall: mitmproxy TLS inspection upstream of Squid
-Provider egress is auto-pinned to the API key present;
-web reads stay open. --local-model adds an Ollama
-sidecar. Every run writes an egress report.
-See claudecode-egress-topology.puml.
+Default ""--egress-mode firewall"": MITM
+credential broker + Squid. ""--local-model""
+adds Ollama (not for cursor). Session report
+under the host state dir.
 end note
 
 @enduml

@@ -5,7 +5,6 @@ egress: true
 stability: candidate
 images:
   cecli: proveo/cecli:latest
-  cecli-node: proveo/cecli-node:latest
 workspace:
   layout: app
   configDir: .cecli

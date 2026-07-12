@@ -17,6 +17,7 @@ func TestDetect(t *testing.T) {
 		env  map[string]string
 		want []string
 	}{
+		{name: "cursor api key", env: map[string]string{"CURSOR_API_KEY": "sk"}, want: []string{"cursor"}},
 		{name: "none", env: nil, want: nil},
 		{name: "anthropic api key", env: map[string]string{"ANTHROPIC_API_KEY": "x"}, want: []string{"anthropic"}},
 		{name: "anthropic oauth alias", env: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "t"}, want: []string{"anthropic"}},
@@ -27,6 +28,11 @@ func TestDetect(t *testing.T) {
 			name: "union preserves registry order",
 			env:  map[string]string{"OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "y", "GROQ_API_KEY": "z"},
 			want: []string{"anthropic", "openai", "groq"},
+		},
+		{
+			name: "cursor before openai when both present",
+			env:  map[string]string{"CURSOR_API_KEY": "c", "OPENAI_API_KEY": "o"},
+			want: []string{"cursor", "openai"},
 		},
 	}
 	for _, tc := range tests {

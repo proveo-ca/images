@@ -85,3 +85,19 @@ func TestNewDetectsPlain(t *testing.T) {
 		}
 	})
 }
+
+func TestWriteBrandBanner(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	var buf bytes.Buffer
+	WriteBrandBanner(&buf)
+	got := buf.String()
+	if !bytes.Contains(buf.Bytes(), []byte("pr●veo")) {
+		t.Fatalf("banner missing pr●veo mark:\n%s", got)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("S O L U T I O N S")) {
+		t.Fatalf("banner missing SOLUTIONS:\n%s", got)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte(BrandTagline)) {
+		t.Fatalf("banner missing tagline:\n%s", got)
+	}
+}

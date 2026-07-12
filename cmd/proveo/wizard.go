@@ -71,7 +71,7 @@ func promptEnv(target string, missing []manifest.EnvVar, in io.Reader, out io.Wr
 		n = ""
 	}
 	p.Iconf("🔑", "%s reads %d env var%s not set in your environment (Enter to skip):", target, len(missing), n)
-	r := bufio.NewReader(in)
+	var r *bufio.Reader
 	got := map[string]string{}
 	for _, e := range missing {
 		if e.Description != "" {
@@ -83,6 +83,9 @@ func promptEnv(target string, missing []manifest.EnvVar, in io.Reader, out io.Wr
 			fmt.Fprintf(out, "   %s (hidden): ", e.Name)
 			v, err = readSecret()
 		} else {
+			if r == nil {
+				r = bufio.NewReader(in)
+			}
 			fmt.Fprintf(out, "   %s: ", e.Name)
 			v, err = r.ReadString('\n')
 		}

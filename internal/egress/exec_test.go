@@ -44,6 +44,45 @@ func TestWaitOllamaReady(t *testing.T) {
 	})
 }
 
+// recordingRunner records the last call and always succeeds.
+type recordingRunner struct{ last []string }
+
+func (rr *recordingRunner) Run(args ...string) (string, error) { rr.last = args; return "", nil }
+
+func TestWaitSquidReady(t *testing.T) {
+	old := squidPollInterval
+	squidPollInterval = time.Millisecond
+	t.Cleanup(func() { squidPollInterval = old })
+
+	t.Run("returns once squid accepts", func(t *testing.T) {
+		r := &scriptedRunner{failN: 2}
+		if err := WaitSquidReady(r, "sess-squid", time.Second); err != nil {
+			t.Fatalf("WaitSquidReady: %v", err)
+		}
+		if r.calls != 3 {
+			t.Errorf("want 3 polls (2 fail + 1 ok), got %d", r.calls)
+		}
+	})
+
+	t.Run("times out when never ready", func(t *testing.T) {
+		r := &scriptedRunner{failN: 1 << 30}
+		if err := WaitSquidReady(r, "sess-squid", 5*time.Millisecond); err == nil {
+			t.Fatal("want timeout error, got nil")
+		}
+	})
+
+	t.Run("probes :3128 inside the container via docker exec", func(t *testing.T) {
+		r := &recordingRunner{}
+		if err := WaitSquidReady(r, "sess-squid", time.Second); err != nil {
+			t.Fatalf("WaitSquidReady: %v", err)
+		}
+		got := strings.Join(r.last, " ")
+		if !strings.Contains(got, "exec sess-squid bash") || !strings.Contains(got, "/dev/tcp/127.0.0.1/3128") {
+			t.Errorf("unexpected probe command: %q", got)
+		}
+	})
+}
+
 // netRunner fails `network rm` failN times (simulating the async-endpoint race),
 // succeeds everything else, and records every call.
 type netRunner struct {

@@ -53,7 +53,7 @@ Each phase ships a working product; Bash is deleted only after its Go replacemen
       enumerate from the manifests; `PROVEO_DEFS_DIR` overrides for dev. No hardcoded target list.
 - [x] `internal/workspace`: monorepo scope (git root + repo-relative prefix); `proveo run` from a
       subproject mounts the repo root and reports the subpath. Injectable git func → unit-tested.
-- [ ] Git identity forwarding in the runner (still in Bash).
+- [x] Git identity forwarding in Go (`internal/gitidentity`).
 
 **Phase 2 — Egress + credential broker in Go (Plan 1 lands)** — *in progress*
 - [x] `cmd/proveo-egress` + `internal/{egressproxy,broker,provider}`: a martian MITM proxy that
@@ -96,8 +96,13 @@ Each phase ships a working product; Bash is deleted only after its Go replacemen
       — verified an injected failure now fails the runner. The live bash integration
       (`PROVEO_EGRESS_INTEGRATION=1`) passes end to end through the rewired path, and caught a real
       regression along the way (custom-domains env not forwarded to the Go subprocess — fixed).
-- [ ] Bash retirement, round 2: `defs/*/run.sh` → thin `proveo run` shims, then delete the egress
-      *orchestration* Bash (`prepare`/`start_*`/`cleanup`) and the consumer `runners.sh` reimpl.
+- [x] Bash retirement, round 2: `defs/*/run.sh` → thin `proveo run` shims;
+      maintainer + consumer `runners.sh` `run`/`debug` exec the Go binary; host git identity
+      in `internal/gitidentity`; DinD only via `internal/dind`; consumer install no longer ships
+      `workspace.sh`/`dind.sh`. Specs updated (`_spec/components.puml`, `usage.puml`, paradigms).
+- [x] `defs/lib/egress.sh` reduced to **proveo-egress CLI wrappers** (detect / provider-allow /
+      providers). Topology orchestration is Go-only; bash `test_egress` static+provider contracts
+      remain; live topology → `go test ./internal/egress/`.
 
 ## Round 3 (bounded security + CLI parity) — done
 - [x] CLI flag parity for the coming shim cutover: `--shell` (via `runner.Entrypoint`), `--data-dir`,
@@ -126,15 +131,16 @@ preservation loop; `.cursor`/`.opencode`/`.cecli` config mounts; `.env`; per-har
 `APP_MOUNT_MODE`; `-w /app`) that `proveo run` does NOT implement — it only does claudecode's
 `input:ro`+`output:rw`. A naive shim would silently break in-place editing + monorepo context, and
 it can't be runtime-verified here (those images aren't built). So the shim cutover is gated on:
-- [ ] Port the `/app` monorepo mount model into `proveo run`, manifest-driven (a `workspace:`
-      profile per harness), and prove `--print` parity against each `run.sh`.
-- [ ] THEN flip `run.sh` → shims, delete egress *orchestration* Bash + `test_egress.sh` (Go
-      integration supersedes it), collapse the consumer `runners.sh`, update ~15 contract assertions.
+- [x] Port the `/app` monorepo mount model into `proveo run` (`internal/workspace` + manifests).
+- [x] `run.sh` → shims; egress orchestration Bash retired; consumer runners exec Go `proveo`.
 
-## In-container entrypoint → Go (still pending)
-- [ ] `entrypoint-lib.sh` + per-def `entrypoint.sh` + embedded Python → a `proveo-entrypoint` binary
-      (rewrites every Dockerfile); unblocks the **credential-broker sentinel** (agent env holds a
-      placeholder, not the key).
+## In-container entrypoint → Go (Phase 3 — landed core)
+- [x] `cmd/proveo-entrypoint` + `internal/entrypoint`: runtime user, .env load/skip, model bridges,
+      git identity, smoke mode, **credential-broker sentinel**.
+- [x] Baked into harness Dockerfiles (multi-stage build); bash `entrypoint-lib.sh` delegates to
+      `proveo-entrypoint prep` when present and keeps a pure-bash fallback.
+- [x] `proveo run` firewall mode injects sentinel values + `PROVEO_CREDENTIAL_BROKER_KEYS`.
+- [x] Per-def entrypoints prefer `proveo-entrypoint prep`; keep seed + exec agent-specific logic in bash.
 
 ## Testing standard
 All Go tests follow `docs/go-testing-standards.md` (from the official Go Wiki): table-driven +
@@ -150,7 +156,7 @@ files for generated config, no assert libraries. Run with `-race`.
 - Delete `lib/*.sh`, consumer `lib/*.sh`, per-def `*.sh` wrappers, dead `registry/*.yaml`.
 - egress-dashboard: port to a Go-served static page (and fix XSS/bind/auth), or keep as the one
   deliberate JS UI — decide in Phase 2.
-- Contract tests → Go tests.
+- Contract tests → Go tests (see [Plan 3](03-bash-test-migration.md)).
 
 ## Sequencing — egress-proxy first (decided)
 Plan 1's broker depends on the Go egress proxy, and the user chose to build it **first** (highest

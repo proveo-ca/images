@@ -1,0 +1,111 @@
+@startuml SandboxSteps
+' SPEC source (the real orchestration this diagram tracks):
+'   cmd/proveo/main.go            — doRun() host flow + execWithEgress()
+'   internal/egress/{plan,exec,stage}.go — networks/sidecars/readiness/teardown
+'   internal/broker/broker.go     — credential inject / strip
+'   internal/egressproxy/*        — MITM proxy + flows.ndjson recorder
+'   internal/workspace/mount.go   — mount plan + .env masking
+'   packages/lib/entrypoint-lib.sh, defs/*/entrypoint.sh — in-container steps
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam shadowing false
+skinparam ConditionEndStyle hline
+
+title proveo run <target> — sandbox lifecycle\n(host orchestrator provisions → agent container runs → host tears down)
+
+start
+
+partition "1 · LLM provider auth  «host»" {
+  :detect provider from host env + project **.env**\n(manifest ""provider:"" pin wins over key detection);
+  if (declared key missing and a TTY?) then (prompt)
+    :missing-env wizard — read secret (echo off),\nfeed broker + provider detection;
+  else (present)
+  endif
+  if (firewall AND provider resolved AND broker enabled?) then (broker)
+    :write host-only ""broker.env"" 0600 into <egDir>/inject\n(mounted ONLY into the proxy, never the agent);
+    note right
+      Raw key never enters the agent.
+      The MITM proxy injects the auth header
+      **only** for the pinned provider host;
+      client-supplied credential headers are
+      stripped off-provider.
+    end note
+  else (broker / open mode)
+    :provider key forwarded to the agent env by design\n(""warnMountedSecrets"" warns it can leave);
+  endif
+}
+
+partition "2 · Filesystem mount  «host»" {
+  :resolve git repo root + monorepo scope\n(interactive picker on a TTY);
+  if (manifest ""workspace.layout""?) then (app — coding agents)
+    :mount repo/scope **RW** at /app — agent EDITS IN PLACE\n(.git RW or RO per ""gitMode""; cursor/opencode=rw, cecli=ro);
+    :monorepo subdir: hoist shared root files **RO**\n(package.json, CLAUDE.md, lockfiles …) · optional **RW** /app/output;
+    note right
+      **Coding-harness convention:** every coding
+      harness mounts the repo **RW** at /app and
+      keeps **.git RW** so the agent can edit code AND commit.
+      Only analysis layouts opt out (""gitMode: ro"");
+    end note
+  else (input-output — analysis)
+    :mount repo **RO** at /workspace/input\n+ **RW** /workspace/output for artifacts (claudecode);
+  endif
+  :mask ""/.env"" and ""/.env.*"" under the mounted tree\n(firewall: secrets stay host-side; templates stay readable);
+  :mount MITM CA cert **RO** (firewall);
+}
+
+partition "3 · Egress provision  «host»" {
+  if (egress mode == open?) then (yes)
+    :no proxy chain — direct egress (no exfil boundary);
+  elseif (egress mode == proxy?) then (yes)
+    :agent -> **Squid** only\n(destination + port allowlist, no DLP);
+  else (firewall)
+    :create networks — agent net ""--internal"" (no direct route)\n+ external egress net;
+    :run **Squid** sidecar (config staged RO, log dir 0777)\n— run **proveo-egress** MITM (broker + DLP);
+    :connect nets · agent DNS blackholed ""--dns 0.0.0.0""\n(names resolve proxy-side only);
+    :wait Squid :3128 ready · wait MITM CA cert · wait Ollama;
+    note right
+      Layered egress: reads allow /
+      writes deny-by-default / DLP
+      (decode-scan + byte budget).
+    end note
+  endif
+  if (broker mode AND DinD requested?) then (yes)
+    :start DinD sidecar, attach to agent network;
+  else (no)
+  endif
+  :pull image (pull-first) -> offer local build only if missing;
+}
+
+partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" {
+  :ensure run-as uid (root-free) · workdir **/app**;
+  :.env load — SKIPPED under firewall\n(""secrets stay on host / broker"");
+  :git identity · ""gh"" auth check;
+  :seed BAKED defaults into ~/.<tool>\n(agents, config, hooks — image-immutable, offline);
+  :tool setup via **jq** — cursor HTTP/1.1 fallback;
+  :**code intelligence** — shared LSP detector\n(entrypoint-lib.sh §8: bash+awk) ranks workspace\nlanguages vs INSTALLED servers, ""command -v""-gated;
+  if (agent has native LSP config?) then (yes)
+    :render detector output to the agent's config (jq) —\nopencode.json ""lsp"" (opencode) ·\nplugin ""/.lsp.json"" (claudecode);
+  else (MCP-capable, no native LSP)
+    :wrap the detected servers in an MCP LSP bridge —\ncursor: **mcp-language-server** (Go, one/​server) → ~/.cursor/mcp.json ·\ncecli: **Serena** MCP toolkit → ""mcp-servers"";
+  endif
+  note right
+    Servers are BAKED into the image, not
+    downloaded at runtime: Node LSPs via the
+    shared **base-node-lsp** layer (opencode,
+    claudecode); **gopls** + **mcp-language-server**
+    as static Go binaries (cursor); **Serena**
+    via the existing Python venv (cecli).
+  end note
+  :apply declarative env-var bridges (model routing);
+  :DYNAMIC project tools when detected —\nmise / turbo / nx (fetched over egress = allowed reads);
+  :exec agent CLI\n(agent installs the repo's own deps on demand — reads pass firewall);
+}
+
+partition "5 · Reports / logging, post-session  «host»" {
+  :MITM records ""flows.ndjson"" audit throughout\n(query / headers / body omitted — never logs secrets);
+  :agent writes artifacts into reports/ (RW mount);
+  :on exit OR SIGINT/SIGTERM — **Teardown** (quiet runner):\n""rm -f"" sidecars · ""network rm"" · remove inject/broker.env · DinD cleanup;
+}
+
+stop
+
+@enduml

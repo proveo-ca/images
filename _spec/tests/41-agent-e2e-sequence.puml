@@ -1,10 +1,11 @@
 @startuml TestingLayer4Sequence
 ' SPEC source: internal/tmux/e2e_test.go
 ' Layer 4 — the promptful flow over time: drive -> prompt -> model -> side effect.
+' Build tag: //go:build e2e; gate: PROVEO_LLM_TEST=1
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam shadowing false
 
-title Layer 4 · Agent E2E — promptful flow (assert the side effect)
+title Layer 4 · Agent E2E — promptful flow (-tags=e2e; assert the side effect)
 
 actor "E2E test / CI" as Test
 participant "tmux (internal/tmux)" as Tmux

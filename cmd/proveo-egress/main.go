@@ -2,7 +2,7 @@
 //
 // Command proveo-egress is the egress inspection sidecar for firewall
 // mode: a Go MITM proxy that records flows, brokers credentials, and forwards to
-// Squid upstream. It replaces the Python mitmproxy sidecar (Plan 4 Phase 2).
+// Squid upstream. It replaces the Python mitmproxy sidecar.
 //
 // Configuration is by environment so the egress lifecycle can wire it with
 // `docker run -e`. Secrets are NOT passed on argv/env: the broker reads provider
@@ -125,11 +125,19 @@ func buildPolicy(bc broker.Config) egresspolicy.Config {
 	}
 
 	return egresspolicy.Config{
-		ProviderHosts:      providerHosts,
-		WriteHosts:         write,
-		DenySinks:          egresspolicy.DefaultSinks,
-		Secrets:            secrets,
-		BlockKnownSecrets:  true,
+		ProviderHosts:     providerHosts,
+		WriteHosts:        write,
+		DenySinks:         egresspolicy.DefaultSinks,
+		Secrets:           secrets,
+		BlockKnownSecrets: true,
+		// Primary encoding-evasion defense (F1), on by default: decode base64/hex
+		// tokens in the URL/body and re-scan for the exact secret + credential
+		// shapes. Low false-positive — only fires when a token decodes to a real
+		// secret. Disable with PROVEO_EGRESS_DLP_DECODE=off.
+		DecodeScan: envBool("PROVEO_EGRESS_DLP_DECODE", true),
+		// Opt-in backstop: catches encoded UNKNOWN high-entropy blobs too, but
+		// false-positives on legitimate high-entropy URLs (presigned links, JWTs),
+		// so it is off by default. Enable with PROVEO_EGRESS_DLP_ENTROPY=on.
 		BlockEntropy:       envBool("PROVEO_EGRESS_DLP_ENTROPY", false),
 		MaxOutBytesPerHost: envInt("PROVEO_EGRESS_MAX_OUT_BYTES", 16384),
 	}

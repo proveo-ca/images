@@ -74,9 +74,10 @@ therefore gated on Plan 4 Phases 0→2.**
       `set -e` abort (a `while read` subshell ending non-zero). Secret file removed on cleanup.
 - [x] **Dockerfile + build.sh** (`defs/sidecars/egress-proxy/`) — multi-stage static build on
       distroless.
-- [ ] **Go entrypoint (Plan 4 Ph3)** — honor a broker-keys list: after `.env` load, replace those
-      names with a sentinel so the agent process never holds the real key. *(sentinel = defense in
-      depth; the network-layer inject/strip guarantee is already delivered above.)*
+- [x] **Go entrypoint (Plan 4 Ph3)** — `PROVEO_CREDENTIAL_BROKER_KEYS` + sentinel rewrite in
+      `internal/entrypoint` / `proveo-entrypoint` / bash `apply_broker_sentinel`; `proveo run`
+      injects sentinel values in firewall mode. *(sentinel = defense in depth; network-layer
+      inject/strip remains the primary guarantee.)*
 - [x] **End-to-end validation, split across two tests:** the in-process broker-through-proxy test
       (`internal/egressproxy`) proves inject-on-provider / strip-off-provider through the real
       martian modifier chain; the gated Docker test (`internal/egress`, `PROVEO_EGRESS_INTEGRATION=1`)

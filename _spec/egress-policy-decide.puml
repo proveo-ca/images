@@ -1,0 +1,53 @@
+@startuml EgressPolicyDecideSequence
+' SPEC source: internal/egresspolicy/policy.go
+!includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
+skinparam shadowing false
+
+title Egress Policy — ""Decide(req)"" sequence (off-provider)
+
+participant "Agent" as Agent
+participant "brokerModifier" as Broker
+participant "policyModifier\n/ Decide" as Policy
+participant "Origin" as Origin
+database "flows.ndjson" as Log
+
+== Provider host (pinned) ==
+Agent -> Broker : HTTPS request
+Broker -> Broker : inject auth header
+Broker -> Origin : forward (policy no-op)
+note right of Policy
+Policy skips provider hosts so the
+broker-injected credential is never
+flagged by DLP.
+end note
+
+== Off-provider — allow path ==
+Agent -> Broker : e.g. GET https://docs.example.com
+Broker -> Broker : strip credential headers
+Broker -> Policy : Decide
+Policy -> Policy : B: not a sink?
+Policy -> Policy : A: method is read\n(GET/HEAD/OPTIONS)?
+Policy -> Policy : C: no secret / under budget?
+Policy --> Log : allowed (optional)
+Policy -> Origin : upstream round-trip
+
+== Off-provider — block paths ==
+Agent -> Broker : POST / secret in query / sink host
+Broker -> Broker : strip credential headers
+Broker -> Policy : Decide
+alt reason = sink (B)
+  Policy --> Log : blocked, reason=sink
+else reason = write-not-allowlisted (A)
+  Policy --> Log : blocked, reason=write
+else reason = secret | budget (C)
+  Policy --> Log : blocked, reason=secret|budget\n(never log secret value)
+end
+Policy -[#6E1100,bold]-> Agent : 403 + SkipRoundTrip\n(origin never contacted)
+
+note over Policy
+**Data-diode bias:** broad reads, tight writes.
+Not a hermetic seal — slow drip / covert channels remain;
+goal is to make bulk exfil hard and auditable.
+end note
+
+@enduml

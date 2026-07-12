@@ -12,31 +12,31 @@ actor "Human" as Human
 actor "Cursor CLI\n(agent)" as Cursor
 
 package "Harness Layer" as Harness {
-  component "entrypoint.sh\n(docker)" as Entrypoint <<script>>
-  component ".env loader\nCURSOR_API_KEY check" as EnvLoader <<logic>>
-  component "smoke-test mode" as Smoke <<mode>>
-  component "steering detection\nAGENTS.md | CLAUDE.md | .cursor/rules" as Steering <<prompt>>
-  component "proveo-loop.mdc seed\n(opt-in: CURSOR_SEED_RULES=1)" as LoopRule <<prompt>>
+ component "entrypoint.sh\n(docker)" as Entrypoint <<script>>
+ component ".env loader\nCURSOR_API_KEY check" as EnvLoader <<logic>>
+ component "smoke-test mode" as Smoke <<mode>>
+ component "steering detection\nAGENTS.md | CLAUDE.md | .cursor/rules" as Steering <<prompt>>
+ component "proveo-loop.mdc seed\n(opt-in: CURSOR_SEED_RULES=1)" as LoopRule <<prompt>>
 }
 
 package "Native Policy Layer" as Policy {
-  component "cli-config.json\npermissions.deny\n(survives --force)" as Deny <<config>>
-  component "/etc/cursor/hooks.json\nenterprise shell-audit hook\n(root-owned, immutable)" as Hooks <<security>>
-  component "readonly subagents\n@adversarial-reviewer\n@security-reviewer" as Subagents <<subagent>>
+ component "cli-config.json\npermissions.deny\n(survives --force)" as Deny <<config>>
+ component "/etc/cursor/hooks.json\nenterprise shell-audit hook\n(root-owned, immutable)" as Hooks <<security>>
+ component "readonly subagents\n@adversarial-reviewer\n@security-reviewer" as Subagents <<subagent>>
 }
 
 package "Execution Loop" as Loop {
-  component "Spec / Goal" as Spec <<step>>
-  component "Plan + Acceptance Criteria" as Plan <<step>>
-  component "Implement (edit)" as Implement <<step>>
-  component "Verify (run tests/lint)" as Verify <<step>>
-  component "Inspect Failure → Adjust" as Inspect <<step>>
+ component "Spec / Goal" as Spec <<step>>
+ component "Plan + Acceptance Criteria" as Plan <<step>>
+ component "Implement (edit)" as Implement <<step>>
+ component "Verify (run tests/lint)" as Verify <<step>>
+ component "Inspect Failure → Adjust" as Inspect <<step>>
 }
 
 package "Container Sandbox" as Sandbox {
-  component "agent --force --sandbox disabled\n(Docker is the sandbox)" as Force <<flag>>
-  component "/app workspace mount\nruns as host uid (non-root)" as Mounts <<storage>>
-  component "network egress layer\nbroker|proxy|firewall" as Net <<security>>
+ component "agent --force --sandbox disabled\n(Docker is the sandbox)" as Force <<flag>>
+ component "/app workspace mount\nruns as host uid (non-root)" as Mounts <<storage>>
+ component "network egress layer\nbroker|proxy|firewall" as Net <<security>>
 }
 
 cloud "Cursor backend\napi5.cursor.sh (inference)\napi2.cursor.sh (API / auth)" as Backend

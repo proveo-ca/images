@@ -1,8 +1,8 @@
-# Release config for the Go binaries (Plan 4 Phase 1). Produces multi-arch
+# Release config for the Go binaries. Produces multi-arch
 # static binaries + a sha256 checksums.txt so the installer can verify what it
 # downloads — replacing the unverified `curl | bash` pipeline.
-#   goreleaser check       # validate this file
-#   goreleaser release --snapshot --clean   # local dry-run build
+# goreleaser check # validate this file
+# goreleaser release --snapshot --clean # local dry-run build
 version: 2
 project_name: proveo
 
@@ -11,7 +11,7 @@ builds:
     main: ./cmd/proveo
     binary: proveo
     env: [CGO_ENABLED=0]
-    goos: [linux, darwin]
+    goos: [linux, darwin, freebsd, windows]
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags:
@@ -20,17 +20,35 @@ builds:
     main: ./cmd/proveo-egress
     binary: proveo-egress
     env: [CGO_ENABLED=0]
-    goos: [linux, darwin]
+    goos: [linux, darwin, freebsd, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+  - id: proveo-entrypoint
+    main: ./cmd/proveo-entrypoint
+    binary: proveo-entrypoint
+    env: [CGO_ENABLED=0]
+    goos: [linux]
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags:
       - -s -w
 
 archives:
+  # Full multi-binary tarball (GitHub Releases / maintainer use).
   - id: default
-    ids: [proveo, proveo-egress]
+    ids: [proveo, proveo-egress, proveo-entrypoint]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # proveo-entrypoint is linux-only (runs inside containers), so the darwin
+    # tarball carries fewer binaries than the linux one — that's intentional.
+    allow_different_binary_count: true
+  # Flat host proveo binaries for Cloudflare CDN staging (install.sh).
+  - id: cdn-proveo
+    ids: [proveo]
+    formats: [binary]
+    name_template: "proveo-{{ .Os }}-{{ .Arch }}"
 
 checksum:
   name_template: checksums.txt

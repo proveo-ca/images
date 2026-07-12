@@ -1,7 +1,7 @@
 // Package proveo embeds the harness manifests and the Squid config into the Go
 // binaries so the CLI (cmd/proveo) is self-contained and works without the defs/
 // tree on disk. The files under defs/ remain the source of truth; these embeds
-// are compiled from them at build time (Plan 4 / Plan 2).
+// are compiled from them at build time.
 package proveo
 
 import "embed"

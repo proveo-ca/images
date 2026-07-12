@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Maintainer helpers for proveo CLI
+# Maintainer helpers for the proveo mise tasks. The build/deploy/test
+# orchestration moved to Go (`proveo build|deploy|test`); what remains here is
+# used by the `debug` task (with lib/ui.sh + lib/registry.sh).
 
-print_success() {
-  echo "✅ $*"
+print_error() {
+  echo "❌ $*" >&2
 }
 
 require_tag() {
@@ -14,33 +16,38 @@ require_tag() {
   fi
 }
 
-run_uninstall() {
-  if [[ ! -f "$CONSUMER_UNINSTALL_SCRIPT" ]]; then
-    print_error "Consumer uninstall script not found: $CONSUMER_UNINSTALL_SCRIPT"
-    exit 1
-  fi
-
-  "$CONSUMER_UNINSTALL_SCRIPT"
-}
-
-run_init() {
-  if [[ ! -f "$CONSUMER_INIT_SCRIPT" ]]; then
-    print_error "Consumer init script not found: $CONSUMER_INIT_SCRIPT"
-    exit 1
-  fi
-
-  "$CONSUMER_INIT_SCRIPT"
-}
-
-find_script_in_dir() {
-  local dir="$1"
-  shift
-  local script_name
-  for script_name in "$@"; do
-    if [[ -f "$dir/$script_name" ]]; then
-      echo "$dir/$script_name"
+# is_valid_target / require_target validate against TARGETS (built in
+# lib/registry.sh from `proveo targets`, sourced by the same tasks). Late binding
+# is fine: these run after all sources, by which point TARGETS is populated.
+is_valid_target() {
+  local target="$1"
+  local item
+  for item in "${TARGETS[@]}"; do
+    if [[ "$item" == "$target" ]]; then
       return 0
     fi
   done
   return 1
+}
+
+_print_targets() {
+  echo "Available targets:" >&2
+  local t
+  for t in "${TARGETS[@]}"; do
+    echo "  - $t" >&2
+  done
+}
+
+require_target() {
+  local target="${1:-}"
+  if [[ -z "$target" ]]; then
+    print_error "Missing target."
+    _print_targets
+    exit 1
+  fi
+  if ! is_valid_target "$target"; then
+    print_error "Unknown target: $target"
+    _print_targets
+    exit 1
+  fi
 }

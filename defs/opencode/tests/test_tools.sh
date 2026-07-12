@@ -17,7 +17,7 @@ for tool_entry in "${TOOLS[@]}"; do
   assert_success "$name is installed" "$IMAGE" "$cmd"
 done
 
-# Node major version: 22
+# Node major version: proveo/base-node ships Node 22 LTS
 assert_output_matches \
   "node version is v22.x" \
   "$IMAGE" \

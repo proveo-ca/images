@@ -1,3 +1,5 @@
+//go:build integration
+
 // SPEC: _spec/tests/30-infra-integration.puml
 
 package egress
@@ -21,8 +23,8 @@ import (
 //   - the agent's internal network has no direct egress (a proxy-bypassing
 //     request fails).
 //
-// Gated: set PROVEO_EGRESS_INTEGRATION=1 (needs Docker + the proveo/egress-proxy
-// image + internet). Skipped otherwise.
+// Gated: -tags=integration and PROVEO_EGRESS_INTEGRATION=1 (needs Docker + the
+// proveo/egress-proxy image + internet). Skipped otherwise.
 func TestFirewallIntegration(t *testing.T) {
 	if os.Getenv("PROVEO_EGRESS_INTEGRATION") != "1" {
 		t.Skip("set PROVEO_EGRESS_INTEGRATION=1 to run (needs Docker + internet)")
@@ -68,21 +70,10 @@ func TestFirewallIntegration(t *testing.T) {
 	}
 
 	// 1) Chain + CA: a real HTTPS GET through the agent network must succeed,
-	//    retried to absorb squid/proxy startup.
+	//    retried until the proxy/squid chain is ready (condition wait, not sleep-only).
 	agentArgs := append([]string{"run", "--rm"}, plan.AgentArgs...)
-	var code string
-	var runErr error
-	for attempt := 0; attempt < 8; attempt++ {
-		code, runErr = r.Run(append(append([]string{}, agentArgs...),
-			"curlimages/curl:latest", "-sS", "-m", "20", "-o", "/dev/null", "-w", "%{http_code}",
-			"https://example.com")...)
-		if runErr == nil && strings.TrimSpace(code) == "200" {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
-	if runErr != nil || strings.TrimSpace(code) != "200" {
-		t.Fatalf("agent GET https://example.com through the chain = %q (err %v), want 200", code, runErr)
+	if err := waitHTTPThroughProxy(r, agentArgs, "https://example.com", 25*time.Second); err != nil {
+		t.Fatalf("agent GET https://example.com through the chain: %v", err)
 	}
 
 	// 2) The decrypted flow was recorded.
@@ -108,8 +99,7 @@ func TestFirewallIntegration(t *testing.T) {
 // GET to an exfil sink, and a request carrying a known secret are each blocked
 // before leaving — and the block is recorded to flows.ndjson.
 //
-// Gated: PROVEO_EGRESS_INTEGRATION=1 (needs Docker + the proveo/egress-proxy
-// image + internet).
+// Gated: -tags=integration and PROVEO_EGRESS_INTEGRATION=1.
 func TestFirewallPolicyIntegration(t *testing.T) {
 	if os.Getenv("PROVEO_EGRESS_INTEGRATION") != "1" {
 		t.Skip("set PROVEO_EGRESS_INTEGRATION=1 to run (needs Docker + internet)")
@@ -132,6 +122,7 @@ func TestFirewallPolicyIntegration(t *testing.T) {
 	if err := os.WriteFile(brokerEnv, []byte("ANTHROPIC_API_KEY="+secret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.RemoveAll(injectDir) })
 
 	opts := Options{
 		Mode: "firewall", SessionID: sid, AgentName: "itest", UID: uid, GID: gid,
@@ -172,16 +163,7 @@ func TestFirewallPolicyIntegration(t *testing.T) {
 		return err == nil
 	}
 
-	// ALLOW: a read to a normal host succeeds through the chain (retry for startup).
-	var readOK bool
-	for attempt := 0; attempt < 8; attempt++ {
-		if reached("https://example.com/") {
-			readOK = true
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
-	if !readOK {
+	if err := waitCond(25*time.Second, func() bool { return reached("https://example.com/") }); err != nil {
 		t.Fatal("read GET https://example.com must be allowed through the chain")
 	}
 
@@ -211,17 +193,117 @@ func TestFirewallPolicyIntegration(t *testing.T) {
 	}
 }
 
+// TestFirewallBrokerEnvMountIntegration proves host-side broker.env (as written
+// from a project .env with CURSOR_API_KEY) is mounted into the proxy and the
+// plan wires PROVEO_EGRESS_PROVIDER=cursor. Topology must still serve HTTPS.
+func TestFirewallBrokerEnvMountIntegration(t *testing.T) {
+	if os.Getenv("PROVEO_EGRESS_INTEGRATION") != "1" {
+		t.Skip("set PROVEO_EGRESS_INTEGRATION=1 to run (needs Docker + internet)")
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	uid, gid := fmt.Sprint(os.Getuid()), fmt.Sprint(os.Getgid())
+	state := t.TempDir()
+	sid := fmt.Sprintf("proveo-brk-%d", os.Getpid())
+	injectDir := filepath.Join(state, "inject")
+	if err := os.MkdirAll(injectDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	brokerEnv := filepath.Join(injectDir, "broker.env")
+	if err := os.WriteFile(brokerEnv, []byte("CURSOR_API_KEY=sk-cursor-from-host-env\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(injectDir) })
+
+	opts := Options{
+		Mode: "firewall", SessionID: sid, AgentName: "itest", UID: uid, GID: gid,
+		Provider: "cursor", BrokerEnvFile: brokerEnv,
+		ConfDir: filepath.Join(state, "mitmproxy", "confdir"), FlowsDir: filepath.Join(state, "mitmproxy", "flows"),
+		SquidConfigDir: filepath.Join(state, "squid", "config"), SquidLogDir: filepath.Join(state, "squid", "logs"),
+	}
+	if err := StageSquidConfig(os.DirFS(repoRoot(t)), opts.SquidConfigDir, []string{"cursor"}, ""); err != nil {
+		t.Fatalf("stage squid config: %v", err)
+	}
+	for _, d := range []string{opts.SquidLogDir, opts.ConfDir, opts.FlowsDir} {
+		if err := os.MkdirAll(d, 0o777); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.Chmod(opts.SquidLogDir, 0o777)
+
+	plan, err := BuildPlan(opts)
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	joined := strings.Join(flattenCmds(plan.Sidecars), " ")
+	if !strings.Contains(joined, "PROVEO_EGRESS_PROVIDER=cursor") {
+		t.Errorf("proxy sidecar must pin cursor provider, got: %s", joined)
+	}
+	if !strings.Contains(joined, "PROVEO_EGRESS_BROKER_ENVFILE=/broker/broker.env") {
+		t.Errorf("proxy sidecar must mount broker envfile, got: %s", joined)
+	}
+	if !strings.Contains(joined, injectDir+":/broker:ro") && !strings.Contains(joined, filepath.Dir(brokerEnv)+":/broker:ro") {
+		t.Errorf("proxy sidecar must bind-mount inject dir at /broker:ro, got: %s", joined)
+	}
+
+	r := ExecRunner{Stderr: true}
+	t.Cleanup(func() { plan.Teardown(r) })
+	if err := plan.Apply(r); err != nil {
+		t.Fatalf("bring up topology: %v", err)
+	}
+	if err := waitFile(plan.CAWaitPath, 25*time.Second); err != nil {
+		t.Fatalf("CA never appeared: %v", err)
+	}
+	agentArgs := append([]string{"run", "--rm"}, plan.AgentArgs...)
+	if err := waitHTTPThroughProxy(r, agentArgs, "https://example.com", 25*time.Second); err != nil {
+		t.Fatalf("broker-mounted topology GET: %v", err)
+	}
+}
+
+func flattenCmds(cmds []Command) []string {
+	var out []string
+	for _, c := range cmds {
+		out = append(out, c...)
+	}
+	return out
+}
+
 func waitFile(path string, timeout time.Duration) error {
+	return waitCond(timeout, func() bool {
+		fi, err := os.Stat(path)
+		return err == nil && fi.Size() > 0
+	})
+}
+
+func waitCond(timeout time.Duration, ready func() bool) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		if fi, err := os.Stat(path); err == nil && fi.Size() > 0 {
+		if ready() {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for %s", path)
+			return fmt.Errorf("timed out after %s", timeout)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+func waitHTTPThroughProxy(r ExecRunner, agentArgs []string, url string, timeout time.Duration) error {
+	var lastCode string
+	var lastErr error
+	err := waitCond(timeout, func() bool {
+		code, runErr := r.Run(append(append([]string{}, agentArgs...),
+			"curlimages/curl:latest", "-sS", "-m", "20", "-o", "/dev/null", "-w", "%{http_code}",
+			url)...)
+		lastCode, lastErr = strings.TrimSpace(code), runErr
+		return runErr == nil && lastCode == "200"
+	})
+	if err != nil {
+		return fmt.Errorf("%w (last code=%q err=%v)", err, lastCode, lastErr)
+	}
+	return nil
 }
 
 func repoRoot(t *testing.T) string {

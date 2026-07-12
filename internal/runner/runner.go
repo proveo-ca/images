@@ -1,5 +1,5 @@
 // Package runner builds the single hardened `docker run` invocation shared by
-// every harness (Plan 4 Phase 1 / Plan 2). It replaces the hardening baseline
+// every harness. It replaces the hardening baseline
 // that was copy-pasted across the consumer CLI, lib/runners.sh, and each
 // defs/<name>/run.sh. The argv is built as pure data so it is golden-testable;
 // execution is the caller's concern.
