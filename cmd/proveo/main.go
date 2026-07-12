@@ -271,12 +271,10 @@ func doRun(p runParams) error {
 	}
 	lookup := providerLookup(hostEnvFile)
 
-	// Optional capabilities, offered before the env wizard as a Tab-multiselect on a
-	// TTY (the wizard may attach a bufio.Reader to stdin, which would starve an
-	// interactive picker). This replaces the standalone DinD y/N prompt: DinD is now
-	// one capability among any others the harness supports (e.g. the browser
-	// variant). Non-interactively, capabilities come from the explicit -browser
-	// target and PROVEO_DIND (below).
+	// Optional add-ons, offered before the env wizard as a Tab-multiselect on a TTY
+	// (the wizard may attach a bufio.Reader to stdin, which would starve an interactive
+	// picker). Browser is an image variant; DinD is a sidecar attached to the same
+	// base image. Non-interactively: -browser target + PROVEO_DIND (below).
 	dindScope := wsSpec.InputDir
 	if dindScope == "" {
 		dindScope = start
@@ -287,10 +285,10 @@ func doRun(p runParams) error {
 	if !p.printOnly && isStdinTTY() {
 		var caps []capability
 		if browserImage != "" && p.image != browserImage {
-			caps = append(caps, capability{"browser", "browser  — Playwright + Chromium"})
+			caps = append(caps, capability{"browser", "browser variant — Playwright + Chromium image"})
 		}
 		if dindOfferable {
-			caps = append(caps, capability{"dind", "DinD     — Docker-in-Docker sidecar"})
+			caps = append(caps, capability{"dind", "DinD sidecar — same image + docker:dind"})
 		}
 		if len(caps) > 0 {
 			sel, err := pickRunCapabilities(p.target, caps)
@@ -299,11 +297,11 @@ func doRun(p runParams) error {
 			}
 			if sel["browser"] {
 				p.image = browserImage
-				ui.Iconf("🌐", "capability: browser → %s", browserImage)
+				ui.Iconf("🌐", "variant: browser → %s", browserImage)
 			}
 			if sel["dind"] {
 				wantDind = true
-				ui.Iconf("🐳", "capability: DinD")
+				ui.Iconf("🐳", "sidecar: DinD (same image)")
 			}
 		}
 	} else if !p.printOnly {
@@ -872,33 +870,47 @@ type capability struct {
 	label string
 }
 
-// pickRunCapabilities shows the harness's optional capabilities as an arrow list
-// where Tab toggles multiple and Enter confirms. A leading "continue" sentinel
-// makes Enter-with-nothing-toggled mean "no capabilities" (FindMulti otherwise
-// returns the item under the cursor). Returns the set of chosen capability keys;
-// Esc/Ctrl-C aborts to the empty set (run with no add-ons).
+// continueSentinel is the leading FindMulti row. It is always preselected so Enter
+// confirms the current Tab set instead of selecting whatever row the cursor is on
+// (FindMulti's empty-selection fallback). Index 0 is ignored when mapping keys.
+const continueSentinel = "continue"
+
+// capabilitySelection maps FindMulti indices onto capability keys. Index 0 is the
+// continue sentinel and is never a selected capability.
+func capabilitySelection(caps []capability, idxs []int) map[string]bool {
+	sel := map[string]bool{}
+	for _, i := range idxs {
+		if i <= 0 || i > len(caps) {
+			continue
+		}
+		sel[caps[i-1].key] = true
+	}
+	return sel
+}
+
+// pickRunCapabilities shows optional add-ons as an arrow list: Tab toggles, Enter
+// always continues with the Tab selection (including none). A leading preselected
+// "continue" sentinel keeps FindMulti from treating the cursor row as a selection
+// when nothing was Tabbed. Esc/Ctrl-C aborts to no add-ons.
 func pickRunCapabilities(target string, caps []capability) (map[string]bool, error) {
 	labels := make([]string, 0, len(caps)+1)
-	labels = append(labels, "continue — no extra capabilities")
+	labels = append(labels, continueSentinel)
 	for _, c := range caps {
 		labels = append(labels, c.label)
 	}
 	idxs, err := fuzzyfinder.FindMulti(labels, func(i int) string { return labels[i] },
-		fuzzyfinder.WithPromptString(target+" — press tab to add an option, or enter to continue> "))
+		fuzzyfinder.WithPromptString(target+"> "),
+		// Header is green in go-fuzzyfinder — visually distinct from the item rows.
+		fuzzyfinder.WithHeader("tab to add · enter continues"),
+		fuzzyfinder.WithPreselected(func(i int) bool { return i == 0 }),
+	)
 	if errors.Is(err, fuzzyfinder.ErrAbort) {
 		return map[string]bool{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	sel := map[string]bool{}
-	for _, i := range idxs {
-		if i == 0 {
-			continue // the "continue" sentinel
-		}
-		sel[caps[i-1].key] = true
-	}
-	return sel, nil
+	return capabilitySelection(caps, idxs), nil
 }
 
 func pickProjectNumbered(projs []workspace.Project, in io.Reader, out io.Writer) string {

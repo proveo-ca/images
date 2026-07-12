@@ -32,8 +32,8 @@ public/
 Publish:
 
 ```bash
-mise run build-cli -- --release   # optional: goreleaser into dist/ then stage
-mise run deploy-cli               # stage proveo-{os}-{arch} + checksums, then Wrangler
+mise run build-cli -- --release   # goreleaser into dist/ then stage
+mise run deploy-cli               # build-cli --release, then Wrangler deploy
 ```
 
 Run the CDN install test suite:

@@ -101,7 +101,7 @@ mise run debug cursor         # depends on build-cli; uses that proveo
 mise run build cursor
 mise run deploy claudecode --tag latest
 mise run build-cli -- --release  # goreleaser → dist/ + stage CDN binaries
-mise run deploy-cli              # stage binaries + Wrangler → proveo.ca/cli
+mise run deploy-cli              # build-cli --release, then Wrangler → proveo.ca/cli
 ```
 
 The smoke suite generates and mounts a temporary `.env` with dummy non-secret
@@ -110,8 +110,8 @@ smoke-ready log is emitted.
 
 **CLI vs CDN:** `mise run build-cli` installs Go binaries into `$(go env GOPATH)/bin`
 for local use. Pass `-- --release` to also run goreleaser into `dist/` and stage
-CDN assets. `mise run deploy-cli` stages checksummed
-`proveo-{os}-{arch}` binaries plus `install.sh` and publishes them to Cloudflare (`proveo.ca/cli`).
+CDN assets. `mise run deploy-cli` runs that release build, then publishes the
+staged `proveo-{os}-{arch}` binaries plus `install.sh` to Cloudflare (`proveo.ca/cli`).
 Consumers run:
 
 ```bash

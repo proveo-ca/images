@@ -25,7 +25,8 @@ It is `FROM debian:bookworm-slim` and lands at ~200 MB.
   base-node-lsp + Playwright + a Chromium browser under a world-readable
   `PLAYWRIGHT_BROWSERS_PATH`) as `<harness>-browser` variants
   (`opencode-browser`, `claudecode-browser`, `cursor-browser`), selected at run
-  time from the `proveo run` capability picker (Tab to add). Default images stay
+  time from the `proveo run` capability picker (Tab to add, Enter continues). Default
+  images stay
   slim; Chromium is downloaded once in `base-node-browser` and shared by every
   variant. (cecli/Python remains install-on-demand: `python -m playwright install
   chromium` into a mounted cache dir.)

@@ -67,6 +67,18 @@ extract_from_dist() {
         ;;
     esac
   done
+  # Flat cdn-proveo archive (goreleaser formats: [binary], name proveo-OS-ARCH).
+  local flat="$DIST_DIR/proveo-${goos}-${goarch}"
+  if [[ -f "$flat" ]]; then
+    cp "$flat" "$dest"
+    chmod +x "$dest"
+    return 0
+  fi
+  if [[ "$goos" == windows && -f "${flat}.exe" ]]; then
+    cp "${flat}.exe" "$dest"
+    chmod +x "$dest"
+    return 0
+  fi
   # Raw goreleaser build output (dist/proveo_<os>_<arch>_<variant>/<bin>).
   shopt -s nullglob
   for f in "$DIST_DIR"/proveo_"${goos}"_"${goarch}"*/"${bin}"; do
@@ -132,5 +144,5 @@ done
 printf 'Wrote %s and %s/checksums.txt\n' "$OUT_BIN" "$CDN_ROOT" >&2
 if [[ "$used_dist" -eq 0 ]]; then
   printf 'Note: no goreleaser archives found under %s — used go build fallback.\n' "$DIST_DIR" >&2
-  printf 'For release artifacts: mise run build-cli -- --release (stages CDN assets) or mise run deploy-cli\n' >&2
+  printf 'For release artifacts: mise run build-cli -- --release (or mise run deploy-cli, which does that first)\n' >&2
 fi

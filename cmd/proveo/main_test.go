@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -16,6 +17,35 @@ import (
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
+
+func TestCapabilitySelection(t *testing.T) {
+	t.Parallel()
+	caps := []capability{
+		{"browser", "browser variant"},
+		{"dind", "DinD sidecar"},
+	}
+	tests := []struct {
+		name string
+		idxs []int
+		want map[string]bool
+	}{
+		{name: "continue only", idxs: []int{0}, want: map[string]bool{}},
+		{name: "continue + dind", idxs: []int{0, 2}, want: map[string]bool{"dind": true}},
+		{name: "browser only", idxs: []int{1}, want: map[string]bool{"browser": true}},
+		{name: "both add-ons", idxs: []int{1, 2}, want: map[string]bool{"browser": true, "dind": true}},
+		{name: "out of range ignored", idxs: []int{0, 9, -1}, want: map[string]bool{}},
+		{name: "empty", idxs: nil, want: map[string]bool{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := capabilitySelection(caps, tc.idxs)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("capabilitySelection(%v) mismatch (-want +got):\n%s", tc.idxs, diff)
+			}
+		})
+	}
+}
 
 func TestPickProject(t *testing.T) {
 	t.Parallel()

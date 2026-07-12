@@ -119,15 +119,14 @@ description = "Show the local wrangler version"
 run = "pnpm exec wrangler --version"
 
 [tasks.deploy-cli]
-description = "Stage Go CDN binaries then deploy apps/cli Cloudflare assets with Wrangler"
+description = "Goreleaser snapshot, stage CDN binaries, then deploy apps/cli with Wrangler"
 dir = "{{config_root}}"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-# Publish only real goreleaser artifacts — never the dev cross-compile fallback,
-# which would push version=dev binaries to production. Run `mise run build-cli --
-# --release` first to populate dist/.
-PROVEO_CDN_REQUIRE_DIST=1 bash scripts/stage-cli-cdn.sh
+# Always build real goreleaser artifacts first — never publish version=dev
+# cross-compiles. build-cli --release runs goreleaser + stages with REQUIRE_DIST.
+mise run build-cli -- --release
 pnpm exec wrangler deploy --cwd apps/cli
 """
 
