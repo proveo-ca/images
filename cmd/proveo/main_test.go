@@ -127,6 +127,7 @@ func TestAssembleAndDispatch(t *testing.T) {
 		plan, agent, err := assemble(assembleInput{
 			params: runParams{mode: "broker", target: "opencode", image: "img"},
 			sid:    "s", egDir: "/st", uid: "1000", gid: "1000",
+			pidsLimit: 4096,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -136,6 +137,9 @@ func TestAssembleAndDispatch(t *testing.T) {
 		}
 		if agent.Image != "img" || agent.User != "1000:1000" || !agent.Interactive {
 			t.Errorf("agent config wrong: %+v", agent)
+		}
+		if agent.PidsLimit != 4096 {
+			t.Errorf("agent.PidsLimit = %d, want 4096", agent.PidsLimit)
 		}
 		if strings.Join(agent.ExtraArgs, " ") != strings.Join(plan.AgentArgs, " ") {
 			t.Errorf("agent.ExtraArgs must be the plan's AgentArgs")

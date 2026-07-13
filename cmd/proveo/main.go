@@ -414,6 +414,14 @@ func doRun(p runParams) error {
 
 	var dindSidecar *dind.Sidecar
 
+	host := runner.DetectHost()
+	browser := runner.IsBrowserImage(p.image)
+	ov, ovSet := runner.ParsePidsOverride(os.Getenv("PROVEO_PIDS_LIMIT"))
+	if err := runner.EnsurePidsCapability(host, browser, ov, ovSet); err != nil {
+		return err
+	}
+	pidsLimit := runner.ResolvePidsLimit(host, browser, ov, ovSet)
+
 	plan, agent, err := assemble(assembleInput{
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
 		modelsDir: modelsDir, provider: providerName, brokerFile: brokerFile,
@@ -423,6 +431,7 @@ func doRun(p runParams) error {
 		squidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		proxyImage:      os.Getenv("PROVEO_EGRESS_PROXY_IMAGE"),
 		ollamaImage:     os.Getenv("PROVEO_OLLAMA_IMAGE"),
+		pidsLimit:       pidsLimit,
 	})
 	if err != nil {
 		return err
@@ -523,6 +532,7 @@ type assembleInput struct {
 	env                                 []string // declared env var names to forward (bare -e)
 	providerDomains                     string
 	squidImage, proxyImage, ollamaImage string
+	pidsLimit                           int // host/tier-resolved --pids-limit
 }
 
 // assemble builds the egress plan and the agent's docker-run config from resolved
@@ -550,6 +560,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 		Workdir:   in.workdir,
 		Env:       in.env,
 		ExtraArgs: plan.AgentArgs, Image: in.params.image, Command: in.params.extra,
+		PidsLimit: in.pidsLimit,
 	}
 	if in.params.dataDir != "" {
 		agent.Mounts = append(agent.Mounts, runner.Mount{Host: in.params.dataDir, Container: "/workspace/data", ReadOnly: true})

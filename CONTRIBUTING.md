@@ -14,7 +14,14 @@ Every harness container runs as the invoking host user, never root
 - **Wrappers** (`defs/*/run.sh`, the distributable CLI runners) launch with
  `docker run --user $(id -u):$(id -g)`, so files written to bind mounts come back owned by
  the developer — for any host uid, not just the image's baked default. Pair it with the
- hardening baseline: `--cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=512`.
+ hardening baseline: `--cap-drop=ALL --security-opt=no-new-privileges:true` plus a
+ host-scaled `--pids-limit` (never omitted). The limit is
+ `clamp(cpus×256, 512, ceiling)` for base agents and `clamp(cpus×512, 1024, ceiling)` for
+ `*-browser` images, where `ceiling = min(cpus×1024, pid_max/64)` from host CPU (cgroup-aware)
+ and kernel `pid_max`. Override with `PROVEO_PIDS_LIMIT` (clamped to `[256, ceiling]`).
+ If the host ceiling (or override) is below the tier minimum (`512` base / `1024` browser),
+ `proveo run` failfasts with `insufficient host pids capability` instead of starting a
+ sandbox that will exhaust processes.
 - **Images** bake a non-root default user (uid 1000) and set `USER`, so even a bare
  `docker run` without the wrapper is never root. Use the shared create-or-rename block
  (`ARG USER_ID=1000` / `ARG USER_NAME=<harness>`; see any existing `defs/*/Dockerfile`) so

@@ -117,7 +117,7 @@ Run `claude setup-token`, login, save the resulting `sk-*` token.
 ### Container Security
 - **Root-free execution**: baked non-root user `claude` (uid 1000); `run.sh` launches as the invoking host uid via `--user $(id -u):$(id -g)`
 - **Capability dropping**: Minimal Linux capabilities
-- **Process limits**: Resource constraints for safety (max 100 PIDs)
+- **Process limits**: Host-scaled `--pids-limit` (base floor 512; browser variants higher; override via `PROVEO_PIDS_LIMIT`). Runs fail fast if the host ceiling is below the tier minimum.
 - **Tmpfs mounts**: Isolated temporary storage for /tmp and /workspace/temp
 - **Network isolation**: Bridge network with no host access
 - **Security options**: No new privileges allowed
