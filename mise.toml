@@ -2,6 +2,7 @@
 node = "24"
 pnpm = "10"
 go = "1.26"
+tmux = "3.7b"
 
 [tasks.install]
 description = "Install root workspace dependencies"

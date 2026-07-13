@@ -47,6 +47,25 @@ type EnvVar struct {
 	Secret      bool   `yaml:"secret"`
 }
 
+// HomeMount is one bind under PROVEO_HOME (default ~/.proveo) into the container.
+// Host is relative to PROVEO_HOME; Container is an absolute path (typically under
+// /proveo-home). Deny lists basenames scrubbed from the host dir before each run
+// so login tokens never accumulate in the durable session cache.
+type HomeMount struct {
+	Host      string   `yaml:"host"`
+	Container string   `yaml:"container"`
+	Mode      string   `yaml:"mode"` // rw (default) | ro
+	Deny      []string `yaml:"deny"`
+}
+
+// Home declares durable proveo-owned session/config mounts. Enabled with at
+// least one mount; proveo sets HOME=/proveo-home when Home is active so tools
+// write into the mounted tree regardless of the run-as uid.
+type Home struct {
+	Enabled bool        `yaml:"enabled"`
+	Mounts  []HomeMount `yaml:"mounts"`
+}
+
 // Manifest describes one harness definition.
 type Manifest struct {
 	Name        string            `yaml:"name"`
@@ -57,6 +76,7 @@ type Manifest struct {
 	Stability   string            `yaml:"stability"` // experimental | candidate | stable
 	Images      map[string]string `yaml:"images"`    // target name -> image ref
 	Workspace   Workspace         `yaml:"workspace"` // mount model
+	Home        Home              `yaml:"home"`      // durable ~/.proveo session/config mounts
 	Env         []EnvVar          `yaml:"env"`       // env vars the harness reads
 	Dir         string            `yaml:"-"`         // def directory (set by Load)
 }
@@ -116,7 +136,51 @@ func (m Manifest) Validate() error {
 		}
 		seen[e.Name] = true
 	}
+	if err := m.Home.validate(m.Name); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (h Home) validate(name string) error {
+	if !h.Enabled && len(h.Mounts) == 0 {
+		return nil
+	}
+	if h.Enabled && len(h.Mounts) == 0 {
+		return fmt.Errorf("manifest %q: home.enabled with no mounts", name)
+	}
+	seenHost := map[string]bool{}
+	seenCtr := map[string]bool{}
+	for i, m := range h.Mounts {
+		if strings.TrimSpace(m.Host) == "" {
+			return fmt.Errorf("manifest %q: home.mounts[%d]: empty host", name, i)
+		}
+		if filepath.IsAbs(m.Host) || strings.Contains(m.Host, "..") {
+			return fmt.Errorf("manifest %q: home.mounts[%d]: host %q must be relative to PROVEO_HOME (no ..)", name, i, m.Host)
+		}
+		if !strings.HasPrefix(m.Container, "/") {
+			return fmt.Errorf("manifest %q: home.mounts[%d]: container %q must be absolute", name, i, m.Container)
+		}
+		switch m.Mode {
+		case "", "rw", "ro":
+		default:
+			return fmt.Errorf("manifest %q: home.mounts[%d]: invalid mode %q", name, i, m.Mode)
+		}
+		if seenHost[m.Host] {
+			return fmt.Errorf("manifest %q: duplicate home.mount host %q", name, m.Host)
+		}
+		if seenCtr[m.Container] {
+			return fmt.Errorf("manifest %q: duplicate home.mount container %q", name, m.Container)
+		}
+		seenHost[m.Host] = true
+		seenCtr[m.Container] = true
+	}
+	return nil
+}
+
+// Active reports whether durable home mounts should be applied.
+func (h Home) Active() bool {
+	return h.Enabled && len(h.Mounts) > 0
 }
 
 // Parse decodes one manifest from YAML bytes (dir is used only for messages).

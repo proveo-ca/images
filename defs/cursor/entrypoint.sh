@@ -224,7 +224,8 @@ ensure_project_tools
 if [[ -z "${CURSOR_API_KEY:-}" ]]; then
   echo "⚠️  CURSOR_API_KEY not set. Create one at cursor.com/dashboard → API Keys,"
   echo "   or run 'agent login' interactively (NO_OPEN_BROWSER=1 prints the URL)."
-  echo "   Login tokens live under ~/.cursor — persist them with a host mount if needed."
+  echo "   Sessions persist under proveo home (~/.proveo/.cursor → \$HOME/.cursor);"
+  echo "   prefer CURSOR_API_KEY — login tokens are scrubbed from the durable cache."
 fi
 
 # ── Launch ─────────────────────────────────────────────────

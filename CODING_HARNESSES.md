@@ -143,7 +143,10 @@ Harness images should:
 - avoid setuid/setgid binaries unless explicitly required;
 - avoid baking credentials, auth files, or `.env` contents into the image;
 - source secrets only at runtime from mounted files or `docker run -e` values;
-- keep auth persistence opt-in via documented host mounts;
+- keep session/config persistence under proveo-owned `~/.proveo` (default-on via
+  `harness.manifest` `home:`); never bind-mount host IDE homes (`~/.cursor`, `~/.claude`);
+- scrub deny-listed auth filenames from proveo home each run; keep inference auth on
+  env / credential-broker keys;
 - avoid logging secret values while still reporting whether required keys were detected.
 
 **Credential isolation by egress mode** (see [`README.md`](README.md) and

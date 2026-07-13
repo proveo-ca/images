@@ -89,11 +89,12 @@ warns when no provider key and no `opencode.json` are detected. Recognised env v
 
 For providers without a dedicated env var (Together, Hugging Face, OpenCode Zen, …) run
 `opencode auth login` once — credentials are stored at
-`~/.local/share/opencode/auth.json` inside the container. Persist them across runs
-by mounting a host directory:
+`~/.local/share/opencode/auth.json` inside the container. Proveo mounts durable config/share
+under `~/.proveo/opencode/` but **scrubs `auth.json` each run** so login tokens are not
+cached; prefer provider API keys via env / egress broker. Resume a prior session with:
 
 ```bash
--v "$HOME/.local/share/opencode:/home/opencode/.local/share/opencode"
+proveo run opencode --resume <session-id>
 ```
 
 ## Baked-in HITL defaults

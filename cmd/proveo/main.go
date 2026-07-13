@@ -33,6 +33,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -140,8 +141,8 @@ func listCmd() *cobra.Command {
 }
 
 func runCmd() *cobra.Command {
-	var egressMode, localModel, input, output, scope, dataDir, imageOverride string
-	var printOnly, shellMode bool
+	var egressMode, localModel, input, output, scope, dataDir, imageOverride, resumeID string
+	var printOnly, shellMode, contSession, listSessions bool
 	cmd := &cobra.Command{
 		Use:   "run <target> [-- args...]",
 		Short: "Run a harness against the current repo",
@@ -169,10 +170,18 @@ func runCmd() *cobra.Command {
 			if !egress.ValidMode(egressMode) {
 				return fmt.Errorf("invalid --egress-mode %q (%s)", egressMode, strings.Join(egress.Modes(), "|"))
 			}
+			resumeArgs, err := proveohome.ResumeArgs(target, resumeID, contSession, listSessions)
+			if err != nil {
+				return err
+			}
+			extra := args[1:]
+			if len(resumeArgs) > 0 {
+				extra = append(append([]string{}, resumeArgs...), extra...)
+			}
 			return doRun(runParams{
 				target: target, image: image, mode: egressMode, localModel: localModel,
 				input: input, output: output, scope: scope, dataDir: dataDir,
-				shell: shellMode, printOnly: printOnly, extra: args[1:],
+				shell: shellMode, printOnly: printOnly, extra: extra,
 			})
 		},
 	}
@@ -183,6 +192,9 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&scope, "scope", "", "monorepo sub-project to open (repo-relative; omit for an interactive picker)")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "extra directory to mount read-only at /workspace/data")
 	cmd.Flags().StringVar(&imageOverride, "image", "", "override the image for the target")
+	cmd.Flags().StringVar(&resumeID, "resume", "", "resume a prior agent session by id (harness-specific)")
+	cmd.Flags().BoolVar(&contSession, "continue", false, "continue the most recent session for this workspace")
+	cmd.Flags().BoolVar(&listSessions, "ls", false, "list resumable sessions (cursor/claude) and exit into the tool picker")
 	cmd.Flags().BoolVar(&shellMode, "shell", false, "open a shell in the container instead of the agent")
 	cmd.Flags().BoolVar(&printOnly, "print", false, "print the docker plan instead of executing")
 	return cmd
@@ -339,6 +351,17 @@ func doRun(p runParams) error {
 		workdir = planWorkdir
 	}
 
+	// Durable proveo home (~/.proveo): session transcripts + seeded policy, not
+	// host IDE credentials. Scrubs deny-listed auth files before each run.
+	homePlan, err := proveohome.Prepare(man.Home, os.Getenv)
+	if err != nil {
+		return err
+	}
+	if homePlan.Root != "" {
+		mounts = append(mounts, homePlan.Mounts...)
+		ui.Iconf("🏠", "proveo home: %s (mounted at %s)", homePlan.Root, proveohome.ContainerHome)
+	}
+
 	// Credential broker: gated by brokerProvider (firewall + a resolved provider +
 	// not disabled). Vendor-pinned harnesses (manifest provider:) win over the
 	// "exactly one detected key" rule so a multi-provider .env does not block
@@ -411,8 +434,17 @@ func doRun(p runParams) error {
 		}
 	}
 	env = append(env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
+	env = append(env, homePlan.Env...)
 
 	var dindSidecar *dind.Sidecar
+
+	host := runner.DetectHost()
+	browser := runner.IsBrowserImage(p.image)
+	ov, ovSet := runner.ParsePidsOverride(os.Getenv("PROVEO_PIDS_LIMIT"))
+	if err := runner.EnsurePidsCapability(host, browser, ov, ovSet); err != nil {
+		return err
+	}
+	pidsLimit := runner.ResolvePidsLimit(host, browser, ov, ovSet)
 
 	plan, agent, err := assemble(assembleInput{
 		params: p, sid: sid, egDir: egDir, uid: uid, gid: gid,
@@ -423,6 +455,7 @@ func doRun(p runParams) error {
 		squidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
 		proxyImage:      os.Getenv("PROVEO_EGRESS_PROXY_IMAGE"),
 		ollamaImage:     os.Getenv("PROVEO_OLLAMA_IMAGE"),
+		pidsLimit:       pidsLimit,
 	})
 	if err != nil {
 		return err
@@ -523,6 +556,7 @@ type assembleInput struct {
 	env                                 []string // declared env var names to forward (bare -e)
 	providerDomains                     string
 	squidImage, proxyImage, ollamaImage string
+	pidsLimit                           int // host/tier-resolved --pids-limit
 }
 
 // assemble builds the egress plan and the agent's docker-run config from resolved
@@ -550,6 +584,7 @@ func assemble(in assembleInput) (egress.Plan, runner.Config, error) {
 		Workdir:   in.workdir,
 		Env:       in.env,
 		ExtraArgs: plan.AgentArgs, Image: in.params.image, Command: in.params.extra,
+		PidsLimit: in.pidsLimit,
 	}
 	if in.params.dataDir != "" {
 		agent.Mounts = append(agent.Mounts, runner.Mount{Host: in.params.dataDir, Container: "/workspace/data", ReadOnly: true})

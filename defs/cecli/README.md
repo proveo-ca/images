@@ -46,6 +46,10 @@ Defaults:
 
 Use `--read-only` to mount the input workspace read-only and place Cecli state under `/tmp/.cecli` by default.
 
+Proveo also mounts durable home config from `~/.proveo/.cecli` at `/proveo-home/.cecli`
+(with `HOME=/proveo-home`) so `$HOME/.cecli.conf.yml` survives container exit. Project
+agents stay under `CECLI_HOME=/app/.cecli` in the workspace.
+
 ## Environment Variables
 
 - `PROVEO_CECLI_IMAGE`: image name used by `build.sh`; defaults to `proveo/cecli:latest`

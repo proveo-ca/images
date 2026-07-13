@@ -74,6 +74,22 @@ enters the agent (the container only ever sees a sentinel).
 
 Keep `.env` on the **host** — do not bind-mount it into the agent.
 
+## Proveo home (session resume)
+
+Agent sessions and seeded home config persist under `~/.proveo/` (override with
+`PROVEO_HOME`), bind-mounted at `/proveo-home` with `HOME` pointed there. Host IDE homes
+are never mounted; login token files listed in each harness `home.mounts.deny` are
+scrubbed before every run.
+
+| Harness | Host path | Resume |
+| --- | --- | --- |
+| cursor | `~/.proveo/.cursor` | `proveo run cursor --resume <id>` / `--continue` / `--ls` |
+| claudecode | `~/.proveo/.claude` | `proveo run claudecode --resume <id>` / `--continue` |
+| opencode | `~/.proveo/opencode/{config,share}` | `proveo run opencode --resume <session-id>` |
+| cecli | `~/.proveo/.cecli` | home conf only (project state stays in `/app/.cecli`) |
+
+Routine `proveo clean` leaves this cache alone; reclaim with `proveo clean --homes`.
+
 ## Specs
 
 Architecture, the full egress policy, testing strategy, and the

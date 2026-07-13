@@ -6,6 +6,7 @@
 package contract_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,19 +48,39 @@ func TestEmbeddedManifestsLoad(t *testing.T) {
 			t.Errorf("target %q image = %q, want proveo/*", name, img)
 		}
 	}
+	for _, m := range ms {
+		if !m.Home.Active() {
+			t.Errorf("harness %q must declare home.mounts for proveo session persistence", m.Name)
+			continue
+		}
+		for _, hm := range m.Home.Mounts {
+			if !strings.HasPrefix(hm.Container, "/proveo-home/") {
+				t.Errorf("%s home mount container %q must be under /proveo-home/", m.Name, hm.Container)
+			}
+		}
+	}
 }
 
 func TestRunnerHardeningBaseline(t *testing.T) {
 	t.Parallel()
-	got := strings.Join(runner.Hardening(), " ")
-	for _, want := range []string{"--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--pids-limit=100"} {
+	got := strings.Join(runner.Hardening(runner.MinPidsBase), " ")
+	for _, want := range []string{"--cap-drop=ALL", "--security-opt=no-new-privileges:true", fmt.Sprintf("--pids-limit=%d", runner.MinPidsBase)} {
 		if !strings.Contains(got, want) {
-			t.Errorf("Hardening() = %q, missing %q", got, want)
+			t.Errorf("Hardening(MinPidsBase) = %q, missing %q", got, want)
 		}
 	}
-	argv := strings.Join(runner.DockerRunArgs(runner.Config{Image: "x"}), " ")
+	argv := strings.Join(runner.DockerRunArgs(runner.Config{Image: "x", PidsLimit: runner.MinPidsBase}), " ")
 	if !strings.Contains(argv, "--cap-drop=ALL") {
 		t.Errorf("DockerRunArgs must always include cap-drop: %s", argv)
+	}
+	if !strings.Contains(argv, "--pids-limit=") {
+		t.Errorf("DockerRunArgs must always include --pids-limit: %s", argv)
+	}
+	if runner.MinPidsBase < 512 {
+		t.Errorf("MinPidsBase = %d, want >= 512", runner.MinPidsBase)
+	}
+	if runner.MinPidsBrowser < runner.MinPidsBase {
+		t.Errorf("MinPidsBrowser = %d, want >= MinPidsBase %d", runner.MinPidsBrowser, runner.MinPidsBase)
 	}
 }
 

@@ -12,6 +12,13 @@ workspace:
   layout: app
   configDir: .cursor
   gitMode: rw
+home:
+  enabled: true
+  mounts:
+    - host: .cursor
+      container: /proveo-home/.cursor
+      mode: rw
+      deny: [auth.json]
 env:
   - name: CURSOR_API_KEY
     description: Cursor API key — create one at cursor.com/dashboard → API Keys

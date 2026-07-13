@@ -1,7 +1,7 @@
 # SPEC: _spec/components.puml
 # proveo/base — the MINIMAL shared floor every harness image builds FROM.
 # Only the universally-shared pieces live here: git, gh, ca-certs, curl, jq,
-# dumb-init, bash, the proveo-entrypoint binary, and the proveo-harden pass.
+# dumb-init, bash, tmux, the proveo-entrypoint binary, and the proveo-harden pass.
 # jq is the universal JSON tool for entrypoint config munging (no language
 # runtime needed for a config edit).
 # NO language runtime (Node/Python) and NO browsers — those are not universal
@@ -35,7 +35,7 @@ RUN chmod +x /usr/local/sbin/proveo-harden /usr/local/bin/proveo-entrypoint \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
          > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y --no-install-recommends \
-       git gh bash dumb-init passwd jq \
+       git gh bash dumb-init passwd jq tmux \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 

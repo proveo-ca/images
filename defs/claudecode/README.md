@@ -69,6 +69,11 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh --variant solo
 
 # Pass additional Claude options through to the variant runner
 CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh -- --debug --mcp-debug
+
+# Resume a prior session (transcripts under ~/.proveo/.claude)
+CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh -- --resume
+proveo run claudecode --continue
+proveo run claudecode --resume <session-id>
 ```
 
 ## Image Names, Mounts, and Commands
@@ -91,6 +96,8 @@ Variant runners mount:
 - output directory at `/workspace/output`
 - optional data directory at `/workspace/data`
 - temporary storage at `/workspace/temp`
+- proveo home (`~/.proveo`) at `/proveo-home` with `HOME` set there — Claude sessions
+  under `~/.claude/projects/` survive `--rm`; host `~/.claude` is never mounted
 
 Run tests:
 
@@ -117,7 +124,7 @@ Run `claude setup-token`, login, save the resulting `sk-*` token.
 ### Container Security
 - **Root-free execution**: baked non-root user `claude` (uid 1000); `run.sh` launches as the invoking host uid via `--user $(id -u):$(id -g)`
 - **Capability dropping**: Minimal Linux capabilities
-- **Process limits**: Resource constraints for safety (max 100 PIDs)
+- **Process limits**: Host-scaled `--pids-limit` (base floor 512; browser variants higher; override via `PROVEO_PIDS_LIMIT`). Runs fail fast if the host ceiling is below the tier minimum.
 - **Tmpfs mounts**: Isolated temporary storage for /tmp and /workspace/temp
 - **Network isolation**: Bridge network with no host access
 - **Security options**: No new privileges allowed

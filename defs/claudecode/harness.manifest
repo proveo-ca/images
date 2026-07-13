@@ -13,6 +13,12 @@ images:
   claudecode-sol: proveo/claudecode-sol:latest
 workspace:
   layout: input-output
+home:
+  enabled: true
+  mounts:
+    - host: .claude
+      container: /proveo-home/.claude
+      mode: rw
 env:
   - name: CLAUDE_CODE_OAUTH_TOKEN
     description: Claude Code OAuth token — generate one with `claude setup-token`

@@ -18,22 +18,23 @@ func TestDockerRunArgs(t *testing.T) {
 	}{
 		{
 			name: "minimal serve",
-			cfg:  Config{Image: "proveo/opencode:latest"},
-			want: []string{"run", "--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--pids-limit=100", "proveo/opencode:latest"},
+			cfg:  Config{Image: "proveo/opencode:latest", PidsLimit: 512},
+			want: []string{"run", "--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--pids-limit=512", "proveo/opencode:latest"},
 		},
 		{
 			name: "interactive with mounts, env, command",
 			cfg: Config{
 				Interactive: true, Remove: true, Name: "run1", User: "1000:1000",
-				Tmpfs:   []string{"/tmp:noexec,nosuid,size=100m"},
-				Mounts:  []Mount{{Host: "/repo", Container: "/workspace/input", ReadOnly: true}, {Host: "/repo/reports", Container: "/workspace/output"}},
-				Env:     []string{"CLAUDE_CODE_OAUTH_TOKEN=t"},
-				Image:   "proveo/claudecode:latest",
-				Command: []string{"--help"},
+				Tmpfs:     []string{"/tmp:noexec,nosuid,size=100m"},
+				Mounts:    []Mount{{Host: "/repo", Container: "/workspace/input", ReadOnly: true}, {Host: "/repo/reports", Container: "/workspace/output"}},
+				Env:       []string{"CLAUDE_CODE_OAUTH_TOKEN=t"},
+				Image:     "proveo/claudecode:latest",
+				Command:   []string{"--help"},
+				PidsLimit: 512,
 			},
 			want: []string{
 				"run", "-it", "--rm", "--name", "run1", "--user", "1000:1000",
-				"--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--pids-limit=100",
+				"--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--pids-limit=512",
 				"--tmpfs", "/tmp:noexec,nosuid,size=100m",
 				"-v", "/repo:/workspace/input:ro", "-v", "/repo/reports:/workspace/output",
 				"-e", "CLAUDE_CODE_OAUTH_TOKEN=t",
@@ -45,9 +46,10 @@ func TestDockerRunArgs(t *testing.T) {
 			cfg: Config{
 				ExtraArgs: []string{"--network", "sess-net", "-e", "HTTP_PROXY=http://mitm:8888"},
 				Image:     "proveo/cursor:latest",
+				PidsLimit: 1024,
 			},
 			want: []string{
-				"run", "--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--pids-limit=100",
+				"run", "--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--pids-limit=1024",
 				"--network", "sess-net", "-e", "HTTP_PROXY=http://mitm:8888",
 				"proveo/cursor:latest",
 			},
@@ -67,10 +69,21 @@ func TestDockerRunArgs(t *testing.T) {
 func TestDockerRunArgsAlwaysHardened(t *testing.T) {
 	t.Parallel()
 	// The security baseline must appear on every run, regardless of config.
-	got := strings.Join(DockerRunArgs(Config{Image: "x"}), " ")
-	for _, flag := range Hardening() {
+	got := strings.Join(DockerRunArgs(Config{Image: "x", PidsLimit: 512}), " ")
+	for _, flag := range Hardening(512) {
 		if !strings.Contains(got, flag) {
 			t.Errorf("DockerRunArgs() = %q, missing mandatory hardening flag %q", got, flag)
 		}
+	}
+}
+
+func TestDockerRunArgsAutoPidsWhenUnset(t *testing.T) {
+	t.Parallel()
+	got := strings.Join(DockerRunArgs(Config{Image: "proveo/opencode:latest"}), " ")
+	if !strings.Contains(got, "--pids-limit=") {
+		t.Errorf("auto-resolve must still apply --pids-limit: %s", got)
+	}
+	if !strings.Contains(got, "--cap-drop=ALL") {
+		t.Errorf("missing cap-drop: %s", got)
 	}
 }
