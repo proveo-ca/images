@@ -9,16 +9,18 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/proveo-ca/proveo/internal/clean"
+	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // cleanCmd reclaims leaked proveo run artifacts. Two tiers: routine (per-run
 // ephemera left by crashed/killed runs — egress containers/networks, DinD
 // sidecars, and egress state dirs incl. any leaked broker.env secret) and
-// --deep (also removes proveo/* images). It never disturbs a live run unless
-// --force. See internal/clean for the decision logic.
+// --deep (also removes proveo/* images). --homes removes ~/.proveo (durable
+// session cache) — opt-in, never part of routine clean. It never disturbs a
+// live run unless --force. See internal/clean for the decision logic.
 func cleanCmd() *cobra.Command {
-	var deep, force, dryRun bool
+	var deep, force, dryRun, homes bool
 	cmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Reclaim leaked proveo run artifacts (--deep also removes proveo/* images)",
@@ -28,13 +30,37 @@ func cleanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runClean(clean.BuildPlan(inv, clean.Options{Deep: deep, Force: force}), dryRun)
+			if err := runClean(clean.BuildPlan(inv, clean.Options{Deep: deep, Force: force}), dryRun); err != nil {
+				return err
+			}
+			if homes {
+				return cleanProveoHomes(dryRun)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&deep, "deep", false, "also remove proveo/* images (harness + base + sidecars)")
 	cmd.Flags().BoolVar(&force, "force", false, "also remove resources that look live (disrupts an in-progress run)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would be removed, without removing it")
+	cmd.Flags().BoolVar(&homes, "homes", false, "also remove PROVEO_HOME (~/.proveo) durable session/config cache")
 	return cmd
+}
+
+func cleanProveoHomes(dryRun bool) error {
+	root := proveohome.Root(os.Getenv)
+	verb := "removing"
+	if dryRun {
+		verb = "would remove"
+	}
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		ui.Okf("no proveo home at %s", root)
+		return nil
+	}
+	ui.Iconf("🗑️", "%s proveo home %s (sessions + seeded config)", verb, root)
+	if dryRun {
+		return nil
+	}
+	return os.RemoveAll(root)
 }
 
 func gatherCleanInventory(deep bool) (clean.Inventory, error) {

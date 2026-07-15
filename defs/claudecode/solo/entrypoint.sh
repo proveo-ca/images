@@ -47,6 +47,21 @@ if [[ -f /opt/claudecode/defaults/CLAUDE.md && ! -f CLAUDE.md ]]; then
   echo "🌱 Seeded CLAUDE.md into workspace"
 fi
 
+# When proveo mounts ~/.proveo at /proveo-home and sets HOME, seed Claude config
+# from the image bake into the durable home (missing-only).
+seed_claude_proveo_home() {
+  mkdir -p "${HOME}/.claude"
+  if [[ -f /home/claude/.claude.json && ! -f "${HOME}/.claude.json" ]]; then
+    cp /home/claude/.claude.json "${HOME}/.claude.json"
+    echo "🌱 Seeded \$HOME/.claude.json into proveo home"
+  fi
+  if [[ -f /home/claude/.claude/settings.local.json && ! -f "${HOME}/.claude/settings.local.json" ]]; then
+    cp /home/claude/.claude/settings.local.json "${HOME}/.claude/settings.local.json"
+    echo "🌱 Seeded \$HOME/.claude/settings.local.json into proveo home"
+  fi
+}
+seed_claude_proveo_home
+
 echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
 [[ -n "${ENFORCEMENT_PROXY:-}" ]] && echo "🛡️  Enforcement proxy: ${ENFORCEMENT_PROXY}"
 [[ -n "${INSPECT_PROXY:-}" && "${INSPECT_PROXY}" != "${ENFORCEMENT_PROXY:-}" ]] && echo "🔍  Inspection proxy: ${INSPECT_PROXY}"

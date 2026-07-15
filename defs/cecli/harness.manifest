@@ -10,3 +10,9 @@ workspace:
   configDir: .cecli
   gitMode: ro
   output: true
+home:
+  enabled: true
+  mounts:
+    - host: .cecli
+      container: /proveo-home/.cecli
+      mode: rw

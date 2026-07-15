@@ -43,6 +43,15 @@ func TestParse(t *testing.T) {
 		},
 		{name: "env entry without a name", yaml: "name: x\nimages:\n  x: y\nenv:\n  - description: d\n", wantErr: true},
 		{name: "duplicate env entry", yaml: "name: x\nimages:\n  x: y\nenv:\n  - name: A\n  - name: A\n", wantErr: true},
+		{
+			name: "home mounts round-trip",
+			yaml: "name: cursor\nimages:\n  cursor: img\nhome:\n  enabled: true\n  mounts:\n    - host: .cursor\n      container: /proveo-home/.cursor\n      mode: rw\n      deny: [auth.json]\n",
+			want: Manifest{Name: "cursor", Images: map[string]string{"cursor": "img"},
+				Home: Home{Enabled: true, Mounts: []HomeMount{{Host: ".cursor", Container: "/proveo-home/.cursor", Mode: "rw", Deny: []string{"auth.json"}}}}, Dir: "dir"},
+		},
+		{name: "home enabled no mounts", yaml: "name: x\nimages:\n  x: y\nhome:\n  enabled: true\n", wantErr: true},
+		{name: "home abs host", yaml: "name: x\nimages:\n  x: y\nhome:\n  enabled: true\n  mounts:\n    - host: /etc/passwd\n      container: /proveo-home/x\n", wantErr: true},
+		{name: "home relative container", yaml: "name: x\nimages:\n  x: y\nhome:\n  enabled: true\n  mounts:\n    - host: .x\n      container: relative\n", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -169,7 +178,7 @@ func repoDefsDir(t *testing.T) string {
 }
 
 // T5: LoadFS is the shipped path (the //go:embed glob defs/*/harness.manifest).
-// A drift in that glob or the parse would break `proveo list`/`run` in the
+// A drift in that glob or the parse would break `proveo ls`/`run` in the
 // binary with no unit failure — so exercise it against an fstest.MapFS.
 func TestLoadFS(t *testing.T) {
 	t.Parallel()

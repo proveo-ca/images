@@ -3,7 +3,7 @@
 `proveo/base` is the **minimal** shared floor for every harness image. It carries
 only what is universal to all harnesses:
 
-- `git`, `gh`, `ca-certificates`, `curl`, `dumb-init`, `bash`
+- `git`, `gh`, `ca-certificates`, `curl`, `dumb-init`, `bash`, `tmux`
 - the `proveo-entrypoint` binary (built once here via a `golang` builder stage;
   every harness inherits `/usr/local/bin/proveo-entrypoint` instead of
   recompiling it)
@@ -35,7 +35,7 @@ It is `FROM debian:bookworm-slim` and lands at ~200 MB.
 
 ```
 debian:bookworm-slim
-└── proveo/base                    git/gh/jq/curl/dumb-init/bash/proveo-entrypoint/harden
+└── proveo/base                    git/gh/jq/curl/dumb-init/bash/tmux/proveo-entrypoint/harden
      ├── cursor                    cursor-agent binary; no runtime
      ├── cecli                     + python3-venv (aider fork)
      └── proveo/base-node          + Node 22 LTS + pnpm

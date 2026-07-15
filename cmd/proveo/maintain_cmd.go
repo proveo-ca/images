@@ -22,7 +22,7 @@ import (
 // The build/deploy/test subcommands are the Go maintainer image pipeline — the
 // replacement for lib/{build,deploy,test}.sh. They resolve the target registry
 // (internal/maintain), pick target(s), and execute (or --print) the pure-data
-// plan. They are hidden: consumer-facing help stays about run/list/init.
+// plan. They are hidden: consumer-facing help stays about run/ls/init.
 
 func loadMaintainRegistry() ([]maintain.Target, error) {
 	defsDir, err := maintainerDefsDir()

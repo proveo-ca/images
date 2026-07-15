@@ -173,7 +173,7 @@ proveo runs published Docker images, so Docker must be installed before running 
   https://docs.docker.com/get-docker/
 
 After Docker is installed, run:
-  proveo list
+  proveo --ls
 EOF
 }
 
@@ -207,9 +207,9 @@ Or reload your current configuration:
   $reload_cmd
 
 Then try:
-  proveo version
-  proveo list
-  proveo init
+  proveo --version
+  proveo --ls
+  proveo --init
 EOF
 }
 

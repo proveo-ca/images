@@ -196,10 +196,14 @@ main() {
   assert_no_path "install does not ship bash lib/" "$install_root/lib"
   assert_no_path "install does not ship help.sh" "$install_root/bin/help.sh"
 
-  # Installed binary should respond as Go proveo (version subcommand).
+  # Installed binary should respond as Go proveo (--version and version alias).
   assert_output_contains \
-    "installed proveo version works" \
-    "proveo" \
+    "installed proveo --version works" \
+    "proveo version" \
+    env PATH="$install_root/bin:$PATH" "$install_root/bin/proveo" --version
+  assert_output_contains \
+    "installed proveo version alias works" \
+    "proveo version" \
     env PATH="$install_root/bin:$PATH" "$install_root/bin/proveo" version
 
   # Tampered checksum must fail.

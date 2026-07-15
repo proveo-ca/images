@@ -33,6 +33,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -40,6 +41,7 @@ import (
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
+// Dev installs (mise run build-cli) stamp "dev@<git-short-sha>"; releases use the semver tag.
 var version = "dev"
 
 // loadManifests reads the harness manifests embedded in the binary, or a
@@ -76,13 +78,31 @@ func manifestForTarget(target string) (manifest.Manifest, error) {
 }
 
 func main() {
+	var flagLS, flagInit bool
 	root := &cobra.Command{
 		Use: "proveo",
 		// Tagline is rendered once, dimmed, under the banner by WriteBrandBanner
 		// (see SetHelpFunc below); leaving Short empty avoids printing it twice.
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       version,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if flagLS && flagInit {
+				return fmt.Errorf("flags --ls and --init are mutually exclusive")
+			}
+			if flagLS {
+				return doList()
+			}
+			if flagInit {
+				return doInit()
+			}
+			return cmd.Help()
+		},
 	}
+	root.SetVersionTemplate("{{printf \"%s version %s\\n\" .Name .Version}}")
+	root.Flags().BoolVar(&flagLS, "ls", false, "List available harness targets")
+	root.Flags().BoolVar(&flagInit, "init", false, "Create a project .env from provider API keys already in the environment")
 	defaultHelp := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		// Branding banner on root help only (proveo help / proveo --help).
@@ -91,7 +111,7 @@ func main() {
 		}
 		defaultHelp(cmd, args)
 	})
-	root.AddCommand(versionCmd(), listCmd(), runCmd(), projectsCmd(), setupCmd(), initCmd(),
+	root.AddCommand(versionCmd(), lsCmd(), runCmd(), projectsCmd(), setupCmd(), initCmd(),
 		cleanCmd(), targetsCmd(), buildCmd(), deployCmd(), testCmd())
 	if err := root.Execute(); err != nil {
 		// The agent's own non-zero exit is not a proveo error — propagate its code
@@ -112,36 +132,40 @@ type agentExitError struct{ code int }
 
 func (e agentExitError) Error() string { return fmt.Sprintf("agent exited with code %d", e.code) }
 
+// versionCmd keeps `proveo version` as an alias for `proveo --version`.
 func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print the proveo version",
+		Short: "Print the proveo version (alias for --version)",
 		Args:  cobra.NoArgs,
-		Run:   func(*cobra.Command, []string) { fmt.Println("proveo", version) },
+		Run:   func(*cobra.Command, []string) { fmt.Printf("proveo version %s\n", version) },
 	}
 }
 
-func listCmd() *cobra.Command {
+// lsCmd keeps `proveo ls` as an alias for `proveo --ls`.
+func lsCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List available harness targets",
+		Use:   "ls",
+		Short: "List available harness targets (alias for --ls)",
 		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			targets, err := loadTargets()
-			if err != nil {
-				return err
-			}
-			for _, name := range sortedKeys(targets) {
-				fmt.Printf("%-16s %s\n", name, targets[name])
-			}
-			return nil
-		},
+		RunE:  func(*cobra.Command, []string) error { return doList() },
 	}
+}
+
+func doList() error {
+	targets, err := loadTargets()
+	if err != nil {
+		return err
+	}
+	for _, name := range sortedKeys(targets) {
+		fmt.Printf("%-16s %s\n", name, targets[name])
+	}
+	return nil
 }
 
 func runCmd() *cobra.Command {
-	var egressMode, localModel, input, output, scope, dataDir, imageOverride string
-	var printOnly, shellMode bool
+	var egressMode, localModel, input, output, scope, dataDir, imageOverride, resumeID string
+	var printOnly, shellMode, contSession, listSessions bool
 	cmd := &cobra.Command{
 		Use:   "run <target> [-- args...]",
 		Short: "Run a harness against the current repo",
@@ -154,7 +178,7 @@ func runCmd() *cobra.Command {
 			}
 			image, ok := targets[target]
 			if !ok {
-				return fmt.Errorf("unknown target %q (see `proveo list`)", target)
+				return fmt.Errorf("unknown target %q (see `proveo ls`)", target)
 			}
 			if imageOverride != "" {
 				image = imageOverride
@@ -169,10 +193,18 @@ func runCmd() *cobra.Command {
 			if !egress.ValidMode(egressMode) {
 				return fmt.Errorf("invalid --egress-mode %q (%s)", egressMode, strings.Join(egress.Modes(), "|"))
 			}
+			resumeArgs, err := proveohome.ResumeArgs(target, resumeID, contSession, listSessions)
+			if err != nil {
+				return err
+			}
+			extra := args[1:]
+			if len(resumeArgs) > 0 {
+				extra = append(append([]string{}, resumeArgs...), extra...)
+			}
 			return doRun(runParams{
 				target: target, image: image, mode: egressMode, localModel: localModel,
 				input: input, output: output, scope: scope, dataDir: dataDir,
-				shell: shellMode, printOnly: printOnly, extra: args[1:],
+				shell: shellMode, printOnly: printOnly, extra: extra,
 			})
 		},
 	}
@@ -183,6 +215,9 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&scope, "scope", "", "monorepo sub-project to open (repo-relative; omit for an interactive picker)")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "extra directory to mount read-only at /workspace/data")
 	cmd.Flags().StringVar(&imageOverride, "image", "", "override the image for the target")
+	cmd.Flags().StringVar(&resumeID, "resume", "", "resume a prior agent session by id (harness-specific)")
+	cmd.Flags().BoolVar(&contSession, "continue", false, "continue the most recent session for this workspace")
+	cmd.Flags().BoolVar(&listSessions, "ls", false, "list resumable sessions (cursor/claude) and exit into the tool picker")
 	cmd.Flags().BoolVar(&shellMode, "shell", false, "open a shell in the container instead of the agent")
 	cmd.Flags().BoolVar(&printOnly, "print", false, "print the docker plan instead of executing")
 	return cmd
@@ -339,6 +374,17 @@ func doRun(p runParams) error {
 		workdir = planWorkdir
 	}
 
+	// Durable proveo home (~/.proveo): session transcripts + seeded policy, not
+	// host IDE credentials. Scrubs deny-listed auth files before each run.
+	homePlan, err := proveohome.Prepare(man.Home, os.Getenv)
+	if err != nil {
+		return err
+	}
+	if homePlan.Root != "" {
+		mounts = append(mounts, homePlan.Mounts...)
+		ui.Iconf("🏠", "proveo home: %s (mounted at %s)", homePlan.Root, proveohome.ContainerHome)
+	}
+
 	// Credential broker: gated by brokerProvider (firewall + a resolved provider +
 	// not disabled). Vendor-pinned harnesses (manifest provider:) win over the
 	// "exactly one detected key" rule so a multi-provider .env does not block
@@ -411,6 +457,7 @@ func doRun(p runParams) error {
 		}
 	}
 	env = append(env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
+	env = append(env, homePlan.Env...)
 
 	var dindSidecar *dind.Sidecar
 

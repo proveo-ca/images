@@ -2,6 +2,7 @@
 node = "24"
 pnpm = "10"
 go = "1.26"
+tmux = "3.7b"
 
 [tasks.install]
 description = "Install root workspace dependencies"
@@ -36,10 +37,16 @@ export CGO_ENABLED=0
 # Prefer GOPATH/bin over a toolchain-local GOBIN (mise may set the latter).
 export GOBIN="$(go env GOPATH)/bin"
 mkdir -p "$GOBIN"
-go install -trimpath -ldflags='-s -w -X main.version=dev' ./cmd/proveo
+# Stamp the build commit so `proveo --version` can tell a stale binary from a fresh one.
+commit="$(git rev-parse --short HEAD 2>/dev/null || true)"
+if [[ -z "$commit" ]]; then
+  commit="unknown"
+fi
+proveo_version="dev@${commit}"
+go install -trimpath -ldflags="-s -w -X main.version=${proveo_version}" ./cmd/proveo
 go install -trimpath -ldflags='-s -w' ./cmd/proveo-egress
 go install -trimpath -ldflags='-s -w' ./cmd/proveo-entrypoint
-printf 'Installed %s/{proveo,proveo-egress,proveo-entrypoint}\\n' "$GOBIN"
+printf 'Installed %s/{proveo,proveo-egress,proveo-entrypoint} (%s)\\n' "$GOBIN" "$proveo_version"
 printf 'Ensure %s is on PATH (or set PROVEO_BIN).\\n' "$GOBIN"
 
 if [[ "$release" -eq 1 ]]; then

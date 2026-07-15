@@ -9,22 +9,21 @@ for wrapper in "${WRAPPER_FILES[@]}"; do
   name="${wrapper#$PROJECT_ROOT/}"
 
   TESTS_RUN=$((TESTS_RUN + 1))
-  if grep -q 'INPUT_DIR}/.claude' "$wrapper" \
-     && grep -q '/workspace/.claude:ro' "$wrapper" \
-     && grep -q 'HOME:-}/.claude' "$wrapper" \
-     && grep -q '/home/claude/.claude:ro' "$wrapper"; then
+  # Parent run.sh is a thin proveo shim — durable ~/.claude lives under
+  # ~/.proveo via proveo home mounts, not a host ~/.claude bind.
+  if grep -q 'exec "$PROVEO_BIN" run' "$wrapper" \
+     && grep -q -- '--variant' "$wrapper"; then
     TESTS_PASSED=$((TESTS_PASSED + 1))
-    printf "${GREEN}PASS${NC} [%d] [%s] mounts project/home .claude config folders\n" "$TESTS_RUN" "$name"
+    printf "${GREEN}PASS${NC} [%d] [%s] shims to proveo run with --variant\n" "$TESTS_RUN" "$name"
   else
     TESTS_FAILED=$((TESTS_FAILED + 1))
-    FAILURES+=("[$name] mounts project/home .claude config folders")
-    printf "${RED}FAIL${NC} [%d] [%s] missing .claude wrapper mount contract\n" "$TESTS_RUN" "$name"
+    FAILURES+=("[$name] shims to proveo run with --variant")
+    printf "${RED}FAIL${NC} [%d] [%s] missing proveo run shim contract\n" "$TESTS_RUN" "$name"
   fi
 done
 
 TESTS_RUN=$((TESTS_RUN + 1))
 if grep -q -- '--shell' "$PROJECT_ROOT/run.sh" \
-   && grep -q -- '--entrypoint" "bash' "$PROJECT_ROOT/run.sh" \
    && grep -q 'case "$VARIANT" in' "$PROJECT_ROOT/run.sh"; then
   TESTS_PASSED=$((TESTS_PASSED + 1))
   printf "${GREEN}PASS${NC} [%d] parent run.sh owns variant run and debug shell flows\n" "$TESTS_RUN"

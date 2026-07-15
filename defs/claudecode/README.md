@@ -69,6 +69,11 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh --variant solo
 
 # Pass additional Claude options through to the variant runner
 CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh -- --debug --mcp-debug
+
+# Resume a prior session (transcripts under ~/.proveo/.claude)
+CLAUDE_CODE_OAUTH_TOKEN=sk-... ./run.sh -- --resume
+proveo run claudecode --continue
+proveo run claudecode --resume <session-id>
 ```
 
 ## Image Names, Mounts, and Commands
@@ -91,6 +96,8 @@ Variant runners mount:
 - output directory at `/workspace/output`
 - optional data directory at `/workspace/data`
 - temporary storage at `/workspace/temp`
+- proveo home (`~/.proveo`) at `/proveo-home` with `HOME` set there — Claude sessions
+  under `~/.claude/projects/` survive `--rm`; host `~/.claude` is never mounted
 
 Run tests:
 

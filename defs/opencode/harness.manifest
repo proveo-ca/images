@@ -11,3 +11,13 @@ workspace:
   layout: app
   configDir: .opencode
   gitMode: rw
+home:
+  enabled: true
+  mounts:
+    - host: opencode/config
+      container: /proveo-home/.config/opencode
+      mode: rw
+    - host: opencode/share
+      container: /proveo-home/.local/share/opencode
+      mode: rw
+      deny: [auth.json]

@@ -81,9 +81,21 @@ alternative (`--local-model` is rejected by the wrapper).
 | API key (recommended) | Create at cursor.com/dashboard → API Keys; export `CURSOR_API_KEY` (the wrapper forwards it) |
 | Interactive login | `./run.sh -- login` — `NO_OPEN_BROWSER=1` is baked, so the URL is printed |
 
-Login tokens live under `~/.cursor` inside the container and vanish with it. To reuse your
-host Cursor session instead, opt in with `PROVEO_MOUNT_HOME_CURSOR=1` (mounts host `~/.cursor`
-read-only) — off by default because an autonomous agent could read those credentials.
+Login tokens from `agent login` write under `$HOME/.cursor` inside the container. Proveo
+mounts a durable **proveo home** at `~/.proveo/.cursor` (override root with `PROVEO_HOME`)
+and scrubs `auth.json` each run — prefer `CURSOR_API_KEY` so auth never lands in the cache.
+Host IDE `~/.cursor` is never bind-mounted.
+
+### Resume
+
+```bash
+proveo run cursor --ls
+proveo run cursor --continue
+proveo run cursor --resume <chat-id>
+```
+
+Sessions survive container `--rm` because chats live under proveo home, keyed by workspace
+path `/app`.
 
 ## Baked-in policy defaults
 
