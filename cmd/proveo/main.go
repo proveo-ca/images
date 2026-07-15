@@ -41,6 +41,7 @@ import (
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
+// Dev installs (mise run build-cli) stamp "dev@<git-short-sha>"; releases use the semver tag.
 var version = "dev"
 
 // loadManifests reads the harness manifests embedded in the binary, or a
@@ -77,13 +78,31 @@ func manifestForTarget(target string) (manifest.Manifest, error) {
 }
 
 func main() {
+	var flagLS, flagInit bool
 	root := &cobra.Command{
 		Use: "proveo",
 		// Tagline is rendered once, dimmed, under the banner by WriteBrandBanner
 		// (see SetHelpFunc below); leaving Short empty avoids printing it twice.
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       version,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if flagLS && flagInit {
+				return fmt.Errorf("flags --ls and --init are mutually exclusive")
+			}
+			if flagLS {
+				return doList()
+			}
+			if flagInit {
+				return doInit()
+			}
+			return cmd.Help()
+		},
 	}
+	root.SetVersionTemplate("{{printf \"%s version %s\\n\" .Name .Version}}")
+	root.Flags().BoolVar(&flagLS, "ls", false, "List available harness targets")
+	root.Flags().BoolVar(&flagInit, "init", false, "Create a project .env from provider API keys already in the environment")
 	defaultHelp := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		// Branding banner on root help only (proveo help / proveo --help).
@@ -92,7 +111,7 @@ func main() {
 		}
 		defaultHelp(cmd, args)
 	})
-	root.AddCommand(versionCmd(), listCmd(), runCmd(), projectsCmd(), setupCmd(), initCmd(),
+	root.AddCommand(versionCmd(), lsCmd(), runCmd(), projectsCmd(), setupCmd(), initCmd(),
 		cleanCmd(), targetsCmd(), buildCmd(), deployCmd(), testCmd())
 	if err := root.Execute(); err != nil {
 		// The agent's own non-zero exit is not a proveo error — propagate its code
@@ -113,31 +132,35 @@ type agentExitError struct{ code int }
 
 func (e agentExitError) Error() string { return fmt.Sprintf("agent exited with code %d", e.code) }
 
+// versionCmd keeps `proveo version` as an alias for `proveo --version`.
 func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print the proveo version",
+		Short: "Print the proveo version (alias for --version)",
 		Args:  cobra.NoArgs,
-		Run:   func(*cobra.Command, []string) { fmt.Println("proveo", version) },
+		Run:   func(*cobra.Command, []string) { fmt.Printf("proveo version %s\n", version) },
 	}
 }
 
-func listCmd() *cobra.Command {
+// lsCmd keeps `proveo ls` as an alias for `proveo --ls`.
+func lsCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List available harness targets",
+		Use:   "ls",
+		Short: "List available harness targets (alias for --ls)",
 		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			targets, err := loadTargets()
-			if err != nil {
-				return err
-			}
-			for _, name := range sortedKeys(targets) {
-				fmt.Printf("%-16s %s\n", name, targets[name])
-			}
-			return nil
-		},
+		RunE:  func(*cobra.Command, []string) error { return doList() },
 	}
+}
+
+func doList() error {
+	targets, err := loadTargets()
+	if err != nil {
+		return err
+	}
+	for _, name := range sortedKeys(targets) {
+		fmt.Printf("%-16s %s\n", name, targets[name])
+	}
+	return nil
 }
 
 func runCmd() *cobra.Command {
@@ -155,7 +178,7 @@ func runCmd() *cobra.Command {
 			}
 			image, ok := targets[target]
 			if !ok {
-				return fmt.Errorf("unknown target %q (see `proveo list`)", target)
+				return fmt.Errorf("unknown target %q (see `proveo ls`)", target)
 			}
 			if imageOverride != "" {
 				image = imageOverride

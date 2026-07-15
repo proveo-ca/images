@@ -178,7 +178,7 @@ func repoDefsDir(t *testing.T) string {
 }
 
 // T5: LoadFS is the shipped path (the //go:embed glob defs/*/harness.manifest).
-// A drift in that glob or the parse would break `proveo list`/`run` in the
+// A drift in that glob or the parse would break `proveo ls`/`run` in the
 // binary with no unit failure — so exercise it against an fstest.MapFS.
 func TestLoadFS(t *testing.T) {
 	t.Parallel()
