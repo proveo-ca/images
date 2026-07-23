@@ -372,6 +372,24 @@ func TestProviderDetectFromHostDotEnvOnly(t *testing.T) {
 	}
 }
 
+func TestMoonshotDetectFromHostDotEnvOnly(t *testing.T) {
+	for _, k := range provider.KeyVars() {
+		t.Setenv(k, "")
+	}
+	envPath := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envPath, []byte("MOONSHOT_API_KEY=from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lookup := providerLookup(envPath)
+	detected := provider.Detect(lookup)
+	if len(detected) != 1 || detected[0] != "moonshot" {
+		t.Fatalf("Detect(lookup) = %v, want [moonshot]", detected)
+	}
+	if got := brokerProvider("firewall", manifest.Manifest{}, detected, lookup, true); got != "moonshot" {
+		t.Fatalf("brokerProvider = %q, want moonshot", got)
+	}
+}
+
 func TestProviderDetectFromInvocationDotEnv(t *testing.T) {
 	for _, k := range provider.KeyVars() {
 		t.Setenv(k, "")

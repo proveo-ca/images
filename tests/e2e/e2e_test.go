@@ -183,6 +183,12 @@ func readIn(dir, name string) string {
 
 func buildProveo(t *testing.T) string {
 	t.Helper()
+	if bin := os.Getenv("PROVEO_TEST_BIN"); bin != "" {
+		if _, err := os.Stat(bin); err != nil {
+			t.Fatalf("PROVEO_TEST_BIN=%s: %v", bin, err)
+		}
+		return bin
+	}
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)

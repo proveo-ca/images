@@ -53,6 +53,8 @@ var entries = []Entry{
 		ACL: "dstdomain .cursor.sh .cursor.com", Hosts: []string{".cursor.sh", ".cursor.com"}, Auth: bearer("CURSOR_API_KEY")},
 	{Name: "openai", Detect: []string{"OPENAI_API_KEY"},
 		ACL: "dstdomain .openai.com .api.openai.com", Hosts: []string{".openai.com"}, Auth: bearer("OPENAI_API_KEY")},
+	{Name: "moonshot", Detect: []string{"MOONSHOT_API_KEY"},
+		ACL: "dstdomain .moonshot.ai", Hosts: []string{".moonshot.ai"}, Auth: bearer("MOONSHOT_API_KEY")},
 	{Name: "xai", Detect: []string{"XAI_API_KEY"},
 		ACL: "dstdomain .x.ai", Hosts: []string{".x.ai"}, Auth: bearer("XAI_API_KEY")},
 	{Name: "perplexity", Detect: []string{"PERPLEXITY_API_KEY"},

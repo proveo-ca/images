@@ -59,6 +59,137 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 	})
 }
 
+// TestProjectDotEnvAtEgressLayer launches both unpinned (OpenCode) and
+// vendor-pinned (Cursor) harness plans through real Docker firewall topologies.
+// Each key exists only in the project's .env: the egress sidecar must receive the
+// raw value byte-for-byte while the agent gets only the sentinel and a masked
+// /app/.env. A lightweight probe image keeps this credential-path test independent
+// of either agent CLI's release/install state.
+//
+//	go test -tags=e2e ./tests/e2e/ -run ProjectDotEnvAtEgressLayer -v -timeout 10m
+func TestProjectDotEnvAtEgressLayer(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+	if !tmux.Available() {
+		t.Skip("tmux not installed")
+	}
+
+	proveoBin := buildProveo(t)
+	tests := []struct {
+		target string
+		key    string
+	}{
+		{target: "opencode", key: "MOONSHOT_API_KEY"},
+		{target: "cursor", key: "CURSOR_API_KEY"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.target, func(t *testing.T) {
+			assertProjectDotEnvAtEgress(t, proveoBin, tc.target, tc.key)
+		})
+	}
+}
+
+func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
+	t.Helper()
+	root := filepath.Join(repoRoot(t), ".cache", "e2e")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	work, err := os.MkdirTemp(root, target+"-dotenv-work-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.MkdirTemp(root, target+"-dotenv-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(work)
+		_ = os.RemoveAll(home)
+	})
+
+	value := randToken()
+	if err := os.WriteFile(filepath.Join(work, ".env"), []byte(key+"="+value+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	forceClean(proveoBin)
+	beforeEgress := containersWithSuffix("-egress")
+	beforeAgent := dockerIDsByAncestor("ubuntu:24.04")
+	sess := tmux.New(fmt.Sprintf("proveo-dotenv-%s-%d", target, os.Getpid()), nil)
+	t.Cleanup(func() {
+		sess.Kill()
+		forceClean(proveoBin)
+	})
+
+	// Remove every provider detection variable so the provider can only be
+	// detected from work/.env. Preserve infrastructure variables such as
+	// DOCKER_HOST, which may point at a remote daemon.
+	cmd := []string{"env"}
+	seenDetect := map[string]bool{}
+	for _, name := range provider.Names() {
+		e, _ := provider.Lookup(name)
+		for _, detect := range e.Detect {
+			if !seenDetect[detect] {
+				cmd = append(cmd, "-u", detect)
+				seenDetect[detect] = true
+			}
+		}
+	}
+	cmd = append(cmd,
+		"-u", "PROVEO_EGRESS_ENV_FILE",
+		"-u", "PROVEO_EGRESS_PROVIDER",
+		"TERM=xterm-256color",
+		"HOME="+home,
+		"PROVEO_HOME="+filepath.Join(home, "proveo"),
+		"PROVEO_DEFS_DIR="+filepath.Join(repoRoot(t), "defs"),
+		"PROVEO_AUTO_PROVISION=1",
+		"PROVEO_WIZARD=off",
+		proveoBin, "run", target,
+		"--image", "ubuntu:24.04",
+		"--egress-mode", "firewall",
+		"--shell",
+		"--input", work,
+	)
+	if err := sess.Start(200, 50, cmd...); err != nil {
+		t.Fatalf("start %s session: %v", target, err)
+	}
+	// Both manifests offer optional capabilities on a TTY. Continue without them.
+	if _, err := sess.WaitFor("tab to add", 30*time.Second); err != nil {
+		screen, _ := sess.Capture()
+		t.Fatalf("%s capability picker: %v\n--- screen ---\n%s", target, err, screen)
+	}
+	if err := sess.Enter(); err != nil {
+		t.Fatalf("%s capability picker enter: %v", target, err)
+	}
+
+	egress := waitForNewContainer(t, beforeEgress, "-egress", 5*time.Minute, sess)
+	brokerDir, ok := mountSource(egress, "/broker")
+	if !ok {
+		t.Fatalf("%s egress container %s has no /broker mount", target, egress)
+	}
+	brokerEnv := filepath.Join(brokerDir, "broker.env")
+	waitForFileExists(t, brokerEnv, 30*time.Second)
+	got := parseKVFile(t, brokerEnv)
+	if got[key] != value {
+		t.Fatalf("%s: egress broker.env did not receive project .env %s byte-for-byte\n  project sha256=%s (len %d)\n  egress  sha256=%s (len %d)",
+			target, key, sha(value), len(value), sha(got[key]), len(got[key]))
+	}
+
+	agent := waitForNewAncestor(t, "ubuntu:24.04", beforeAgent, 2*time.Minute, sess)
+	out, err := exec.Command("docker", "exec", agent, "bash", "-lc",
+		`printf '%s' "${`+key+`-}"; test ! -s /app/.env`).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s: agent must see a masked /app/.env: %v\n%s", target, err, out)
+	}
+	if string(out) != entrypoint.DefaultSentinel {
+		t.Fatalf("%s: agent %s=%q, want sentinel %q", target, key, out, entrypoint.DefaultSentinel)
+	}
+	t.Logf("%s: project .env %s reached egress byte-for-byte; agent received only sentinel + masked .env",
+		target, key)
+}
+
 // assertPlanIsolation checks the agent's firewall launch command: every provider
 // secret it declares appears only as the sentinel, and no raw key value appears.
 func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {

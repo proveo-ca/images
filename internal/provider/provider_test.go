@@ -22,6 +22,7 @@ func TestDetect(t *testing.T) {
 		{name: "anthropic api key", env: map[string]string{"ANTHROPIC_API_KEY": "x"}, want: []string{"anthropic"}},
 		{name: "anthropic oauth alias", env: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "t"}, want: []string{"anthropic"}},
 		{name: "google alias GOOGLE_API_KEY", env: map[string]string{"GOOGLE_API_KEY": "g"}, want: []string{"google"}},
+		{name: "moonshot api key", env: map[string]string{"MOONSHOT_API_KEY": "m"}, want: []string{"moonshot"}},
 		{name: "bedrock via AWS creds", env: map[string]string{"AWS_ACCESS_KEY_ID": "a"}, want: []string{"bedrock"}},
 		{name: "vertex via app creds", env: map[string]string{"GOOGLE_APPLICATION_CREDENTIALS": "/p"}, want: []string{"vertex"}},
 		{
@@ -72,6 +73,12 @@ func TestResolve(t *testing.T) {
 			env:    map[string]string{"OPENAI_API_KEY": "sk-o"},
 			wantOK: true,
 			want:   Resolved{Hosts: []string{".openai.com"}, Header: "authorization", Value: "Bearer sk-o"},
+		},
+		{
+			name: "moonshot is bearer", provider: "moonshot",
+			env:    map[string]string{"MOONSHOT_API_KEY": "sk-m"},
+			wantOK: true,
+			want:   Resolved{Hosts: []string{".moonshot.ai"}, Header: "authorization", Value: "Bearer sk-m"},
 		},
 		{
 			name: "google uses header not bearer", provider: "google",
@@ -129,6 +136,7 @@ func TestACLBody(t *testing.T) {
 		wantOK   bool
 	}{
 		{"anthropic", "dstdomain .anthropic.com", true},
+		{"moonshot", "dstdomain .moonshot.ai", true},
 		{"bedrock", `dstdom_regex (^|\.)bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$`, true},
 		{"nonsense", "", false},
 	}
@@ -150,7 +158,7 @@ func TestKeyVarsCoversInjectableProviders(t *testing.T) {
 	for _, k := range got {
 		have[k] = true
 	}
-	for _, want := range []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY", "CURSOR_API_KEY"} {
+	for _, want := range []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "MOONSHOT_API_KEY", "GEMINI_API_KEY", "CURSOR_API_KEY"} {
 		if !have[want] {
 			t.Errorf("KeyVars() = %v, missing %q", got, want)
 		}
